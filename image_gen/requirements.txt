@@ -1,0 +1,11 @@
+# Image Generation Pipeline Dependencies
+# Nano Banana (Gemini 2.5 Flash) sprite sheet generator
+
+# Google GenAI SDK (for Gemini / Nano Banana)
+google-genai>=1.0.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
