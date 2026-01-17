@@ -46,9 +46,16 @@ class AgentRequest(BaseModel):
     y: int
     map_width: int
     map_height: int
+    # Nearby entities for conversation decisions
+    nearby_entities: Optional[list[dict]] = None
+    # Current conversation state
+    conversation_state: Optional[str] = None
+    pending_requests: Optional[list[dict]] = None
 
 
 class AgentResponse(BaseModel):
-    target_x: int
-    target_y: int
-    action: str = "MOVE"  # MOVE, WAIT, etc.
+    action: str = "MOVE"  # MOVE, STAND_STILL, REQUEST_CONVERSATION, ACCEPT_CONVERSATION, REJECT_CONVERSATION
+    target_x: Optional[int] = None
+    target_y: Optional[int] = None
+    target_entity_id: Optional[str] = None  # For REQUEST_CONVERSATION
+    request_id: Optional[str] = None  # For ACCEPT/REJECT_CONVERSATION

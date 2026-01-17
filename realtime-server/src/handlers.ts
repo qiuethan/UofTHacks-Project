@@ -55,7 +55,8 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   }
   
   // Use userId as entityId for consistency
-  const avatar = createAvatar(userId, displayName, pos.x, pos.y, pos.facing);
+  const facing = pos.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
+  const avatar = createAvatar(userId, displayName, pos.x, pos.y, facing);
   const result = world.addEntity(avatar);
   
   if (!result.ok) {
@@ -96,6 +97,58 @@ export async function handleSetDirection(client: Client, dx: 0|1|-1, dy: 0|1|-1)
   }
 }
 
+// ============================================================================
+// CONVERSATION HANDLERS
+// ============================================================================
+
+export async function handleRequestConversation(client: Client, targetEntityId: string): Promise<void> {
+  const result = world.requestConversation(client.userId, targetEntityId);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // Broadcast conversation request event
+  broadcast({ type: 'EVENTS', events: result.value });
+}
+
+export async function handleAcceptConversation(client: Client, requestId: string): Promise<void> {
+  const result = world.acceptConversation(client.userId, requestId);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // Broadcast conversation accepted event
+  broadcast({ type: 'EVENTS', events: result.value });
+}
+
+export async function handleRejectConversation(client: Client, requestId: string): Promise<void> {
+  const result = world.rejectConversation(client.userId, requestId);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // Broadcast conversation rejected event
+  broadcast({ type: 'EVENTS', events: result.value });
+}
+
+export async function handleEndConversation(client: Client): Promise<void> {
+  const result = world.endConversation(client.userId);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // Broadcast conversation ended event
+  broadcast({ type: 'EVENTS', events: result.value });
+}
+
 export async function handleDisconnect(client: Client, oderId: string) {
     // If this client was replaced by a new connection, don't remove the entity
     if (client.isReplaced) {
@@ -106,17 +159,19 @@ export async function handleDisconnect(client: Client, oderId: string) {
     
     console.log(`Client disconnected: ${client.userId}`);
     
-    // DEBUG LOG START
-    console.log('handleDisconnect for user:', client.userId);
-    // DEBUG LOG END
-    
     // Save final position and convert to AI
     const entity = world.getEntity(client.userId);
     if (entity) {
-      // DEBUG LOG START
-  
-      // DEBUG LOG END
-      await updatePosition(client.userId, entity.x, entity.y, entity.facing);
+      await updatePosition(
+        client.userId, 
+        entity.x, 
+        entity.y, 
+        entity.facing,
+        entity.conversationState,
+        entity.conversationTargetId,
+        entity.conversationPartnerId,
+        entity.pendingConversationRequestId
+      );
 
       // Convert to ROBOT for AI control
       world.removeEntity(client.userId);

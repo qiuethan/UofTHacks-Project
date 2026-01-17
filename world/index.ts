@@ -22,15 +22,41 @@ export type {
   WorldAction,
   MoveAction,
   SetDirectionAction,
+  StandStillAction,
+  RequestConversationAction,
+  AcceptConversationAction,
+  RejectConversationAction,
+  EndConversationAction,
   WorldEvent,
   EntityJoinedEvent,
   EntityLeftEvent,
   EntityMovedEvent,
+  ConversationRequestedEvent,
+  ConversationAcceptedEvent,
+  ConversationRejectedEvent,
+  ConversationStartedEvent,
+  ConversationEndedEvent,
   Result,
   ResultOk,
   ResultErr,
 } from './actions';
 export { ok, err } from './actions';
+
+// Conversation utilities
+export {
+  CONVERSATION_CONFIG,
+  ConversationRequestManager,
+  CooldownTracker,
+  getDistance,
+  isWithinInitiationRange,
+  isWithinConversationRange,
+  areAdjacent,
+  calculateAIInterestToInitiate,
+  calculateAIInterestToAccept,
+  shouldAIInitiate,
+  shouldAIAccept,
+} from './utils/conversation';
+export type { ConversationRequest, ActiveConversation } from './utils/conversation';
 
 // Pipeline (exposed for testing/advanced use)
 export { validateAction, applyAction, processAction } from './actions';

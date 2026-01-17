@@ -18,8 +18,43 @@ export interface SetDirectionAction {
   readonly dy: 0 | 1 | -1;
 }
 
+/** Stand still action - entity stops moving */
+export interface StandStillAction {
+  readonly type: 'STAND_STILL';
+}
+
+/** Request conversation with another entity */
+export interface RequestConversationAction {
+  readonly type: 'REQUEST_CONVERSATION';
+  readonly targetEntityId: string;
+}
+
+/** Accept a conversation request */
+export interface AcceptConversationAction {
+  readonly type: 'ACCEPT_CONVERSATION';
+  readonly requestId: string;
+}
+
+/** Reject a conversation request */
+export interface RejectConversationAction {
+  readonly type: 'REJECT_CONVERSATION';
+  readonly requestId: string;
+}
+
+/** End current conversation */
+export interface EndConversationAction {
+  readonly type: 'END_CONVERSATION';
+}
+
 /** Discriminated union of all possible actions */
-export type WorldAction = MoveAction | SetDirectionAction;
+export type WorldAction = 
+  | MoveAction 
+  | SetDirectionAction
+  | StandStillAction
+  | RequestConversationAction
+  | AcceptConversationAction
+  | RejectConversationAction
+  | EndConversationAction;
 
 // ============================================================================
 // WORLD EVENTS - Outputs returned by the world (never mutate external systems)
@@ -53,12 +88,71 @@ export interface EntityTurnedEvent {
   readonly facing: { x: number; y: number };
 }
 
+/** Emitted when a conversation request is sent */
+export interface ConversationRequestedEvent {
+  readonly type: 'CONVERSATION_REQUESTED';
+  readonly requestId: string;
+  readonly initiatorId: string;
+  readonly targetId: string;
+  readonly initiatorType: 'PLAYER' | 'ROBOT';
+  readonly targetType: 'PLAYER' | 'ROBOT';
+  readonly expiresAt: number;
+}
+
+/** Emitted when a conversation request is accepted */
+export interface ConversationAcceptedEvent {
+  readonly type: 'CONVERSATION_ACCEPTED';
+  readonly requestId: string;
+  readonly initiatorId: string;
+  readonly targetId: string;
+}
+
+/** Emitted when a conversation request is rejected */
+export interface ConversationRejectedEvent {
+  readonly type: 'CONVERSATION_REJECTED';
+  readonly requestId: string;
+  readonly initiatorId: string;
+  readonly targetId: string;
+  readonly cooldownUntil: number;
+}
+
+/** Emitted when a conversation starts (both parties are adjacent) */
+export interface ConversationStartedEvent {
+  readonly type: 'CONVERSATION_STARTED';
+  readonly conversationId: string;
+  readonly participant1Id: string;
+  readonly participant2Id: string;
+}
+
+/** Emitted when a conversation ends */
+export interface ConversationEndedEvent {
+  readonly type: 'CONVERSATION_ENDED';
+  readonly conversationId: string;
+  readonly participant1Id: string;
+  readonly participant2Id: string;
+}
+
+/** Emitted when entity state changes (for real-time sync) */
+export interface EntityStateChangedEvent {
+  readonly type: 'ENTITY_STATE_CHANGED';
+  readonly entityId: string;
+  readonly conversationState?: 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION';
+  readonly conversationTargetId?: string;
+  readonly conversationPartnerId?: string;
+}
+
 /** Discriminated union of all world events */
 export type WorldEvent =
   | EntityJoinedEvent
   | EntityLeftEvent
   | EntityMovedEvent
-  | EntityTurnedEvent;
+  | EntityTurnedEvent
+  | ConversationRequestedEvent
+  | ConversationAcceptedEvent
+  | ConversationRejectedEvent
+  | ConversationStartedEvent
+  | ConversationEndedEvent
+  | EntityStateChangedEvent;
 
 // ============================================================================
 // RESULT TYPE - World never throws, returns Result instead

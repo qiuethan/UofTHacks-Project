@@ -13,6 +13,13 @@ import { clampToBounds } from '../map/mapDef';
 import { processAction } from '../actions/pipeline';
 import { findPath } from '../utils/pathfinding';
 import { ReservationTable, resolveMoves, type MoveProposal } from '../utils/reservations';
+import { 
+  ConversationRequestManager, 
+  isWithinInitiationRange, 
+  areAdjacent,
+  CONVERSATION_CONFIG,
+  type ConversationRequest 
+} from '../utils/conversation';
 
 // ============================================================================
 // SNAPSHOT TYPE
@@ -38,6 +45,8 @@ export interface WorldSnapshot {
  */
 export class World {
   private state: WorldState;
+  private conversationRequests = new ConversationRequestManager();
+  private activeConversations = new Map<string, { participant1Id: string; participant2Id: string; startedAt: number }>();
 
   constructor(mapDef: MapDef) {
     this.state = createWorldState(mapDef);
@@ -162,10 +171,11 @@ export class World {
     for (const entity of entities) {
       if (entity.kind === 'WALL') continue;
 
-      // Robot AI: Cached BFS Pathfinding with Reservation Proposals
-      if (entity.kind === 'ROBOT') {
-        let target = entity.targetPosition;
-        let targetSetAt = entity.targetSetAt;
+      // Pathfinding for any entity with a target (ROBOT or PLAYER walking to conversation)
+      // Players get targetPosition when walking to conversation partner
+      if (entity.targetPosition) {
+        let target: { x: number; y: number } | undefined = entity.targetPosition;
+        let targetSetAt: number | undefined = entity.targetSetAt;
         let positionHistory = entity.positionHistory || [];
         let stuckCounter = entity.stuckCounter || 0;
         let plannedPath = entity.plannedPath;
@@ -186,9 +196,10 @@ export class World {
           lastMovedTime = currentTime;
         }
         
-        // Check for timeout (robot hasn't moved toward target for too long)
+        // Check for timeout (entity hasn't moved toward target for too long)
         if (target && lastMovedTime && (currentTime - lastMovedTime > NO_PROGRESS_TIMEOUT_MS)) {
-          // Timeout - give up on this target (robot is stuck/blocked)
+          // Timeout - give up on this target (entity is stuck/blocked)
+          // For conversation targets, this means they couldn't reach the partner
           target = undefined;
           targetSetAt = undefined;
           positionHistory = [];
@@ -208,7 +219,28 @@ export class World {
         
         const isStuckInLoop = Object.values(positionCounts).some(count => count >= STUCK_THRESHOLD);
         
-        if (isStuckInLoop) {
+        // Detect oscillation (alternating between 2 positions)
+        let isOscillating = false;
+        if (positionHistory.length >= 6) {
+          // Check if robot is alternating between two positions (A-B-A-B-A-B pattern)
+          const pos0 = positionHistory[0];
+          const pos1 = positionHistory[1];
+          
+          if (pos0 !== pos1) {
+            // Check for alternating pattern in last 6 positions
+            const alternates = 
+              positionHistory[2] === pos0 &&
+              positionHistory[3] === pos1 &&
+              positionHistory[4] === pos0 &&
+              positionHistory[5] === pos1;
+            
+            if (alternates) {
+              isOscillating = true;
+            }
+          }
+        }
+        
+        if (isStuckInLoop || isOscillating) {
           stuckCounter++;
           // Clear path to force replan
           plannedPath = undefined;
@@ -232,8 +264,16 @@ export class World {
               `${entity.x},${entity.y + 1}`,
               `${entity.x + 1},${entity.y + 1}`
             ];
+            // Also exclude target cells (for conversation pathfinding, we want to path TO the target)
+            const targetCells = [
+              `${target.x},${target.y}`,
+              `${target.x + 1},${target.y}`,
+              `${target.x},${target.y + 1}`,
+              `${target.x + 1},${target.y + 1}`
+            ];
             const pathObstacles = new Set(obstacles);
             selfCells.forEach(c => pathObstacles.delete(c));
+            targetCells.forEach(c => pathObstacles.delete(c));
             
             plannedPath = findPath(this.state.map, { x: entity.x, y: entity.y }, target, pathObstacles) || undefined;
           }
@@ -247,7 +287,32 @@ export class World {
             }
             
             if (plannedPath.length === 0) {
-              // At target - clear it so AI can assign new target
+              // At target - clear pathfinding state
+              
+              // If this is conversation pathfinding, face the conversation partner
+              if (entity.conversationState === 'WALKING_TO_CONVERSATION' && entity.conversationTargetId) {
+                const conversationPartner = this.state.entities.get(entity.conversationTargetId);
+                if (conversationPartner) {
+                  // Calculate direction to face partner
+                  const dx = conversationPartner.x - entity.x;
+                  const dy = conversationPartner.y - entity.y;
+                  const facingDirection = {
+                    x: (dx > 0 ? 1 : dx < 0 ? -1 : 0) as 0 | 1 | -1,
+                    y: (dy > 0 ? 1 : dy < 0 ? -1 : 0) as 0 | 1 | -1
+                  };
+                  
+                  // Update entity to face the partner
+                  const currentEntity = this.state.entities.get(entity.entityId)!;
+                  const updatedWithFacing = {
+                    ...currentEntity,
+                    facing: facingDirection,
+                    targetPosition: undefined,
+                    targetSetAt: undefined
+                  };
+                  this.state.entities.set(entity.entityId, updatedWithFacing);
+                }
+              }
+              
               target = undefined;
               targetSetAt = undefined;
               positionHistory = [];
@@ -275,19 +340,19 @@ export class World {
             }
           }
         }
-        // Store updated state for this robot
+        // Store updated state for this entity (ROBOT or PLAYER with target)
         const currentEntity = this.state.entities.get(entity.entityId)!;
-        const updatedRobot = { 
+        const updatedEntity = { 
           ...currentEntity, 
-          targetPosition: target, 
-          targetSetAt,
+          targetPosition: target || undefined, 
+          targetSetAt: targetSetAt || undefined,
           positionHistory,
           stuckCounter: Math.min(stuckCounter, 10),
           plannedPath,
           pathPlanTime: currentTime,
           lastMovedTime
         };
-        this.state.entities.set(entity.entityId, updatedRobot);
+        this.state.entities.set(entity.entityId, updatedEntity);
       }
     }
 
@@ -298,7 +363,8 @@ export class World {
     for (const entity of entities) {
       if (entity.kind === 'WALL') continue;
 
-      if (entity.kind === 'ROBOT') {
+      // Set direction for entities with approved pathfinding moves (ROBOT or PLAYER with targetPosition)
+      if (entity.kind === 'ROBOT' || entity.targetPosition) {
         const currentEntity = this.state.entities.get(entity.entityId)!;
         let nextDir = { x: 0 as 0|1|-1, y: 0 as 0|1|-1 };
         let useUnstuckMovement = false;
@@ -357,14 +423,14 @@ export class World {
 
         // Update direction and facing
         const newFacing = (nextDir.x !== 0 || nextDir.y !== 0) ? nextDir : entity.facing;
-        const updatedRobot = { 
+        const updatedEntity = { 
           ...currentEntity,
           direction: nextDir, 
           facing: newFacing 
         };
-        this.state.entities.set(entity.entityId, updatedRobot);
+        this.state.entities.set(entity.entityId, updatedEntity);
 
-        // If robot turned, emit event
+        // If entity turned, emit event
         if (entity.facing && (entity.facing.x !== newFacing!.x || entity.facing.y !== newFacing!.y)) {
           events.push({
             type: 'ENTITY_TURNED',
@@ -398,7 +464,393 @@ export class World {
       }
     }
 
+    // Check for conversation proximity (entities reaching each other)
+    const conversationEvents = this.checkConversationProximity();
+    events.push(...conversationEvents);
+    
+    // Cleanup expired conversation requests
+    this.conversationRequests.cleanupExpired();
+
     return events;
+  }
+
+  // ============================================================================
+  // CONVERSATION METHODS
+  // ============================================================================
+
+  /**
+   * Request a conversation with another entity.
+   * Returns the conversation request event if successful.
+   */
+  requestConversation(
+    initiatorId: string, 
+    targetId: string
+  ): Result<WorldEvent[]> {
+    const initiator = this.state.entities.get(initiatorId);
+    const target = this.state.entities.get(targetId);
+    
+    if (!initiator) return err('INITIATOR_NOT_FOUND', 'Initiator entity not found');
+    if (!target) return err('TARGET_NOT_FOUND', 'Target entity not found');
+    if (target.kind === 'WALL') return err('INVALID_TARGET', 'Cannot converse with walls');
+    
+    // Check distance
+    if (!isWithinInitiationRange(initiator.x, initiator.y, target.x, target.y)) {
+      return err('OUT_OF_RANGE', 'Target is too far away to initiate conversation');
+    }
+    
+    // Check if either party is already in a conversation
+    if (initiator.conversationState === 'IN_CONVERSATION') {
+      return err('ALREADY_IN_CONVERSATION', 'Initiator is already in a conversation');
+    }
+    if (target.conversationState === 'IN_CONVERSATION') {
+      return err('TARGET_BUSY', 'Target is already in a conversation');
+    }
+    
+    // Create the request
+    const initiatorType = initiator.kind === 'ROBOT' ? 'ROBOT' : 'PLAYER';
+    const targetType = target.kind === 'ROBOT' ? 'ROBOT' : 'PLAYER';
+    
+    const request = this.conversationRequests.createRequest(
+      initiatorId, 
+      targetId, 
+      initiatorType, 
+      targetType
+    );
+    
+    if (!request) {
+      return err('REQUEST_FAILED', 'Could not create request (on cooldown or already pending)');
+    }
+    
+    // Update initiator state
+    const updatedInitiator = {
+      ...initiator,
+      conversationState: 'PENDING_REQUEST' as const,
+      conversationTargetId: targetId,
+      pendingConversationRequestId: request.requestId
+    };
+    this.state.entities.set(initiatorId, updatedInitiator);
+    
+    const event: WorldEvent = {
+      type: 'CONVERSATION_REQUESTED',
+      requestId: request.requestId,
+      initiatorId,
+      targetId,
+      initiatorType,
+      targetType,
+      expiresAt: request.expiresAt
+    };
+    
+    return ok([event]);
+  }
+
+  /**
+   * Accept a conversation request.
+   */
+  acceptConversation(acceptorId: string, requestId: string): Result<WorldEvent[]> {
+    const request = this.conversationRequests.getRequest(requestId);
+    if (!request) return err('REQUEST_NOT_FOUND', 'Conversation request not found');
+    if (request.targetId !== acceptorId) return err('NOT_TARGET', 'Only the target can accept');
+    if (request.status !== 'PENDING') return err('REQUEST_NOT_PENDING', 'Request is no longer pending');
+    
+    const accepted = this.conversationRequests.acceptRequest(requestId);
+    if (!accepted) return err('ACCEPT_FAILED', 'Failed to accept request');
+    
+    const initiator = this.state.entities.get(request.initiatorId);
+    const target = this.state.entities.get(request.targetId);
+    
+    if (!initiator || !target) {
+      return err('ENTITY_NOT_FOUND', 'One of the participants no longer exists');
+    }
+    
+    // Calculate position adjacent to target in the direction they're facing
+    // Initiator should stand IN FRONT of the target (in the direction they're facing)
+    // Entities are 2x2, so we need to offset by 2 cells to be adjacent
+    // If target is facing down (0, 1), initiator should go below them (0, 2)
+    // If target is facing up (0, -1), initiator should go above them (0, -2)
+    // If target is facing right (1, 0), initiator should go to their right (2, 0)
+    // If target is facing left (-1, 0), initiator should go to their left (-2, 0)
+    const targetFacing = target.facing || { x: 0, y: 1 }; // Default facing down
+    const adjacentOffset = {
+      x: targetFacing.x * 2, // Same direction as facing, 2 cells for 2x2 entity
+      y: targetFacing.y * 2
+    };
+    
+    const adjacentPosition = {
+      x: target.x + adjacentOffset.x,
+      y: target.y + adjacentOffset.y
+    };
+    
+    // Update both entities to WALKING_TO_CONVERSATION state
+    // Initiator will walk to position adjacent to target
+    const updatedInitiator = {
+      ...initiator,
+      conversationState: 'WALKING_TO_CONVERSATION' as const,
+      conversationTargetId: request.targetId,
+      targetPosition: adjacentPosition, // Walk to adjacent position
+      pendingConversationRequestId: undefined
+    };
+    
+    const updatedTarget = {
+      ...target,
+      conversationState: 'WALKING_TO_CONVERSATION' as const,
+      conversationTargetId: request.initiatorId,
+      direction: { x: 0 as const, y: 0 as const } // Target stands still
+    };
+    
+    this.state.entities.set(request.initiatorId, updatedInitiator);
+    this.state.entities.set(request.targetId, updatedTarget);
+    
+    const events: WorldEvent[] = [
+      {
+        type: 'CONVERSATION_ACCEPTED',
+        requestId,
+        initiatorId: request.initiatorId,
+        targetId: request.targetId
+      },
+      {
+        type: 'ENTITY_STATE_CHANGED',
+        entityId: request.initiatorId,
+        conversationState: 'WALKING_TO_CONVERSATION',
+        conversationTargetId: request.targetId
+      },
+      {
+        type: 'ENTITY_STATE_CHANGED',
+        entityId: request.targetId,
+        conversationState: 'WALKING_TO_CONVERSATION',
+        conversationTargetId: request.initiatorId
+      }
+    ];
+    
+    return ok(events);
+  }
+
+  /**
+   * Reject a conversation request.
+   */
+  rejectConversation(rejectorId: string, requestId: string): Result<WorldEvent[]> {
+    const request = this.conversationRequests.getRequest(requestId);
+    if (!request) return err('REQUEST_NOT_FOUND', 'Conversation request not found');
+    if (request.targetId !== rejectorId) return err('NOT_TARGET', 'Only the target can reject');
+    
+    const rejected = this.conversationRequests.rejectRequest(requestId);
+    if (!rejected) return err('REJECT_FAILED', 'Failed to reject request');
+    
+    // Reset initiator state
+    const initiator = this.state.entities.get(request.initiatorId);
+    if (initiator) {
+      const updatedInitiator = {
+        ...initiator,
+        conversationState: 'IDLE' as const,
+        conversationTargetId: undefined,
+        pendingConversationRequestId: undefined
+      };
+      this.state.entities.set(request.initiatorId, updatedInitiator);
+    }
+    
+    const cooldownUntil = Date.now() + CONVERSATION_CONFIG.REJECTION_COOLDOWN_MS;
+    
+    const event: WorldEvent = {
+      type: 'CONVERSATION_REJECTED',
+      requestId,
+      initiatorId: request.initiatorId,
+      targetId: request.targetId,
+      cooldownUntil
+    };
+    
+    return ok([event]);
+  }
+
+  /**
+   * End an active conversation.
+   */
+  endConversation(entityId: string): Result<WorldEvent[]> {
+    const entity = this.state.entities.get(entityId);
+    if (!entity) return err('ENTITY_NOT_FOUND', 'Entity not found');
+    if (entity.conversationState !== 'IN_CONVERSATION') {
+      return err('NOT_IN_CONVERSATION', 'Entity is not in a conversation');
+    }
+    
+    const partnerId = entity.conversationPartnerId;
+    if (!partnerId) return err('NO_PARTNER', 'No conversation partner found');
+    
+    // Find and remove the active conversation
+    let conversationId: string | null = null;
+    for (const [id, conv] of this.activeConversations.entries()) {
+      if (conv.participant1Id === entityId || conv.participant2Id === entityId) {
+        conversationId = id;
+        this.activeConversations.delete(id);
+        break;
+      }
+    }
+    
+    // Reset both entities
+    const partner = this.state.entities.get(partnerId);
+    
+    const updatedEntity = {
+      ...entity,
+      conversationState: 'IDLE' as const,
+      conversationTargetId: undefined,
+      conversationPartnerId: undefined
+    };
+    this.state.entities.set(entityId, updatedEntity);
+    
+    if (partner) {
+      const updatedPartner = {
+        ...partner,
+        conversationState: 'IDLE' as const,
+        conversationTargetId: undefined,
+        conversationPartnerId: undefined
+      };
+      this.state.entities.set(partnerId, updatedPartner);
+    }
+    
+    const events: WorldEvent[] = [
+      {
+        type: 'CONVERSATION_ENDED',
+        conversationId: conversationId || 'unknown',
+        participant1Id: entityId,
+        participant2Id: partnerId
+      },
+      {
+        type: 'ENTITY_STATE_CHANGED',
+        entityId: entityId,
+        conversationState: 'IDLE'
+      },
+      {
+        type: 'ENTITY_STATE_CHANGED',
+        entityId: partnerId,
+        conversationState: 'IDLE'
+      }
+    ];
+    
+    return ok(events);
+  }
+
+  /**
+   * Check if two entities are now adjacent and should start their conversation.
+   * Called during tick to detect when initiator reaches target.
+   */
+  private checkConversationProximity(): WorldEvent[] {
+    const events: WorldEvent[] = [];
+    
+    for (const entity of this.state.entities.values()) {
+      if (entity.conversationState === 'WALKING_TO_CONVERSATION' && entity.conversationTargetId) {
+        const target = this.state.entities.get(entity.conversationTargetId);
+        if (!target) continue;
+        
+        // Check if adjacent
+        if (areAdjacent(entity.x, entity.y, target.x, target.y)) {
+          // Start the conversation
+          const conversationId = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          
+          this.activeConversations.set(conversationId, {
+            participant1Id: entity.entityId,
+            participant2Id: target.entityId,
+            startedAt: Date.now()
+          });
+          
+          // Calculate facing directions so entities face each other
+          const dx = target.x - entity.x;
+          const dy = target.y - entity.y;
+          
+          // Normalize to -1, 0, or 1
+          const entityFacing = {
+            x: (dx > 0 ? 1 : dx < 0 ? -1 : 0) as 0 | 1 | -1,
+            y: (dy > 0 ? 1 : dy < 0 ? -1 : 0) as 0 | 1 | -1
+          };
+          
+          const targetFacing = {
+            x: (dx > 0 ? -1 : dx < 0 ? 1 : 0) as 0 | 1 | -1,
+            y: (dy > 0 ? -1 : dy < 0 ? 1 : 0) as 0 | 1 | -1
+          };
+          
+          // Update both entities to IN_CONVERSATION
+          const updatedEntity = {
+            ...entity,
+            conversationState: 'IN_CONVERSATION' as const,
+            conversationPartnerId: target.entityId,
+            targetPosition: undefined,
+            direction: { x: 0 as const, y: 0 as const },
+            facing: entityFacing
+          };
+          
+          const updatedTarget = {
+            ...target,
+            conversationState: 'IN_CONVERSATION' as const,
+            conversationPartnerId: entity.entityId,
+            direction: { x: 0 as const, y: 0 as const },
+            facing: targetFacing
+          };
+          
+          this.state.entities.set(entity.entityId, updatedEntity);
+          this.state.entities.set(target.entityId, updatedTarget);
+          
+          events.push(
+            {
+              type: 'CONVERSATION_STARTED',
+              conversationId,
+              participant1Id: entity.entityId,
+              participant2Id: target.entityId
+            },
+            {
+              type: 'ENTITY_STATE_CHANGED',
+              entityId: entity.entityId,
+              conversationState: 'IN_CONVERSATION',
+              conversationPartnerId: target.entityId
+            },
+            {
+              type: 'ENTITY_STATE_CHANGED',
+              entityId: target.entityId,
+              conversationState: 'IN_CONVERSATION',
+              conversationPartnerId: entity.entityId
+            }
+          );
+        }
+      }
+    }
+    
+    return events;
+  }
+
+  /**
+   * Get pending conversation requests for an entity.
+   */
+  getPendingRequestsFor(entityId: string): ConversationRequest[] {
+    return this.conversationRequests.getPendingRequestsFor(entityId);
+  }
+
+  /**
+   * Check if an entity can initiate conversation with another.
+   */
+  canInitiateConversation(initiatorId: string, targetId: string): boolean {
+    const initiator = this.state.entities.get(initiatorId);
+    const target = this.state.entities.get(targetId);
+    
+    if (!initiator || !target) return false;
+    if (target.kind === 'WALL') return false;
+    if (initiator.conversationState === 'IN_CONVERSATION') return false;
+    if (target.conversationState === 'IN_CONVERSATION') return false;
+    if (this.conversationRequests.isOnCooldown(initiatorId, targetId)) return false;
+    
+    return isWithinInitiationRange(initiator.x, initiator.y, target.x, target.y);
+  }
+
+  /**
+   * Get entities within initiation range of a given entity.
+   */
+  getEntitiesInRange(entityId: string): Entity[] {
+    const entity = this.state.entities.get(entityId);
+    if (!entity) return [];
+    
+    const result: Entity[] = [];
+    for (const other of this.state.entities.values()) {
+      if (other.entityId === entityId) continue;
+      if (other.kind === 'WALL') continue;
+      if (isWithinInitiationRange(entity.x, entity.y, other.x, other.y)) {
+        result.push(other);
+      }
+    }
+    return result;
   }
 
   /**

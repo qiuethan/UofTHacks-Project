@@ -2,7 +2,7 @@ import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
 import { startGameLoop, startAiLoop, world } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
-import { handleJoin, handleSetDirection, handleDisconnect } from './handlers';
+import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation } from './handlers';
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
@@ -30,6 +30,14 @@ playWss.on('connection', (ws) => {
         client = await handleJoin(ws, oderId, msg);
       } else if (msg.type === 'SET_DIRECTION' && client) {
         await handleSetDirection(client, msg.dx ?? 0, msg.dy ?? 0);
+      } else if (msg.type === 'REQUEST_CONVERSATION' && client && msg.targetEntityId) {
+        await handleRequestConversation(client, msg.targetEntityId);
+      } else if (msg.type === 'ACCEPT_CONVERSATION' && client && msg.requestId) {
+        await handleAcceptConversation(client, msg.requestId);
+      } else if (msg.type === 'REJECT_CONVERSATION' && client && msg.requestId) {
+        await handleRejectConversation(client, msg.requestId);
+      } else if (msg.type === 'END_CONVERSATION' && client) {
+        await handleEndConversation(client);
       }
     } catch (e) {
       send(ws, { type: 'ERROR', error: 'Invalid message format' });

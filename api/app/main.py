@@ -65,59 +65,123 @@ def health_check():
 def get_agent_decision(req: AgentRequest):
     """
     Get a decision for a robot agent.
-    Currently implements a simple random walk target selector.
-    Avoids edges and wall positions to prevent wall-hugging behavior.
+    Supports: MOVE, STAND_STILL, REQUEST_CONVERSATION, ACCEPT_CONVERSATION, REJECT_CONVERSATION
     """
-    # Define safe zone boundaries (avoid edges for 2x2 entities)
-    # Also add margin to avoid targets too close to walls
-    MARGIN = 3  # Cells away from edges
     
-    # Ensure we have valid bounds
+    # Handle pending conversation requests first
+    if req.pending_requests:
+        for pending in req.pending_requests:
+            # Decide whether to accept or reject based on interest
+            interest = calculate_ai_interest_to_accept(req.robot_id, pending.get("initiator_id", ""))
+            if should_ai_accept(interest):
+                return {
+                    "action": "ACCEPT_CONVERSATION",
+                    "request_id": pending.get("request_id")
+                }
+            else:
+                return {
+                    "action": "REJECT_CONVERSATION",
+                    "request_id": pending.get("request_id")
+                }
+    
+    # If in conversation, stand still
+    if req.conversation_state == "IN_CONVERSATION":
+        return {"action": "STAND_STILL"}
+    
+    # If walking to conversation partner, continue (handled by pathfinding)
+    if req.conversation_state == "WALKING_TO_CONVERSATION":
+        return {"action": "STAND_STILL"}  # Let pathfinding handle it
+    
+    # Check if we should initiate a conversation with nearby entities
+    if req.nearby_entities:
+        for entity in req.nearby_entities:
+            if entity.get("kind") in ["PLAYER", "ROBOT"] and entity.get("entityId") != req.robot_id:
+                interest = calculate_ai_interest_to_initiate(req.robot_id, entity.get("entityId", ""), entity.get("kind", "ROBOT"))
+                if should_ai_initiate(interest):
+                    return {
+                        "action": "REQUEST_CONVERSATION",
+                        "target_entity_id": entity.get("entityId")
+                    }
+    
+    # Default: random walk behavior
+    # Small chance to stand still
+    if random.random() < 0.1:
+        return {"action": "STAND_STILL"}
+    
+    # Define safe zone boundaries (avoid edges for 2x2 entities)
+    MARGIN = 3
     min_x = MARGIN
-    max_x = max(min_x + 1, req.map_width - MARGIN - 2)  # -2 for 2x2 entity size
+    max_x = max(min_x + 1, req.map_width - MARGIN - 2)
     min_y = MARGIN
     max_y = max(min_y + 1, req.map_height - MARGIN - 2)
     
-    # Pick random point in safe zone (away from edges and walls)
     target_x = random.randint(min_x, max_x)
     target_y = random.randint(min_y, max_y)
     
-    # Known wall positions (hardcoded from game.ts)
-    # In production, this would be passed in the request
+    # Known wall positions
     walls = [
-        (10, 10), (11, 10), (10, 11), (11, 11),  # wall-1
-        (10, 12), (11, 12), (10, 13), (11, 13),  # wall-2
-        (10, 14), (11, 14), (10, 15), (11, 15),  # wall-3
-        (12, 10), (13, 10), (12, 11), (13, 11),  # wall-4
+        (10, 10), (11, 10), (10, 11), (11, 11),
+        (10, 12), (11, 12), (10, 13), (11, 13),
+        (10, 14), (11, 14), (10, 15), (11, 15),
+        (12, 10), (13, 10), (12, 11), (13, 11),
     ]
     
-    # Avoid targets on or immediately adjacent to walls
+    # Avoid targets near walls
     max_attempts = 50
     for _ in range(max_attempts):
         is_near_wall = False
-        
-        # Check if target or its 2x2 footprint overlaps with walls or is adjacent
-        for dx in range(-1, 3):  # Check -1 to +2 (adjacent + 2x2 entity)
+        for dx in range(-1, 3):
             for dy in range(-1, 3):
-                check_pos = (target_x + dx, target_y + dy)
-                if check_pos in walls:
+                if (target_x + dx, target_y + dy) in walls:
                     is_near_wall = True
                     break
             if is_near_wall:
                 break
-        
         if not is_near_wall:
             break
-        
-        # Try new random position
         target_x = random.randint(min_x, max_x)
         target_y = random.randint(min_y, max_y)
     
     return {
+        "action": "MOVE",
         "target_x": target_x,
-        "target_y": target_y,
-        "action": "MOVE"
+        "target_y": target_y
     }
+
+
+# ============================================================================
+# AI INTEREST CALCULATIONS
+# ============================================================================
+
+def calculate_ai_interest_to_initiate(robot_id: str, target_id: str, target_type: str) -> float:
+    """
+    Calculate AI interest score for initiating a conversation.
+    Returns probability between 0 and 1.
+    TODO: Replace with actual interest calculation based on personality, history, etc.
+    """
+    base = 0.3  # Lower base for initiation
+    variance = 0.2
+    return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
+
+
+def calculate_ai_interest_to_accept(robot_id: str, initiator_id: str) -> float:
+    """
+    Calculate AI interest in accepting a conversation request.
+    TODO: Replace with actual interest calculation.
+    """
+    base = 0.7  # Higher acceptance rate
+    variance = 0.2
+    return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
+
+
+def should_ai_initiate(interest_score: float) -> bool:
+    """Decide if AI should initiate conversation based on interest score."""
+    return random.random() < interest_score
+
+
+def should_ai_accept(interest_score: float) -> bool:
+    """Decide if AI should accept conversation based on interest score."""
+    return random.random() < interest_score
 
 
 @app.get("/avatars", response_model=ApiResponse)

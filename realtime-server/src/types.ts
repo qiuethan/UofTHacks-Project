@@ -10,7 +10,7 @@ export interface Client {
 }
 
 export interface ClientMessage {
-  type: 'JOIN' | 'MOVE' | 'WATCH' | 'SET_DIRECTION';
+  type: 'JOIN' | 'MOVE' | 'WATCH' | 'SET_DIRECTION' | 'REQUEST_CONVERSATION' | 'ACCEPT_CONVERSATION' | 'REJECT_CONVERSATION' | 'END_CONVERSATION';
   token?: string;
   userId?: string;
   displayName?: string;
@@ -18,6 +18,9 @@ export interface ClientMessage {
   y?: number;
   dx?: 0 | 1 | -1;
   dy?: 0 | 1 | -1;
+  // Conversation fields
+  targetEntityId?: string;
+  requestId?: string;
 }
 
 export interface ServerMessage {

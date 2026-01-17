@@ -27,8 +27,35 @@ export function validateAction(
     case 'MOVE':
       return validateMoveAction(action.x, action.y);
     case 'SET_DIRECTION':
-      return ok(undefined); // Direction is always valid as long as it fits the type (checked by TS)
+      return ok(undefined);
+    case 'STAND_STILL':
+      return ok(undefined);
+    case 'REQUEST_CONVERSATION':
+      return validateRequestConversation(state, actor, action.targetEntityId);
+    case 'ACCEPT_CONVERSATION':
+    case 'REJECT_CONVERSATION':
+      return ok(undefined); // Request validation handled in World class
+    case 'END_CONVERSATION':
+      return ok(undefined);
   }
+}
+
+function validateRequestConversation(
+  state: WorldState,
+  actor: Entity,
+  targetEntityId: string
+): Result<void> {
+  const target = state.entities.get(targetEntityId);
+  if (!target) {
+    return err('TARGET_NOT_FOUND', `Target entity ${targetEntityId} does not exist`);
+  }
+  if (target.entityId === actor.entityId) {
+    return err('INVALID_TARGET', 'Cannot request conversation with self');
+  }
+  if (target.kind === 'WALL') {
+    return err('INVALID_TARGET', 'Cannot request conversation with a wall');
+  }
+  return ok(undefined);
 }
 
 function validateMoveAction(x: number, y: number): Result<void> {
@@ -54,7 +81,28 @@ export function applyAction(
       return applyMoveAction(state, actor, action.x, action.y);
     case 'SET_DIRECTION':
       return applySetDirection(state, actor, action.dx, action.dy);
+    case 'STAND_STILL':
+      return applyStandStill(state, actor);
+    case 'REQUEST_CONVERSATION':
+    case 'ACCEPT_CONVERSATION':
+    case 'REJECT_CONVERSATION':
+    case 'END_CONVERSATION':
+      // These are handled in World class, not here
+      return [];
   }
+}
+
+function applyStandStill(
+  state: WorldState,
+  actor: Entity
+): WorldEvent[] {
+  // Stop movement by setting direction to 0,0
+  const updatedActor: Entity = {
+    ...actor,
+    direction: { x: 0, y: 0 }
+  };
+  state.entities.set(actor.entityId, updatedActor);
+  return [];
 }
 
 function applySetDirection(
