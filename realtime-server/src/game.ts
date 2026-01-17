@@ -1,4 +1,4 @@
-import { World, createMapDef, createWall, createRobot } from '../../world/index.ts';
+import { World, createMapDef, createWall } from '../../world/index.ts';
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL } from './config';
 import { broadcast } from './network';
 
@@ -10,8 +10,6 @@ world.addEntity(createWall('wall-2', 10, 12));
 world.addEntity(createWall('wall-3', 10, 14));
 world.addEntity(createWall('wall-4', 12, 10));
 
-// Add a robot
-world.addEntity(createRobot('robot-1', 20, 20));
 
 export function startGameLoop() {
   // Game Loop

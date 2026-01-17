@@ -136,12 +136,8 @@ function applyMoveAction(
        // So: abs(ax - bx) < 2 AND abs(ay - by) < 2
        
        if (Math.abs(safeX - other.x) < 2 && Math.abs(safeY - other.y) < 2) {
-         if (other.kind === 'WALL') {
-           // Blocked by wall
-           return [];
-         }
-         // Optional: Blocked by players/robots?
-         // For now, let's allow overlapping players to avoid stuck situations, but block walls.
+         // Block collision with all entity types (WALL, PLAYER, ROBOT)
+         return [];
        }
     }
   }

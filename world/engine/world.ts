@@ -135,17 +135,14 @@ export class World {
     const events: WorldEvent[] = [];
     const entities = getAllEntities(this.state);
     
-    // Build obstacle map for pathfinding
+    // Build obstacle map for pathfinding (all entities are obstacles)
     const obstacles = new Set<string>();
     for (const e of entities) {
-      // Assuming all non-PLAYER/ROBOT entities are 2x2 obstacles for pathfinding
-      if (e.kind === 'WALL') {
-        // A 2x2 entity at (x,y) occupies (x,y), (x+1,y), (x,y+1), (x+1,y+1)
-        obstacles.add(`${e.x},${e.y}`);
-        obstacles.add(`${e.x + 1},${e.y}`);
-        obstacles.add(`${e.x},${e.y + 1}`);
-        obstacles.add(`${e.x + 1},${e.y + 1}`);
-      }
+      // All entities are 2x2 and occupy (x,y), (x+1,y), (x,y+1), (x+1,y+1)
+      obstacles.add(`${e.x},${e.y}`);
+      obstacles.add(`${e.x + 1},${e.y}`);
+      obstacles.add(`${e.x},${e.y + 1}`);
+      obstacles.add(`${e.x + 1},${e.y + 1}`);
     }
 
     for (const entity of entities) {
@@ -158,10 +155,20 @@ export class World {
         // AI Logic would go here to set 'target'
         // For now, robots only move if targetPosition is explicitly set externally
 
-        // Calculate path
+        // Calculate path - exclude self from obstacles
         let nextDir = { x: 0 as 0|1|-1, y: 0 as 0|1|-1 };
         if (target) {
-          const path = findPath(this.state.map, { x: entity.x, y: entity.y }, target, obstacles);
+          // Remove self from obstacles for pathfinding
+          const selfCells = [
+            `${entity.x},${entity.y}`,
+            `${entity.x + 1},${entity.y}`,
+            `${entity.x},${entity.y + 1}`,
+            `${entity.x + 1},${entity.y + 1}`
+          ];
+          const pathObstacles = new Set(obstacles);
+          selfCells.forEach(c => pathObstacles.delete(c));
+          
+          const path = findPath(this.state.map, { x: entity.x, y: entity.y }, target, pathObstacles);
           if (path && path.length > 0) {
             const nextStep = path[0];
             const dx = nextStep.x - entity.x;
