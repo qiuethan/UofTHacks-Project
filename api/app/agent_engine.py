@@ -219,7 +219,11 @@ def calculate_recency_penalty(
     # Penalize talking to same avatar recently
     if action == ActionType.INITIATE_CONVERSATION and social_memory:
         if social_memory.last_interaction:
-            hours_since = (datetime.utcnow() - social_memory.last_interaction).total_seconds() / 3600
+            last_interaction = social_memory.last_interaction
+            # Handle timezone-aware datetimes from database
+            if last_interaction.tzinfo is not None:
+                last_interaction = last_interaction.replace(tzinfo=None)
+            hours_since = (datetime.utcnow() - last_interaction).total_seconds() / 3600
             if hours_since < DecisionConfig.RECENT_INTERACTION_HOURS:
                 # Linear decay: full penalty at 0 hours, no penalty at threshold
                 penalty += 0.5 * (1.0 - hours_since / DecisionConfig.RECENT_INTERACTION_HOURS)

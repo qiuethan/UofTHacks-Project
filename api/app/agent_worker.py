@@ -214,7 +214,10 @@ def process_agent_tick(
         if last_tick:
             if isinstance(last_tick, str):
                 last_tick = datetime.fromisoformat(last_tick.replace('Z', '+00:00'))
-            elapsed = (datetime.utcnow() - last_tick.replace(tzinfo=None)).total_seconds()
+            # Make both datetimes naive for comparison
+            if last_tick.tzinfo is not None:
+                last_tick = last_tick.replace(tzinfo=None)
+            elapsed = (datetime.utcnow() - last_tick).total_seconds()
         else:
             elapsed = 300  # Default 5 minutes
         
