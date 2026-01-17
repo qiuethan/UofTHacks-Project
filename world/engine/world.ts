@@ -623,12 +623,21 @@ export class World {
       pendingConversationRequestId: undefined
     };
     
+    // Target should face the initiator immediately
+    const dxToInitiator = initiator.x - target.x;
+    const dyToInitiator = initiator.y - target.y;
+    const targetFacingDir = {
+      x: (dxToInitiator > 0 ? 1 : dxToInitiator < 0 ? -1 : 0) as 0 | 1 | -1,
+      y: (dyToInitiator > 0 ? 1 : dyToInitiator < 0 ? -1 : 0) as 0 | 1 | -1
+    };
+
     const updatedTarget = {
       ...target,
       conversationState: 'WALKING_TO_CONVERSATION' as const,
       conversationTargetId: request.initiatorId,
       targetPosition: { x: target.x, y: target.y }, // Lock them here using the same target system
-      direction: { x: 0 as const, y: 0 as const } // Target stands still
+      direction: { x: 0 as const, y: 0 as const }, // Target stands still
+      facing: targetFacingDir
     };
     
     this.state.entities.set(request.initiatorId, updatedInitiator);
@@ -652,6 +661,11 @@ export class World {
         entityId: request.targetId,
         conversationState: 'WALKING_TO_CONVERSATION',
         conversationTargetId: request.initiatorId
+      },
+      {
+        type: 'ENTITY_TURNED',
+        entityId: request.targetId,
+        facing: targetFacingDir
       }
     ];
     
