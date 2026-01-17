@@ -2,20 +2,36 @@
 FastAPI server for Avatar creation and management
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
+import os
 import shutil
 import uuid
+import random
+from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from supabase import create_client, Client
 
 from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse
 from . import database as db
-import random
 
-# Ensure upload directories exist before mounting StaticFiles
-Path("./uploads/sprites").mkdir(parents=True, exist_ok=True)
+# Load environment variables
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    except Exception as e:
+        print(f"Failed to initialize Supabase client: {e}")
+else:
+    print("Warning: SUPABASE_URL or SUPABASE_SERVICE_KEY not set. Storage uploads will fail.")
 
 # Lifespan context manager for startup/shutdown events
 @asynccontextmanager
@@ -35,10 +51,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Serve uploaded files
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 
 # ============================================================================
 # ROUTES
@@ -110,7 +122,10 @@ def update_avatar(avatar_id: str, avatar: AvatarUpdate):
 
 @app.post("/avatars/{avatar_id}/sprite", response_model=ApiResponse)
 async def upload_sprite(avatar_id: str, sprite: UploadFile = File(...)):
-    """Upload sprite image for avatar"""
+    """Upload sprite image for avatar to Supabase Storage"""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Storage service unavailable")
+
     avatar = db.get_avatar_by_id(avatar_id)
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
@@ -120,22 +135,38 @@ async def upload_sprite(avatar_id: str, sprite: UploadFile = File(...)):
     if sprite.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Invalid file type")
     
-    # Save file
+    # Generate filename
     ext = Path(sprite.filename).suffix if sprite.filename else ".png"
-    filename = f"sprite-{uuid.uuid4()}{ext}"
-    file_path = Path(f"./uploads/sprites/{filename}")
+    filename = f"{avatar_id}-{uuid.uuid4()}{ext}"
     
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(sprite.file, buffer)
-    
-    # Delete old sprite if exists
-    if avatar.get("sprite_path"):
-        old_path = Path(avatar["sprite_path"])
-        if old_path.exists():
-            old_path.unlink()
+    # Read file content
+    try:
+        file_content = await sprite.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+
+    # Upload to Supabase
+    bucket_name = "sprites"
+    try:
+        # Check if bucket exists, if not create it? 
+        # Usually buckets are created manually or via migrations.
+        # We assume 'sprites' bucket exists and is public.
+        
+        supabase.storage.from_(bucket_name).upload(
+            path=filename,
+            file=file_content,
+            file_options={"content-type": sprite.content_type, "upsert": "false"}
+        )
+        
+        # Get Public URL
+        public_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+        
+    except Exception as e:
+        print(f"Supabase Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
     # Update database
-    updated = db.update_avatar_sprite(avatar_id, str(file_path))
+    updated = db.update_avatar_sprite(avatar_id, public_url)
     return {"ok": True, "data": updated}
 
 
@@ -146,11 +177,8 @@ def delete_avatar(avatar_id: str):
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
-    # Delete sprite file
-    if avatar.get("sprite_path"):
-        sprite_path = Path(avatar["sprite_path"])
-        if sprite_path.exists():
-            sprite_path.unlink()
+    # Optional: Delete from Supabase Storage?
+    # Keeping it simple for now, just deleting DB record.
     
     db.delete_avatar(avatar_id)
     return {"ok": True, "message": "Avatar deleted"}
