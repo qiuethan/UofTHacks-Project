@@ -68,3 +68,25 @@ class GenerateAvatarResponse(BaseModel):
     message: Optional[str] = None
     error: Optional[str] = None
     images: Optional[dict[str, str]] = None  # {front: url, back: url, left: url, right: url}
+
+
+class OnboardingChatRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = None
+
+
+class OnboardingChatResponse(BaseModel):
+    response: str
+    conversation_id: str
+    status: str = "active"  # "active" or "completed"
+
+
+class OnboardingStateResponse(BaseModel):
+    history: list[dict]
+    conversation_id: Optional[str]
+    is_completed: bool
+
+
+class OnboardingCompleteRequest(BaseModel):
+    conversation_id: str
+
