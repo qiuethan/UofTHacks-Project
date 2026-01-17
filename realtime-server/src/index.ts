@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createClient } from '@supabase/supabase-js';
-import { World, createMapDef, createAvatar, createWall, createRobot } from '../../world/index.ts';
+import { World, createMapDef, createAvatar, createWall, createRobot, createEntity } from '../../world/index.ts';
 import type { WorldEvent, MoveAction, SetDirectionAction } from '../../world/index.ts';
 
 // ============================================================================
@@ -223,16 +223,25 @@ playWss.on('connection', (ws) => {
     
     console.log(`Client disconnected: ${client.userId}`);
     
-    // Save final position to DB
-    const entity = world.getSnapshot().entities.find(e => e.entityId === client!.userId);
+    // Save final position and convert to AI
+    const entity = world.getEntity(client!.userId);
     if (entity) {
       await updatePosition(client.userId, entity.x, entity.y);
-    }
-    
-    // Remove from world
-    const result = world.removeEntity(client.userId);
-    if (result.ok) {
-      broadcast({ type: 'EVENTS', events: result.value });
+
+      // Convert to ROBOT for AI control
+      world.removeEntity(client.userId);
+      const robot = createEntity(
+        entity.entityId,
+        'ROBOT',
+        entity.displayName,
+        entity.x,
+        entity.y,
+        entity.color
+      );
+      const result = world.addEntity(robot);
+      if (result.ok) {
+        broadcast({ type: 'EVENTS', events: result.value });
+      }
     }
     
     // Clean up tracking
@@ -282,7 +291,18 @@ async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessage): Pr
   userConnections.set(userId, oderId);
   
   // Get position from DB (source of truth)
-  const pos = await getPosition(userId);
+  let pos = await getPosition(userId);
+
+  // If user has an AI agent active, take over its position and replace it
+  const existing = world.getEntity(userId);
+  if (existing && existing.kind === 'ROBOT') {
+    pos = { x: existing.x, y: existing.y };
+    // Remove the robot so we can spawn the player
+    const removeResult = world.removeEntity(userId);
+    if (removeResult.ok) {
+       broadcast({ type: 'EVENTS', events: removeResult.value }, oderId);
+    }
+  }
   
   // Use userId as entityId for consistency
   const avatar = createAvatar(userId, displayName, pos.x, pos.y);
