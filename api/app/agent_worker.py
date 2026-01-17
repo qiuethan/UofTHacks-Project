@@ -3,6 +3,41 @@ Agent Worker - Processes agent decisions on-demand
 
 This module implements the decision processing for individual agents.
 Agents request their next action when they're free/done with their current action.
+
+TABLE UPDATE FLOW:
+==================
+
+When process_agent_tick() is called:
+
+1. BUILD CONTEXT (reads from):
+   - user_positions (avatar position, conversation state)
+   - agent_personality (static traits)
+   - agent_state (dynamic needs)
+   - agent_social_memory (relationships)
+   - world_locations (available locations)
+   - world_interactions (cooldowns)
+
+2. APPLY STATE DECAY (updates):
+   - agent_state: energy--, hunger++, loneliness++, mood->neutral
+   - ✅ DONE: apply_state_decay() is called before making decision
+
+3. MAKE DECISION (reads context, no writes)
+
+4. EXECUTE ACTION (updates):
+   - agent_state: Apply action effects
+   - user_positions: Update x, y if moving
+   - TODO: world_interactions: Create interaction record for location visits
+
+5. SAVE DECISION (writes):
+   - agent_decisions: Audit log of what was decided
+   - ⚠️ NOTE: Only saved when debug=True! Consider always logging.
+
+TODO LIST:
+- [x] Call apply_state_decay() before decision ✅
+- [ ] Call start_location_interaction() when walking to location
+- [ ] Call complete_location_interaction() when action expires
+- [ ] Always log decisions (not just debug mode)?
+- [ ] Update social_memory after conversation ends (handled elsewhere)
 """
 
 import logging
@@ -196,6 +231,9 @@ def process_agent_tick(
         agent_db.update_state(client, new_state)
         
         # Log decision if debug mode
+        # NOTE: Decision logging is currently DEBUG-ONLY!
+        # TODO: Consider always logging decisions for audit trail
+        #       Or make this configurable via environment variable
         if debug:
             candidates = generate_candidate_actions(context)
             scored = score_all_actions(candidates, context)

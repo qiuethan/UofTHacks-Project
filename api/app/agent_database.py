@@ -1,5 +1,27 @@
 """
 Database operations for the Agent Decision System using Supabase
+
+TABLE UPDATE RESPONSIBILITIES (see 009_agent_decision_system.sql for details):
+
+┌─────────────────────┬────────────────────────────────────────────────────────┐
+│ TABLE               │ FUNCTION(S) THAT UPDATE IT                             │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ agent_personality   │ create_personality() - called on avatar creation       │
+│ agent_state         │ create_state() - initial                               │
+│                     │ update_state() - after actions ✅                      │
+│                     │ (decay applied in agent_worker.py) ✅                  │
+│                     │ apply_location_effects() - TODO: when action completes │
+│ agent_social_memory │ update_social_memory() - TODO: after conversations     │
+│ world_interactions  │ start_location_interaction() - TODO                    │
+│                     │ complete_location_interaction() - TODO                 │
+│ agent_decisions     │ log_decision() - debug mode only ⚠️                    │
+└─────────────────────┴────────────────────────────────────────────────────────┘
+
+TODO LIST:
+- [ ] Implement apply_location_effects() - apply effects when location action completes
+- [ ] Implement update_social_memory() - call from realtime-server after conversation
+- [ ] Implement start_location_interaction() / complete_location_interaction()
+- [ ] Consider always calling log_decision() (currently debug-only)
 """
 
 import os
@@ -73,22 +95,73 @@ def create_personality(client: Client, personality: AgentPersonality) -> AgentPe
     return personality
 
 
-def generate_random_personality(avatar_id: str) -> AgentPersonality:
-    """Generate a random personality for a new avatar."""
+def generate_default_personality(avatar_id: str) -> AgentPersonality:
+    """
+    Generate a personality with neutral defaults for a new avatar.
+    
+    TODO: These values should come from an intro survey.
+          For now, all values are set to 0.5 (neutral).
+          Call update_personality_from_survey() after user completes survey.
+    """
     return AgentPersonality(
         avatar_id=avatar_id,
-        sociability=0.3 + random.random() * 0.4,
-        curiosity=0.3 + random.random() * 0.4,
-        agreeableness=0.4 + random.random() * 0.3,
-        energy_baseline=0.4 + random.random() * 0.3,
+        sociability=0.5,       # TODO: from survey
+        curiosity=0.5,         # TODO: from survey
+        agreeableness=0.5,     # TODO: from survey
+        energy_baseline=0.5,   # TODO: from survey
         world_affinities={
-            "food": 0.3 + random.random() * 0.4,
-            "karaoke": 0.2 + random.random() * 0.5,
-            "rest_area": 0.3 + random.random() * 0.3,
-            "social_hub": 0.3 + random.random() * 0.4,
-            "wander_point": 0.3 + random.random() * 0.3,
+            "food": 0.5,       # TODO: from survey
+            "karaoke": 0.5,    # TODO: from survey
+            "rest_area": 0.5,  # TODO: from survey
+            "social_hub": 0.5, # TODO: from survey
+            "wander_point": 0.5,  # TODO: from survey
         }
     )
+
+
+# Alias for backward compatibility
+generate_random_personality = generate_default_personality
+
+
+def update_personality_from_survey(
+    client: Client,
+    avatar_id: str,
+    sociability: float,
+    curiosity: float,
+    agreeableness: float,
+    energy_baseline: float,
+    world_affinities: dict[str, float]
+) -> bool:
+    """
+    TODO: Update personality from intro survey results.
+    
+    Call this after the user completes the intro survey to set their
+    actual personality values instead of the neutral defaults.
+    
+    Args:
+        client: Supabase client
+        avatar_id: The avatar to update
+        sociability: 0.0 (introvert) to 1.0 (extrovert)
+        curiosity: 0.0 (routine) to 1.0 (explorer)
+        agreeableness: 0.0 (disagreeable) to 1.0 (agreeable)
+        energy_baseline: 0.0 (low energy) to 1.0 (high energy)
+        world_affinities: dict of location_type -> affinity (0.0 to 1.0)
+    
+    Returns:
+        True if updated, False if failed
+    """
+    try:
+        client.table("agent_personality").update({
+            "sociability": sociability,
+            "curiosity": curiosity,
+            "agreeableness": agreeableness,
+            "energy_baseline": energy_baseline,
+            "world_affinities": world_affinities,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("avatar_id", avatar_id).execute()
+        return True
+    except Exception:
+        return False
 
 
 # ============================================================================
@@ -615,3 +688,109 @@ def initialize_agent(client: Client, avatar_id: str, personality: Optional[Agent
     create_state(client, state)
     
     return personality, state
+
+
+# ============================================================================
+# TODO: MISSING FUNCTIONS - Implement these to complete the system
+# ============================================================================
+
+def apply_location_effects(client: Client, avatar_id: str, location_id: str) -> bool:
+    """
+    TODO: Apply location effects to agent state when action completes.
+    
+    Called when: Agent completes a location interaction (action_expires_at passes)
+    Updates: agent_state (energy, hunger, loneliness, mood based on location.effects)
+    
+    Example:
+        # When agent finishes at Cafe
+        apply_location_effects(client, avatar_id, cafe_location_id)
+        # This applies: {hunger: -0.4, mood: +0.1, energy: +0.1}
+    """
+    # TODO: Implement this function
+    # 1. Get location effects: SELECT effects FROM world_locations WHERE id = location_id
+    # 2. Apply to agent_state: UPDATE agent_state SET energy = energy + effects.energy, ...
+    # 3. Mark world_interaction as completed
+    raise NotImplementedError("apply_location_effects not yet implemented")
+
+
+def update_social_memory_after_conversation(
+    client: Client,
+    avatar_a: str,
+    avatar_b: str,
+    sentiment_delta: float = 0.0,
+    topic: Optional[str] = None
+) -> None:
+    """
+    TODO: Update social memory after a conversation ends.
+    
+    Called when: Conversation ends (from realtime-server)
+    Updates: agent_social_memory (both directions: A->B and B->A)
+    
+    Args:
+        avatar_a: First participant
+        avatar_b: Second participant  
+        sentiment_delta: How the conversation affected sentiment (-1 to 1)
+        topic: What they talked about (for memory)
+    
+    Example:
+        # After a friendly chat
+        update_social_memory_after_conversation(
+            client, 
+            avatar_a="luna-123", 
+            avatar_b="bob-456",
+            sentiment_delta=0.1,  # Positive interaction
+            topic="favorite foods"
+        )
+    """
+    # TODO: Implement this function
+    # 1. UPSERT into agent_social_memory for A->B:
+    #    - Increment interaction_count
+    #    - Add sentiment_delta to sentiment (clamped -1 to 1)
+    #    - Increase familiarity by ~0.05 (clamped 0 to 1)
+    #    - Update last_interaction = NOW()
+    #    - Set last_conversation_topic = topic
+    # 2. Same for B->A
+    raise NotImplementedError("update_social_memory_after_conversation not yet implemented")
+
+
+def start_location_interaction(
+    client: Client, 
+    avatar_id: str, 
+    location_id: str
+) -> Optional[str]:
+    """
+    TODO: Start a location interaction (creates cooldown entry).
+    
+    Called when: Agent arrives at location and begins interaction
+    Updates: world_interactions (INSERT new record)
+    Returns: interaction_id or None if on cooldown
+    
+    Example:
+        interaction_id = start_location_interaction(client, avatar_id, cafe_id)
+        if interaction_id:
+            # Started successfully
+        else:
+            # Still on cooldown, can't interact yet
+    """
+    # TODO: Implement this function
+    # 1. Check if avatar is on cooldown for this location
+    # 2. If not, INSERT into world_interactions with cooldown_until
+    # 3. Return interaction_id
+    raise NotImplementedError("start_location_interaction not yet implemented")
+
+
+def complete_location_interaction(client: Client, interaction_id: str) -> None:
+    """
+    TODO: Complete a location interaction (apply effects, mark done).
+    
+    Called when: Interaction duration passes
+    Updates: world_interactions (set completed_at), agent_state (apply effects)
+    
+    Example:
+        complete_location_interaction(client, interaction_id)
+    """
+    # TODO: Implement this function
+    # 1. Get interaction and location
+    # 2. Call apply_location_effects()
+    # 3. UPDATE world_interactions SET completed_at = NOW()
+    raise NotImplementedError("complete_location_interaction not yet implemented")

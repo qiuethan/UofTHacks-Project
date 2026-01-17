@@ -26,6 +26,8 @@
 --    - STATUS: Function exists, needs to be called from:
 --      * Option A: Trigger on user_positions INSERT (see bottom of file)
 --      * Option B: Python API when creating avatar
+--    - NOTE: Personality uses neutral defaults (0.5) until intro survey is completed
+--    - TODO: Implement intro survey -> call update_agent_personality_from_survey()
 --
 -- 2. agent_state (DECAY OVER TIME)
 --    - TRIGGER: Each agent tick (when requesting new action)  
@@ -250,39 +252,69 @@ CREATE INDEX IF NOT EXISTS idx_user_positions_is_online ON user_positions(is_onl
 -- ============================================================================
 
 -- Function to initialize agent data for a new avatar
+-- TODO: Personality values should come from intro survey (see update_agent_personality_from_survey)
+--       For now, uses neutral defaults (0.5)
 CREATE OR REPLACE FUNCTION initialize_agent_for_avatar(p_avatar_id UUID)
 RETURNS void AS $$
 BEGIN
-  -- Create personality with random but reasonable values
+  -- Create personality with NEUTRAL defaults (0.5)
+  -- TODO: These should be populated from intro survey later
   INSERT INTO agent_personality (avatar_id, sociability, curiosity, agreeableness, energy_baseline, world_affinities)
   VALUES (
     p_avatar_id,
-    0.3 + random() * 0.4,  -- sociability: 0.3-0.7
-    0.3 + random() * 0.4,  -- curiosity: 0.3-0.7
-    0.4 + random() * 0.3,  -- agreeableness: 0.4-0.7
-    0.4 + random() * 0.3,  -- energy_baseline: 0.4-0.7
-    jsonb_build_object(
-      'food', 0.3 + random() * 0.4,
-      'karaoke', 0.2 + random() * 0.5,
-      'rest_area', 0.3 + random() * 0.3,
-      'social_hub', 0.3 + random() * 0.4,
-      'wander_point', 0.3 + random() * 0.3
-    )
+    0.5,  -- sociability: TODO from survey
+    0.5,  -- curiosity: TODO from survey
+    0.5,  -- agreeableness: TODO from survey
+    0.5,  -- energy_baseline: TODO from survey
+    '{"food": 0.5, "karaoke": 0.5, "rest_area": 0.5, "social_hub": 0.5, "wander_point": 0.5}'::jsonb  -- TODO from survey
   )
   ON CONFLICT (avatar_id) DO NOTHING;
   
-  -- Create initial state
+  -- Create initial state (these CAN be random - they're current state, not personality)
   INSERT INTO agent_state (avatar_id, energy, hunger, loneliness, mood)
   VALUES (
     p_avatar_id,
-    0.7 + random() * 0.2,  -- energy: 0.7-0.9
-    0.2 + random() * 0.2,  -- hunger: 0.2-0.4
-    0.3 + random() * 0.2,  -- loneliness: 0.3-0.5
-    0.3 + random() * 0.4   -- mood: 0.3-0.7
+    0.8,   -- energy: start well-rested
+    0.3,   -- hunger: slightly hungry
+    0.4,   -- loneliness: somewhat social need
+    0.5    -- mood: neutral
   )
   ON CONFLICT (avatar_id) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
+
+-- TODO: Function to update personality from intro survey
+-- Call this after user completes the intro survey
+-- CREATE OR REPLACE FUNCTION update_agent_personality_from_survey(
+--   p_avatar_id UUID,
+--   p_sociability REAL,
+--   p_curiosity REAL,
+--   p_agreeableness REAL,
+--   p_energy_baseline REAL,
+--   p_food_affinity REAL,
+--   p_karaoke_affinity REAL,
+--   p_rest_affinity REAL,
+--   p_social_affinity REAL,
+--   p_wander_affinity REAL
+-- )
+-- RETURNS void AS $$
+-- BEGIN
+--   UPDATE agent_personality SET
+--     sociability = p_sociability,
+--     curiosity = p_curiosity,
+--     agreeableness = p_agreeableness,
+--     energy_baseline = p_energy_baseline,
+--     world_affinities = jsonb_build_object(
+--       'food', p_food_affinity,
+--       'karaoke', p_karaoke_affinity,
+--       'rest_area', p_rest_affinity,
+--       'social_hub', p_social_affinity,
+--       'wander_point', p_wander_affinity
+--     ),
+--     updated_at = NOW()
+--   WHERE avatar_id = p_avatar_id;
+-- END;
+-- $$ LANGUAGE plpgsql;
 
 -- Function to get offline avatars needing a tick
 CREATE OR REPLACE FUNCTION get_offline_avatars_for_tick(
