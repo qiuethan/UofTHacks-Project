@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const API_BASE = 'http://localhost:3002'
+import { API_CONFIG } from '../config'
 
 interface Avatar {
   id: string
@@ -32,7 +31,7 @@ export default function CreateAvatar() {
 
   const loadAvatars = async () => {
     try {
-      const res = await fetch(`${API_BASE}/avatars`)
+      const res = await fetch(`${API_CONFIG.BASE_URL}/avatars`)
       const data = await res.json()
       if (data.ok) {
         setAvatars(data.data)
@@ -64,7 +63,7 @@ export default function CreateAvatar() {
 
     try {
       // Create avatar
-      const createRes = await fetch(`${API_BASE}/avatars`, {
+      const createRes = await fetch(`${API_CONFIG.BASE_URL}/avatars`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), color, bio: bio.trim() || null })
@@ -81,7 +80,7 @@ export default function CreateAvatar() {
       if (sprite) {
         const formData = new FormData()
         formData.append('sprite', sprite)
-        await fetch(`${API_BASE}/avatars/${avatar.id}/sprite`, {
+        await fetch(`${API_CONFIG.BASE_URL}/avatars/${avatar.id}/sprite`, {
           method: 'POST',
           body: formData
         })
@@ -107,7 +106,7 @@ export default function CreateAvatar() {
     if (!confirm('Delete this avatar?')) return
 
     try {
-      const res = await fetch(`${API_BASE}/avatars/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API_CONFIG.BASE_URL}/avatars/${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (data.ok) {
         showMessage('Avatar deleted', 'success')
@@ -224,7 +223,7 @@ export default function CreateAvatar() {
                 >
                   {avatar.sprite_path && (
                     <img
-                      src={`${API_BASE}/${avatar.sprite_path}`}
+                      src={`${API_CONFIG.BASE_URL}/${avatar.sprite_path}`}
                       alt={avatar.name}
                       className="w-full h-full object-cover"
                     />

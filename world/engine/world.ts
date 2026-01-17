@@ -13,6 +13,7 @@ import { clampToBounds } from '../map/mapDef';
 import { processAction } from '../actions/pipeline';
 import { findPath } from '../utils/pathfinding';
 import { ReservationTable, resolveMoves, type MoveProposal } from '../utils/reservations';
+import { PATHFINDING_CONFIG } from './entityMovement';
 import { 
   ConversationRequestManager, 
   isWithinInitiationRange, 
@@ -182,10 +183,7 @@ export class World {
         let lastMovedTime = entity.lastMovedTime || currentTime;
         
         const currentPos = `${entity.x},${entity.y}`;
-        const NO_PROGRESS_TIMEOUT_MS = 5000; // 4 seconds without movement
-        const REPLAN_INTERVAL = 5; // Replan every 5 ticks
-        const HISTORY_SIZE = 10; // Track last 10 positions
-        const STUCK_THRESHOLD = 5; // If we see same position 5 times in history, we're stuck
+        const { NO_PROGRESS_TIMEOUT_MS, REPLAN_INTERVAL, HISTORY_SIZE, STUCK_THRESHOLD } = PATHFINDING_CONFIG;
         
         // Check if robot has made progress recently
         const lastPos = positionHistory.length > 0 ? positionHistory[0] : null;

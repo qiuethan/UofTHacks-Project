@@ -26,6 +26,7 @@ export const CONVERSATION_CONFIG = {
   CONVERSATION_RADIUS: 2,        // Must be within 2 cells to start conversation
   REQUEST_TIMEOUT_MS: 30000,     // Request expires after 30 seconds
   REJECTION_COOLDOWN_MS: 30000,  // 30 second cooldown after rejection
+  REQUEST_CLEANUP_MS: 5 * 60 * 1000, // Clean up old requests after 5 minutes
   AI_INTEREST_BASE: 0.5,         // Base probability for AI interest
   AI_INTEREST_VARIANCE: 0.3,     // Variance in AI interest
 };
@@ -332,10 +333,10 @@ export class ConversationRequestManager {
         this.requests.set(id, { ...request, status: 'EXPIRED' });
       }
       
-      // Remove old completed requests (older than 5 minutes)
+      // Remove old completed requests
       if (
         request.status !== 'PENDING' &&
-        now - request.createdAt > 5 * 60 * 1000
+        now - request.createdAt > CONVERSATION_CONFIG.REQUEST_CLEANUP_MS
       ) {
         this.requests.delete(id);
       }

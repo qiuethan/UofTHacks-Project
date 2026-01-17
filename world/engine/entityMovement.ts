@@ -8,12 +8,12 @@ import { findPath } from '../utils/pathfinding';
 import type { MoveProposal } from '../utils/reservations';
 
 // Pathfinding configuration constants
-const PATHFINDING_CONFIG = {
+export const PATHFINDING_CONFIG = {
   NO_PROGRESS_TIMEOUT_MS: 5000,
   REPLAN_INTERVAL: 5,
   HISTORY_SIZE: 10,
   STUCK_THRESHOLD: 5
-} as const;
+};
 
 interface PathfindingState {
   target: { x: number; y: number } | undefined;

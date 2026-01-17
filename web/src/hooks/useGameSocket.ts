@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { Entity, WorldEvent, WorldSnapshot, ConversationRequest } from '../types/game'
-
-const WS_URL = 'ws://localhost:3001'
+import { WS_CONFIG } from '../config'
 
 interface UseGameSocketOptions {
   token: string | undefined
@@ -157,7 +156,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     }
     connectingRef.current = true
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(WS_CONFIG.PLAY_URL)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -177,7 +176,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
       
       if (mountedRef.current && joinedRef.current && shouldReconnectRef.current) {
         joinedRef.current = false
-        setTimeout(connect, 2000)
+        setTimeout(connect, WS_CONFIG.RECONNECT_DELAY_MS)
       }
     }
 

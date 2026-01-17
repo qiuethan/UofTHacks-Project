@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Grid, Cell, EntityDot, ConnectionStatus } from '../components'
+import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 
 interface Entity {
   entityId: string
@@ -25,11 +26,10 @@ interface WorldEvent {
   facing?: { x: number; y: number }
 }
 
-const WS_URL = 'ws://localhost:3002'
 
 export default function WatchView() {
   const [connected, setConnected] = useState(false)
-  const [mapSize, setMapSize] = useState({ width: 20, height: 15 })
+  const [mapSize, setMapSize] = useState({ width: MAP_DEFAULTS.WIDTH, height: MAP_DEFAULTS.HEIGHT })
   const [entities, setEntities] = useState<Map<string, Entity>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [debugLog, setDebugLog] = useState<string[]>([])
@@ -51,7 +51,7 @@ export default function WatchView() {
     setError(null)
     addLog('Connecting...')
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(WS_CONFIG.WATCH_URL)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -67,7 +67,7 @@ export default function WatchView() {
       addLog('Disconnected')
       
       if (mountedRef.current && shouldReconnectRef.current) {
-        setTimeout(connect, 2000)
+        setTimeout(connect, WS_CONFIG.RECONNECT_DELAY_MS)
       }
     }
 
