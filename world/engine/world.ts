@@ -17,6 +17,7 @@ import { PATHFINDING_CONFIG } from './entityMovement';
 import { 
   ConversationRequestManager, 
   isWithinInitiationRange, 
+  isWithinConversationRange,
   areAdjacent,
   CONVERSATION_CONFIG,
   type ConversationRequest 
@@ -151,13 +152,16 @@ export class World {
     const entities = getAllEntities(this.state);
     const currentTime = Date.now();
     
-    // Build obstacle map for pathfinding
-    const obstacles = new Set<string>();
+    // Build obstacle maps for pathfinding
+    const staticObstacles = new Set<string>();
+    const dynamicObstacles = new Set<string>();
+    
     for (const e of entities) {
-      obstacles.add(`${e.x},${e.y}`);
-      obstacles.add(`${e.x + 1},${e.y}`);
-      obstacles.add(`${e.x},${e.y + 1}`);
-      obstacles.add(`${e.x + 1},${e.y + 1}`);
+      const targetSet = e.kind === 'WALL' ? staticObstacles : dynamicObstacles;
+      targetSet.add(`${e.x},${e.y}`);
+      targetSet.add(`${e.x + 1},${e.y}`);
+      targetSet.add(`${e.x},${e.y + 1}`);
+      targetSet.add(`${e.x + 1},${e.y + 1}`);
     }
 
     // Create reservation table for this tick
@@ -258,23 +262,93 @@ export class World {
               `${entity.x},${entity.y + 1}`,
               `${entity.x + 1},${entity.y + 1}`
             ];
+            
+            // Exclude self and partner from obstacles
+            const pathObstacles = new Set(staticObstacles);
+            for (const cell of dynamicObstacles) {
+              pathObstacles.add(cell);
+            }
+            
+            selfCells.forEach(c => pathObstacles.delete(c));
+            
             // Also exclude target cells (for conversation pathfinding, we want to path TO the target)
+            // AND exclude the partner themselves so they don't block the path
+            if (entity.conversationTargetId) {
+              const partner = this.state.entities.get(entity.conversationTargetId);
+              if (partner) {
+                pathObstacles.delete(`${partner.x},${partner.y}`);
+                pathObstacles.delete(`${partner.x + 1},${partner.y}`);
+                pathObstacles.delete(`${partner.x},${partner.y + 1}`);
+                pathObstacles.delete(`${partner.x + 1},${partner.y + 1}`);
+              }
+            }
+            
+            // Also explicitly exclude target area cells
             const targetCells = [
               `${target.x},${target.y}`,
               `${target.x + 1},${target.y}`,
               `${target.x},${target.y + 1}`,
               `${target.x + 1},${target.y + 1}`
             ];
-            const pathObstacles = new Set(obstacles);
-            selfCells.forEach(c => pathObstacles.delete(c));
             targetCells.forEach(c => pathObstacles.delete(c));
             
             plannedPath = findPath(this.state.map, { x: entity.x, y: entity.y }, target, pathObstacles) || undefined;
           }
           
           if (plannedPath && plannedPath.length > 0) {
-            // Check if we've reached the target
+            // Check if we've reached the target OR if we're close enough to start facing
             const nextStep = plannedPath[0];
+            
+            // Check if we are already close enough to the partner to face them (strictly cardinal)
+            if (entity.conversationState === 'WALKING_TO_CONVERSATION' && entity.conversationTargetId) {
+              const partner = this.state.entities.get(entity.conversationTargetId);
+              if (partner && isWithinConversationRange(entity.x, entity.y, partner.x, partner.y)) {
+                // We are close enough! Start facing them now (strictly cardinal)
+                const dx = partner.x - entity.x;
+                const dy = partner.y - entity.y;
+                
+                let myFx: 0 | 1 | -1 = 0;
+                let myFy: 0 | 1 | -1 = 0;
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                  myFx = (dx > 0 ? 1 : -1) as 1 | -1;
+                } else {
+                  myFy = (dy > 0 ? 1 : -1) as 1 | -1;
+                }
+                const myFacingToPartner = { x: myFx, y: myFy };
+
+                let pFx: 0 | 1 | -1 = 0;
+                let pFy: 0 | 1 | -1 = 0;
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                  pFx = (dx > 0 ? -1 : 1) as 1 | -1;
+                } else {
+                  pFy = (dy > 0 ? -1 : 1) as 1 | -1;
+                }
+                const partnerFacingToMe = { x: pFx, y: pFy };
+
+                // Update my facing if needed
+                if (!entity.facing || entity.facing.x !== myFacingToPartner.x || entity.facing.y !== myFacingToPartner.y) {
+                  const currentEntity = this.state.entities.get(entity.entityId)!;
+                  this.state.entities.set(entity.entityId, { ...currentEntity, facing: myFacingToPartner });
+                  events.push({
+                    type: 'ENTITY_TURNED',
+                    entityId: entity.entityId,
+                    facing: myFacingToPartner
+                  });
+                }
+
+                // Update partner's facing if needed (so they track us as we arrive)
+                if (!partner.facing || partner.facing.x !== partnerFacingToMe.x || partner.facing.y !== partnerFacingToMe.y) {
+                  const currentPartner = this.state.entities.get(partner.entityId)!;
+                  this.state.entities.set(partner.entityId, { ...currentPartner, facing: partnerFacingToMe });
+                  events.push({
+                    type: 'ENTITY_TURNED',
+                    entityId: partner.entityId,
+                    facing: partnerFacingToMe
+                  });
+                }
+              }
+            }
+
             if (nextStep.x === entity.x && nextStep.y === entity.y) {
               // Remove current position from path
               plannedPath = plannedPath.slice(1);
@@ -287,13 +361,18 @@ export class World {
               if (entity.conversationState === 'WALKING_TO_CONVERSATION' && entity.conversationTargetId) {
                 const conversationPartner = this.state.entities.get(entity.conversationTargetId);
                 if (conversationPartner) {
-                  // Calculate direction to face partner
+                  // Calculate direction to face partner (strictly cardinal)
                   const dx = conversationPartner.x - entity.x;
                   const dy = conversationPartner.y - entity.y;
-                  const facingDirection = {
-                    x: (dx > 0 ? 1 : dx < 0 ? -1 : 0) as 0 | 1 | -1,
-                    y: (dy > 0 ? 1 : dy < 0 ? -1 : 0) as 0 | 1 | -1
-                  };
+                  let fx: 0 | 1 | -1 = 0;
+                  let fy: 0 | 1 | -1 = 0;
+                  
+                  if (Math.abs(dx) >= Math.abs(dy)) {
+                    fx = (dx > 0 ? 1 : -1) as 1 | -1;
+                  } else {
+                    fy = (dy > 0 ? 1 : -1) as 1 | -1;
+                  }
+                  const facingDirection = { x: fx, y: fy };
                   
                   // Update entity to face the partner
                   const currentEntity = this.state.entities.get(entity.entityId)!;
@@ -623,13 +702,18 @@ export class World {
       pendingConversationRequestId: undefined
     };
     
-    // Target should face the initiator immediately
+    // Target should face the initiator immediately (strictly cardinal)
     const dxToInitiator = initiator.x - target.x;
     const dyToInitiator = initiator.y - target.y;
-    const targetFacingDir = {
-      x: (dxToInitiator > 0 ? 1 : dxToInitiator < 0 ? -1 : 0) as 0 | 1 | -1,
-      y: (dyToInitiator > 0 ? 1 : dyToInitiator < 0 ? -1 : 0) as 0 | 1 | -1
-    };
+    let fx: 0 | 1 | -1 = 0;
+    let fy: 0 | 1 | -1 = 0;
+    
+    if (Math.abs(dxToInitiator) >= Math.abs(dyToInitiator)) {
+      fx = (dxToInitiator > 0 ? 1 : -1) as 1 | -1;
+    } else {
+      fy = (dyToInitiator > 0 ? 1 : -1) as 1 | -1;
+    }
+    const targetFacingDir = { x: fx, y: fy };
 
     const updatedTarget = {
       ...target,
@@ -811,20 +895,27 @@ export class World {
             startedAt: Date.now()
           });
           
-          // Calculate facing directions so entities face each other
+          // Calculate facing directions so entities face each other (strictly cardinal)
           const dx = target.x - entity.x;
           const dy = target.y - entity.y;
           
-          // Normalize to -1, 0, or 1
-          const entityFacing = {
-            x: (dx > 0 ? 1 : dx < 0 ? -1 : 0) as 0 | 1 | -1,
-            y: (dy > 0 ? 1 : dy < 0 ? -1 : 0) as 0 | 1 | -1
-          };
+          let efx: 0 | 1 | -1 = 0;
+          let efy: 0 | 1 | -1 = 0;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            efx = (dx > 0 ? 1 : -1) as 1 | -1;
+          } else {
+            efy = (dy > 0 ? 1 : -1) as 1 | -1;
+          }
+          const entityFacing = { x: efx, y: efy };
           
-          const targetFacing = {
-            x: (dx > 0 ? -1 : dx < 0 ? 1 : 0) as 0 | 1 | -1,
-            y: (dy > 0 ? -1 : dy < 0 ? 1 : 0) as 0 | 1 | -1
-          };
+          let tfx: 0 | 1 | -1 = 0;
+          let tfy: 0 | 1 | -1 = 0;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            tfx = (dx > 0 ? -1 : 1) as 1 | -1;
+          } else {
+            tfy = (dy > 0 ? -1 : 1) as 1 | -1;
+          }
+          const targetFacing = { x: tfx, y: tfy };
           
           // Update both entities to IN_CONVERSATION
           const updatedEntity = {
