@@ -3,9 +3,11 @@ FastAPI server for Avatar creation and management
 """
 
 import os
+import sys
 import shutil
 import uuid
 import random
+import tempfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -15,8 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse
+from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse, GenerateAvatarResponse
 from . import database as db
+
+# Add image_gen to path for importing pipeline
+IMAGE_GEN_PATH = Path(__file__).parent.parent.parent / "image_gen"
+sys.path.insert(0, str(IMAGE_GEN_PATH))
 
 # Load environment variables
 load_dotenv()
@@ -315,6 +321,133 @@ def delete_avatar(avatar_id: str):
     
     db.delete_avatar(avatar_id)
     return {"ok": True, "message": "Avatar deleted"}
+
+
+@app.post("/generate-avatar", response_model=GenerateAvatarResponse)
+async def generate_avatar(photo: UploadFile = File(...)):
+    """
+    Generate avatar sprites from an uploaded photo.
+    
+    Accepts a photo, generates 4 directional views (front, back, left, right)
+    using AI image generation, and uploads them to Supabase storage.
+    
+    Returns URLs to the generated images.
+    """
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Storage service unavailable")
+    
+    # Validate file type
+    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+    if photo.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type: {photo.content_type}. Allowed: {allowed_types}"
+        )
+    
+    # Create a unique session ID for this generation
+    session_id = str(uuid.uuid4())
+    
+    try:
+        # Import the pipeline (done here to defer loading)
+        from pipeline import run_pipeline
+        
+        # Create temp directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Save uploaded file temporarily
+            input_path = temp_path / f"input_{session_id}.png"
+            file_content = await photo.read()
+            with open(input_path, "wb") as f:
+                f.write(file_content)
+            
+            print(f"[generate-avatar] Processing image for session {session_id}")
+            
+            # Run the sprite generation pipeline
+            output_folder = temp_path / "output"
+            results = run_pipeline(
+                input_image_path=str(input_path),
+                output_folder=str(output_folder)
+            )
+            
+            print(f"[generate-avatar] Pipeline complete, uploading to Supabase...")
+            
+            # Upload all views to Supabase (sprites bucket)
+            # Each generation creates a new folder with the session_id, preserving old uploads
+            bucket_name = "sprites"
+            image_urls = {}
+            
+            # Views to upload: front, back, left, right
+            views = ["front", "back", "left", "right"]
+            
+            for view in views:
+                view_path = results["views"].get(view)
+                if not view_path or not Path(view_path).exists():
+                    print(f"[generate-avatar] Warning: {view} view not found at {view_path}")
+                    continue
+                
+                # Read the generated image
+                with open(view_path, "rb") as f:
+                    image_bytes = f.read()
+                
+                # Generate unique filename
+                filename = f"{session_id}/{view}.png"
+                
+                # Upload to Supabase
+                try:
+                    supabase.storage.from_(bucket_name).upload(
+                        path=filename,
+                        file=image_bytes,
+                        file_options={"content-type": "image/png", "upsert": "true"}
+                    )
+                    
+                    # Get public URL
+                    public_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+                    image_urls[view] = public_url
+                    print(f"[generate-avatar] Uploaded {view}: {public_url}")
+                    
+                except Exception as upload_error:
+                    print(f"[generate-avatar] Upload error for {view}: {upload_error}")
+                    # Try to create the bucket if it doesn't exist
+                    if "not found" in str(upload_error).lower():
+                        try:
+                            supabase.storage.create_bucket(bucket_name, options={"public": True})
+                            print(f"[generate-avatar] Created bucket: {bucket_name}")
+                            # Retry upload
+                            supabase.storage.from_(bucket_name).upload(
+                                path=filename,
+                                file=image_bytes,
+                                file_options={"content-type": "image/png", "upsert": "true"}
+                            )
+                            public_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+                            image_urls[view] = public_url
+                            print(f"[generate-avatar] Uploaded {view}: {public_url}")
+                        except Exception as retry_error:
+                            print(f"[generate-avatar] Retry failed: {retry_error}")
+                            raise HTTPException(status_code=500, detail=f"Storage upload failed: {retry_error}")
+                    else:
+                        raise HTTPException(status_code=500, detail=f"Storage upload failed: {upload_error}")
+            
+            if not image_urls:
+                raise HTTPException(status_code=500, detail="No images were generated")
+            
+            print(f"[generate-avatar] Successfully generated avatar: {session_id}")
+            
+            return {
+                "ok": True,
+                "message": f"Avatar generated successfully with {len(image_urls)} views",
+                "images": image_urls
+            }
+            
+    except ImportError as e:
+        print(f"[generate-avatar] Import error: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Image generation pipeline not available. Check dependencies."
+        )
+    except Exception as e:
+        print(f"[generate-avatar] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

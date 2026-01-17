@@ -60,3 +60,11 @@ class AgentResponse(BaseModel):
     target_entity_id: Optional[str] = None  # For REQUEST_CONVERSATION
     request_id: Optional[str] = None  # For ACCEPT/REJECT_CONVERSATION
     duration: Optional[float] = None  # Duration in seconds for actions like STAND_STILL
+
+
+class GenerateAvatarResponse(BaseModel):
+    """Response model for avatar generation endpoint"""
+    ok: bool
+    message: Optional[str] = None
+    error: Optional[str] = None
+    images: Optional[dict[str, str]] = None  # {front: url, back: url, left: url, right: url}
