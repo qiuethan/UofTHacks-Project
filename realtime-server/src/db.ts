@@ -71,6 +71,42 @@ export async function checkUserHasAvatar(userId: string): Promise<boolean> {
   return data?.has_avatar || false;
 }
 
+/**
+ * Load all users from the database with their positions.
+ * Used on server startup to populate the world with existing users as ROBOTs.
+ */
+export async function getAllUsers(): Promise<Array<{ userId: string } & UserPositionData>> {
+  const { data, error } = await supabase
+    .from('user_positions')
+    .select('user_id, x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id');
+  
+  if (error) {
+    console.error('Failed to load all users:', error);
+    return [];
+  }
+  
+  if (!data) return [];
+  
+  return data.map(row => ({
+    userId: row.user_id,
+    x: row.x,
+    y: row.y,
+    facing: { x: row.facing_x ?? 0, y: row.facing_y ?? 1 },
+    displayName: row.display_name || undefined,
+    hasAvatar: row.has_avatar || false,
+    sprites: (row.sprite_front || row.sprite_back || row.sprite_left || row.sprite_right) ? {
+      front: row.sprite_front || undefined,
+      back: row.sprite_back || undefined,
+      left: row.sprite_left || undefined,
+      right: row.sprite_right || undefined,
+    } : undefined,
+    conversationState: row.conversation_state || undefined,
+    conversationTargetId: row.conversation_target_id || undefined,
+    conversationPartnerId: row.conversation_partner_id || undefined,
+    pendingConversationRequestId: row.pending_conversation_request_id || undefined
+  }));
+}
+
 export async function updatePosition(
   userId: string, 
   x: number, 
