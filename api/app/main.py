@@ -8,6 +8,8 @@ import shutil
 import uuid
 import random
 import tempfile
+import time
+import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -19,7 +21,23 @@ from supabase import create_client, Client
 
 from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse, GenerateAvatarResponse
 from . import database as db
+from .agent_models import (
+    InitializeAgentRequest,
+    InitializeAgentResponse,
+    AgentStateUpdateRequest,
+    SentimentUpdateRequest,
+    AgentPersonality,
+    AgentState,
+    AgentActionResponse,
+)
+from . import agent_database as agent_db
+from .agent_worker import process_agent_tick
 from . import onboarding
+
+# Reduce noisy logging from HTTP clients
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("app.agent_worker").setLevel(logging.WARNING)
 
 # Add image_gen to path for importing pipeline
 IMAGE_GEN_PATH = Path(__file__).parent.parent.parent / "image_gen"
@@ -75,16 +93,18 @@ def get_agent_decision(req: AgentRequest):
     """
     Get a decision for a robot agent.
     Supports: MOVE, STAND_STILL, REQUEST_CONVERSATION, ACCEPT_CONVERSATION, REJECT_CONVERSATION
+    
+    Uses the utility-based agent decision system when available.
+    Falls back to random behavior if agent system is unavailable.
     """
     
-    # TODO: Implement AI decision logic
-    
     try:
-        # Handle pending conversation requests first
+        # =====================================================================
+        # PRIORITY 1: Handle pending conversation requests first
+        # =====================================================================
         if req.pending_requests:
             for pending in req.pending_requests:
                 initiator_type = pending.get("initiator_type", "PLAYER")
-                # Decide whether to accept or reject based on interest
                 interest = calculate_ai_interest_to_accept(req.robot_id, pending.get("initiator_id", ""), initiator_type)
                 if should_ai_accept(interest):
                     response = {
@@ -101,100 +121,244 @@ def get_agent_decision(req: AgentRequest):
                     print(f"AI Decision for {req.robot_id}: {response}")
                     return response
         
-        # If in conversation, stand still
+        # =====================================================================
+        # PRIORITY 2: Handle active conversation states
+        # =====================================================================
         if req.conversation_state == "IN_CONVERSATION":
             response = {"action": "STAND_STILL", "duration": random.uniform(2.0, 5.0)}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
         
-        # If walking to conversation partner, continue (handled by pathfinding)
         if req.conversation_state == "WALKING_TO_CONVERSATION":
-            response = {"action": "STAND_STILL", "duration": 1.0}  # Check again soon
+            response = {"action": "STAND_STILL", "duration": 1.0}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
         
-        # Check if we should initiate a conversation with nearby entities
+        # =====================================================================
+        # PRIORITY 3: Try utility-based agent decision system
+        # =====================================================================
+        agent_response = try_agent_decision_system(req)
+        if agent_response:
+            return agent_response
+        
+        # =====================================================================
+        # FALLBACK: Random behavior when agent system unavailable
+        # =====================================================================
+        short_id = req.robot_id[:8]
+        print(f"🎲 {short_id} | FALLBACK (lock busy)")
+        return get_fallback_decision(req)
+        
+    except Exception as e:
+        print(f"Error in get_agent_decision: {e}")
+        return {"action": "STAND_STILL", "duration": 5.0}
+
+
+def try_agent_decision_system(req: AgentRequest) -> Optional[dict]:
+    """
+    Try to get a decision from the utility-based agent decision system.
+    Returns None if agent system is unavailable or fails.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        return None
+    
+    try:
+        # Try to get agent context (this auto-initializes if needed)
+        personality = agent_db.get_personality(client, req.robot_id)
+        state = agent_db.get_state(client, req.robot_id)
+        
+        if not personality or not state:
+            # Initialize agent with random personality
+            try:
+                personality, state = agent_db.initialize_agent(client, req.robot_id)
+            except Exception as init_err:
+                print(f"⚠️  Agent init failed: {init_err}")
+                return None
+        
+        # Call the agent decision system with retry for lock contention
+        result = None
+        for attempt in range(3):
+            result = process_agent_tick(client, req.robot_id, debug=False)
+            if result is not None:
+                break
+            if attempt < 2:  # Don't sleep after last attempt
+                time.sleep(0.15)  # 150ms delay between retries
+        
+        if not result:
+            return None
+        
+        # Map agent system action to API response format
+        return map_agent_action_to_response(result, req)
+        
+    except Exception as e:
+        print(f"⚠️  Agent error: {e}")
+        return None
+
+
+def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[dict]:
+    """Map agent system result to the API response format."""
+    action_type = result.get("action", "idle")
+    target = result.get("target")
+    score = result.get("score", 0)
+    state = result.get("state", {})
+    
+    # Build a concise log line
+    short_id = req.robot_id[:8]
+    target_name = ""
+    if target:
+        if target.get("target_type") == "location":
+            target_name = f"→ ({target.get('x')},{target.get('y')})"
+        elif target.get("target_type") == "avatar":
+            target_name = f"→ avatar {target.get('target_id', '')[:8]}"
+        elif target.get("x") is not None:
+            target_name = f"→ ({target.get('x')},{target.get('y')})"
+    
+    # State summary
+    e = state.get('energy', 0)
+    h = state.get('hunger', 0)
+    l = state.get('loneliness', 0)
+    m = state.get('mood', 0)
+    state_str = f"E:{e:.0%} H:{h:.0%} L:{l:.0%} M:{m:.0%}"
+    
+    print(f"🤖 {short_id} | {action_type:20} {target_name:15} | score:{score:.2f} | {state_str}")
+    
+    # Map action types to API responses
+    if action_type in ["idle", "stand_still"]:
+        return {"action": "STAND_STILL", "duration": random.uniform(2.0, 5.0)}
+    
+    elif action_type == "wander":
+        if target and target.get("x") is not None and target.get("y") is not None:
+            return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
+        return get_random_move_target(req)
+    
+    elif action_type in ["walk_to_location", "interact_food", "interact_karaoke", "interact_rest"]:
+        if target:
+            if target.get("x") is not None and target.get("y") is not None:
+                return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
+            elif target.get("target_id"):
+                # Look up location coordinates
+                client = agent_db.get_supabase_client()
+                if client:
+                    locations = agent_db.get_all_world_locations(client)
+                    location = next((l for l in locations if l.id == target["target_id"]), None)
+                    if location:
+                        return {"action": "MOVE", "target_x": location.x, "target_y": location.y}
+        return None
+    
+    elif action_type == "initiate_conversation":
+        if target and target.get("target_id"):
+            return {"action": "REQUEST_CONVERSATION", "target_entity_id": target["target_id"]}
+        # Find a nearby entity to talk to
         if req.nearby_entities:
             for entity in req.nearby_entities:
                 if entity.get("kind") in ["PLAYER", "ROBOT"] and entity.get("entityId") != req.robot_id:
-                    interest = calculate_ai_interest_to_initiate(req.robot_id, entity.get("entityId", ""), entity.get("kind", "ROBOT"))
-                    if should_ai_initiate(interest):
-                        response = {
-                            "action": "REQUEST_CONVERSATION",
-                            "target_entity_id": entity.get("entityId")
-                        }
-                        print(f"AI Decision for {req.robot_id}: {response}")
-                        return response
-        
-        # Default: random walk behavior
-        # Small chance to stand still
-        if random.random() < 0.1:
-            response = {"action": "STAND_STILL", "duration": random.uniform(2.0, 8.0)}
-            print(f"AI Decision for {req.robot_id}: {response}")
-            return response
-        
-        # Define safe zone boundaries (avoid edges for 2x2 entities)
-        MARGIN = 2
-        min_x = MARGIN
-        max_x = max(min_x + 1, req.map_width - MARGIN - 2)
-        min_y = MARGIN
-        max_y = max(min_y + 1, req.map_height - MARGIN - 2)
-        
-        # Collect obstacle positions from nearby entities (including walls)
-        obstacles = set()
-        if req.nearby_entities:
-            for entity in req.nearby_entities:
-                # Add all 4 cells of the 2x2 entity
-                ex, ey = entity.get("x", -1), entity.get("y", -1)
-                for dx in range(2):
-                    for dy in range(2):
-                        obstacles.add((ex + dx, ey + dy))
-        
-        # Avoid picking a target that is blocked
-        target_x, target_y = random.randint(min_x, max_x), random.randint(min_y, max_y)
-        
-        max_attempts = 100
-        for _ in range(max_attempts):
-            is_blocked = False
-            # Check if any of the 4 cells of the 2x2 robot target would be blocked
+                    return {"action": "REQUEST_CONVERSATION", "target_entity_id": entity.get("entityId")}
+        return None
+    
+    elif action_type in ["join_conversation", "leave_conversation"]:
+        return {"action": "STAND_STILL", "duration": 1.0}
+    
+    elif action_type == "move":
+        if target and target.get("x") is not None and target.get("y") is not None:
+            return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
+        return None
+    
+    print(f"Unknown action type: {action_type}")
+    return None
+
+
+def get_random_move_target(req: AgentRequest) -> dict:
+    """Generate a random move target avoiding obstacles."""
+    MARGIN = 2
+    min_x = MARGIN
+    max_x = max(min_x + 1, req.map_width - MARGIN - 2)
+    min_y = MARGIN
+    max_y = max(min_y + 1, req.map_height - MARGIN - 2)
+    
+    obstacles = set()
+    if req.nearby_entities:
+        for entity in req.nearby_entities:
+            ex, ey = entity.get("x", -1), entity.get("y", -1)
             for dx in range(2):
                 for dy in range(2):
-                    if (target_x + dx, target_y + dy) in obstacles:
-                        is_blocked = True
-                        break
-                if is_blocked:
-                    break
-            
-            if not is_blocked:
-                break
-                
-            target_x = random.randint(min_x, max_x)
-            target_y = random.randint(min_y, max_y)
-        
-        response = {
-            "action": "MOVE",
-            "target_x": target_x,
-            "target_y": target_y
-        }
-        print(f"AI Decision for {req.robot_id}: {response}")
+                    obstacles.add((ex + dx, ey + dy))
+    
+    target_x, target_y = random.randint(min_x, max_x), random.randint(min_y, max_y)
+    
+    for _ in range(100):
+        is_blocked = any((target_x + dx, target_y + dy) in obstacles for dx in range(2) for dy in range(2))
+        if not is_blocked:
+            break
+        target_x = random.randint(min_x, max_x)
+        target_y = random.randint(min_y, max_y)
+    
+    return {"action": "MOVE", "target_x": target_x, "target_y": target_y}
+
+
+def get_fallback_decision(req: AgentRequest) -> dict:
+    """Fallback decision logic when agent system is unavailable."""
+    # Check if we should initiate a conversation with nearby entities
+    if req.nearby_entities:
+        for entity in req.nearby_entities:
+            if entity.get("kind") in ["PLAYER", "ROBOT"] and entity.get("entityId") != req.robot_id:
+                interest = calculate_ai_interest_to_initiate(req.robot_id, entity.get("entityId", ""), entity.get("kind", "ROBOT"))
+                if should_ai_initiate(interest):
+                    response = {"action": "REQUEST_CONVERSATION", "target_entity_id": entity.get("entityId")}
+                    print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
+                    return response
+    
+    # Small chance to stand still
+    if random.random() < 0.1:
+        response = {"action": "STAND_STILL", "duration": random.uniform(2.0, 8.0)}
+        print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
         return response
-    except Exception as e:
-        print(f"Error in get_agent_decision: {e}")
-        # Fallback to a safe stand still action
-        return {"action": "STAND_STILL", "duration": 5.0}
+    
+    # Default: random walk
+    response = get_random_move_target(req)
+    print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
+    return response
     
 
 # ============================================================================
-# AI INTEREST CALCULATIONS
+# AI INTEREST CALCULATIONS (Enhanced with Agent System)
 # ============================================================================
 
 def calculate_ai_interest_to_initiate(robot_id: str, target_id: str, target_type: str) -> float:
     """
     Calculate AI interest score for initiating a conversation.
-    Returns probability between 0 and 1.
-    TODO: Replace with actual interest calculation based on personality, history, etc.
+    Uses agent personality and social memory if available, falls back to random.
     """
-    base = 0.3  # Lower base for initiation
+    try:
+        client = agent_db.get_supabase_client()
+        if client:
+            # Try to use the new agent system
+            personality = agent_db.get_personality(client, robot_id)
+            state = agent_db.get_state(client, robot_id)
+            memory = agent_db.get_social_memory(client, robot_id, target_id)
+            
+            if personality and state:
+                # Base interest from personality
+                base = personality.sociability * 0.5
+                
+                # Boost from loneliness
+                if state.loneliness > 0.5:
+                    base += (state.loneliness - 0.5) * 0.4
+                
+                # Modify by social memory
+                if memory:
+                    base += memory.sentiment * 0.2
+                    base += memory.familiarity * 0.1
+                
+                # Prefer players
+                if target_type == "PLAYER":
+                    base += 0.2
+                
+                return max(0.0, min(1.0, base))
+    except Exception as e:
+        print(f"Using fallback interest calculation: {e}")
+    
+    # Fallback to simple random
+    base = 0.3
     variance = 0.2
     return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
 
@@ -202,11 +366,34 @@ def calculate_ai_interest_to_initiate(robot_id: str, target_id: str, target_type
 def calculate_ai_interest_to_accept(robot_id: str, initiator_id: str, initiator_type: str = "PLAYER") -> float:
     """
     Calculate AI interest in accepting a conversation request.
+    Uses agent personality if available.
     """
     if initiator_type == "PLAYER":
         return 1.0  # Always accept humans
-        
-    base = 0.5  # Base for other robots
+    
+    try:
+        client = agent_db.get_supabase_client()
+        if client:
+            personality = agent_db.get_personality(client, robot_id)
+            memory = agent_db.get_social_memory(client, robot_id, initiator_id)
+            
+            if personality:
+                # Base from agreeableness
+                base = personality.agreeableness * 0.6 + 0.3
+                
+                # Modify by social memory
+                if memory:
+                    base += memory.sentiment * 0.2
+                    # Negative sentiment might lead to rejection
+                    if memory.sentiment < -0.3:
+                        base -= 0.3
+                
+                return max(0.0, min(1.0, base))
+    except Exception as e:
+        print(f"Using fallback accept calculation: {e}")
+    
+    # Fallback
+    base = 0.5
     variance = 0.2
     return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
 
@@ -451,6 +638,202 @@ async def generate_avatar(photo: UploadFile = File(...)):
     except Exception as e:
         print(f"[generate-avatar] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AGENT DECISION SYSTEM ENDPOINTS
+# ============================================================================
+
+@app.post("/agent/{avatar_id}/action", response_model=AgentActionResponse)
+def get_next_agent_action(avatar_id: str, debug: bool = False):
+    """
+    Get the next action for an agent.
+    
+    Call this when an agent is free/done with their current action
+    to determine what they should do next.
+    
+    This is the on-demand decision endpoint - agents request their
+    next action when ready, rather than being batch-processed.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    result = process_agent_tick(client, avatar_id, debug=debug)
+    if result:
+        return AgentActionResponse(
+            ok=True,
+            avatar_id=avatar_id,
+            action=result["action"],
+            target=result.get("target"),
+            score=result.get("score"),
+            state=result.get("state")
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Avatar not found or context unavailable")
+
+
+@app.post("/agent/initialize", response_model=InitializeAgentResponse)
+def initialize_agent(request: InitializeAgentRequest):
+    """
+    Initialize agent data (personality and state) for an avatar.
+    
+    Call this when a new avatar is created to set up their AI agent.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        personality, state = agent_db.initialize_agent(
+            client, 
+            request.avatar_id,
+            request.personality
+        )
+        return InitializeAgentResponse(
+            ok=True,
+            avatar_id=request.avatar_id,
+            personality=personality,
+            state=state
+        )
+    except Exception as e:
+        print(f"Error initializing agent: {e}")
+        return InitializeAgentResponse(
+            ok=False,
+            avatar_id=request.avatar_id,
+            error=str(e)
+        )
+
+
+@app.get("/agent/{avatar_id}/personality")
+def get_agent_personality(avatar_id: str):
+    """Get personality data for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    personality = agent_db.get_personality(client, avatar_id)
+    if not personality:
+        raise HTTPException(status_code=404, detail="Personality not found")
+    
+    return {"ok": True, "data": personality.model_dump()}
+
+
+@app.get("/agent/{avatar_id}/state")
+def get_agent_state(avatar_id: str):
+    """Get current state (needs) for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    state = agent_db.get_state(client, avatar_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    return {"ok": True, "data": state.model_dump()}
+
+
+@app.patch("/agent/{avatar_id}/state")
+def update_agent_state(avatar_id: str, request: AgentStateUpdateRequest):
+    """Manually update agent state (for testing or admin purposes)."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    state = agent_db.get_state(client, avatar_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    # Apply updates
+    if request.energy is not None:
+        state.energy = max(0.0, min(1.0, request.energy))
+    if request.hunger is not None:
+        state.hunger = max(0.0, min(1.0, request.hunger))
+    if request.loneliness is not None:
+        state.loneliness = max(0.0, min(1.0, request.loneliness))
+    if request.mood is not None:
+        state.mood = max(-1.0, min(1.0, request.mood))
+    
+    agent_db.update_state(client, state)
+    return {"ok": True, "data": state.model_dump()}
+
+
+@app.get("/agent/{avatar_id}/social-memory")
+def get_agent_social_memory(avatar_id: str):
+    """Get all social memories for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    memories = agent_db.get_social_memories(client, avatar_id)
+    return {"ok": True, "data": [m.model_dump() for m in memories]}
+
+
+@app.post("/agent/sentiment")
+def update_sentiment(request: SentimentUpdateRequest):
+    """
+    Update sentiment after a conversation.
+    
+    Called by the server after conversations complete.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        memory = agent_db.update_social_memory(
+            client,
+            request.from_avatar_id,
+            request.to_avatar_id,
+            sentiment_delta=request.sentiment_delta,
+            familiarity_delta=request.familiarity_delta,
+            conversation_topic=request.conversation_topic
+        )
+        return {"ok": True, "data": memory.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/world/locations")
+def get_world_locations():
+    """Get all world locations."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    locations = agent_db.get_all_world_locations(client)
+    return {"ok": True, "data": [l.model_dump() for l in locations]}
+
+
+@app.get("/agent/{avatar_id}/context")
+def get_agent_context(avatar_id: str):
+    """
+    Get the full decision context for an avatar (for debugging).
+    
+    This shows everything the agent considers when making a decision.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    context = agent_db.build_agent_context(client, avatar_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    return {
+        "ok": True,
+        "data": {
+            "avatar_id": context.avatar_id,
+            "position": {"x": context.x, "y": context.y},
+            "personality": context.personality.model_dump(),
+            "state": context.state.model_dump(),
+            "nearby_avatars": [a.model_dump() for a in context.nearby_avatars],
+            "world_locations": [l.model_dump() for l in context.world_locations],
+            "active_cooldowns": context.active_cooldowns,
+            "in_conversation": context.in_conversation,
+            "social_memories_count": len(context.social_memories),
+        }
+    }
 
 
 if __name__ == "__main__":
