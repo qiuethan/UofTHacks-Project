@@ -83,6 +83,17 @@ export default function WatchView() {
             const newEntities = new Map<string, Entity>()
             snapshot.entities.forEach(e => newEntities.set(e.entityId, e))
             setEntities(newEntities)
+            
+            // Debug: Log entity sprite data
+            console.log('[Watch] Received SNAPSHOT with entities:')
+            snapshot.entities.forEach(e => {
+              if (e.kind !== 'WALL') {
+                console.log(`  - ${e.displayName} (${e.kind}):`, {
+                  hasSprites: !!e.sprites,
+                  frontSprite: e.sprites?.front ? e.sprites.front.substring(0, 60) + '...' : 'none'
+                })
+              }
+            })
             break
           }
           

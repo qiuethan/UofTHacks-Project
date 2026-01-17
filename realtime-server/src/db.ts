@@ -76,16 +76,34 @@ export async function checkUserHasAvatar(userId: string): Promise<boolean> {
  * Used on server startup to populate the world with existing users as ROBOTs.
  */
 export async function getAllUsers(): Promise<Array<{ userId: string } & UserPositionData>> {
+  console.log('[DB] Loading all users from user_positions table...');
+  
   const { data, error } = await supabase
     .from('user_positions')
     .select('user_id, x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id');
   
   if (error) {
-    console.error('Failed to load all users:', error);
+    console.error('[DB] Failed to load all users:', error);
     return [];
   }
   
-  if (!data) return [];
+  if (!data) {
+    console.log('[DB] No users found in database');
+    return [];
+  }
+  
+  console.log(`[DB] Found ${data.length} users in database`);
+  
+  // Debug: Log raw sprite data for each user
+  data.forEach(row => {
+    console.log(`[DB] User ${row.display_name || row.user_id.substring(0, 8)}:`, {
+      has_avatar: row.has_avatar,
+      sprite_front: row.sprite_front ? row.sprite_front.substring(0, 50) + '...' : null,
+      sprite_back: row.sprite_back ? 'yes' : null,
+      sprite_left: row.sprite_left ? 'yes' : null,
+      sprite_right: row.sprite_right ? 'yes' : null
+    });
+  });
   
   return data.map(row => ({
     userId: row.user_id,

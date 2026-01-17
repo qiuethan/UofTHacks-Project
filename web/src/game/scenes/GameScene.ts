@@ -170,6 +170,15 @@ export class GameScene extends Phaser.Scene {
 
     const spriteUrl = this.getSpriteUrl(entity)
     
+    // Debug: Log sprite loading
+    if (entity.kind !== 'WALL') {
+      console.log(`[GameScene] Creating entity ${entity.displayName}:`, {
+        hasSprites: !!entity.sprites,
+        spriteUrl: spriteUrl ? spriteUrl.substring(0, 60) + '...' : 'none',
+        isMe
+      })
+    }
+    
     if (spriteUrl && spriteUrl.startsWith('http')) {
       // Load external sprite
       const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
@@ -246,9 +255,17 @@ export class GameScene extends Phaser.Scene {
     container: Phaser.GameObjects.Container,
     entity: GameEntity
   ) {
+    console.log(`[GameScene] Loading texture for ${entity.displayName}: ${url.substring(0, 60)}...`)
+    
     this.load.image(textureKey, url)
+    
+    this.load.once('loaderror', (file: Phaser.Loader.File) => {
+      console.error(`[GameScene] Failed to load texture for ${entity.displayName}:`, file.key, file.url)
+    })
+    
     this.load.once('complete', () => {
       if (this.textures.exists(textureKey)) {
+        console.log(`[GameScene] Texture loaded successfully for ${entity.displayName}`)
         // Remove placeholder rectangles
         container.getAll().forEach(child => {
           if (child instanceof Phaser.GameObjects.Rectangle) {
@@ -264,6 +281,8 @@ export class GameScene extends Phaser.Scene {
         if (entitySprite) {
           entitySprite.sprite = sprite
         }
+      } else {
+        console.warn(`[GameScene] Texture key ${textureKey} doesn't exist after load complete`)
       }
     })
     this.load.start()

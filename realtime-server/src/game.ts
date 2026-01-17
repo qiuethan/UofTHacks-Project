@@ -34,6 +34,17 @@ export async function loadExistingUsers(): Promise<void> {
       continue;
     }
     
+    // Log user data for debugging
+    console.log(`  Loading user: ${user.displayName || 'Anonymous'} (${user.userId.substring(0, 8)}...)`, {
+      hasSprites: !!user.sprites,
+      sprites: user.sprites ? {
+        front: user.sprites.front ? 'yes' : 'no',
+        back: user.sprites.back ? 'yes' : 'no',
+        left: user.sprites.left ? 'yes' : 'no',
+        right: user.sprites.right ? 'yes' : 'no'
+      } : 'none'
+    });
+    
     // Create as ROBOT (AI-controlled) so they can move around
     const facing = user.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
     const robot: any = {

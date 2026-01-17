@@ -81,7 +81,17 @@ watchWss.on('connection', (ws) => {
   console.log(`Spectator connected: ${watcherId}`);
   
   // Send current world state
-  send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+  const snapshot = world.getSnapshot();
+  
+  // Debug: Log entity sprite info
+  console.log(`[Watch] Sending snapshot with ${snapshot.entities.length} entities:`);
+  snapshot.entities.forEach(e => {
+    if (e.kind !== 'WALL') {
+      console.log(`  - ${e.displayName} (${e.kind}): sprites=${e.sprites ? 'yes' : 'NO'}`);
+    }
+  });
+  
+  send(ws, { type: 'SNAPSHOT', snapshot });
   
   ws.on('close', () => {
     spectators.delete(ws);
