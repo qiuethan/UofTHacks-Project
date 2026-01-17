@@ -31,14 +31,12 @@ export function findPath(
     ];
 
     for (const neighbor of neighbors) {
-      // For a 2x2 entity, check if the entire 2x2 square is valid
+      // For a 2x1 entity (width 2, height 1), check if the entire hitbox is valid
       const isNeighborValid =
         neighbor.x >= 0 && neighbor.x + 1 < map.width &&
-        neighbor.y >= 0 && neighbor.y + 1 < map.height &&
+        neighbor.y >= 0 && neighbor.y < map.height &&
         !obstacles.has(`${neighbor.x},${neighbor.y}`) &&
-        !obstacles.has(`${neighbor.x + 1},${neighbor.y}`) &&
-        !obstacles.has(`${neighbor.x},${neighbor.y + 1}`) &&
-        !obstacles.has(`${neighbor.x + 1},${neighbor.y + 1}`);
+        !obstacles.has(`${neighbor.x + 1},${neighbor.y}`);
 
       const key = `${neighbor.x},${neighbor.y}`; // Use top-left for visited key
       if (

@@ -157,11 +157,14 @@ export class World {
     const dynamicObstacles = new Set<string>();
     
     for (const e of entities) {
-      const targetSet = e.kind === 'WALL' ? staticObstacles : dynamicObstacles;
-      targetSet.add(`${e.x},${e.y}`);
-      targetSet.add(`${e.x + 1},${e.y}`);
-      targetSet.add(`${e.x},${e.y + 1}`);
-      targetSet.add(`${e.x + 1},${e.y + 1}`);
+      if (e.kind === 'WALL') {
+        // Walls are 1x1
+        staticObstacles.add(`${e.x},${e.y}`);
+      } else {
+        // Players and Robots are 2x1 (width 2, height 1)
+        dynamicObstacles.add(`${e.x},${e.y}`);
+        dynamicObstacles.add(`${e.x + 1},${e.y}`);
+      }
     }
 
     // Create reservation table for this tick
@@ -675,15 +678,17 @@ export class World {
     
     // Calculate position adjacent to target in the direction they're facing
     // Initiator should stand IN FRONT of the target (in the direction they're facing)
-    // Entities are 2x2, so we need to offset by 2 cells to be adjacent
-    // If target is facing down (0, 1), initiator should go below them (0, 2)
-    // If target is facing up (0, -1), initiator should go above them (0, -2)
+    // Entities are 2x1 (width 2, height 1), so offset depends on direction:
+    // - Horizontal: offset by 2 cells (width)
+    // - Vertical: offset by 1 cell (height)
+    // If target is facing down (0, 1), initiator should go below them (0, 1)
+    // If target is facing up (0, -1), initiator should go above them (0, -1)
     // If target is facing right (1, 0), initiator should go to their right (2, 0)
     // If target is facing left (-1, 0), initiator should go to their left (-2, 0)
     const targetFacing = target.facing || { x: 0, y: 1 }; // Default facing down
     const adjacentOffset = {
-      x: targetFacing.x * 2, // Same direction as facing, 2 cells for 2x2 entity
-      y: targetFacing.y * 2
+      x: targetFacing.x * 2, // Same direction as facing, 2 cells for width
+      y: targetFacing.y * 1  // 1 cell for height
     };
     
     const adjacentPosition = {

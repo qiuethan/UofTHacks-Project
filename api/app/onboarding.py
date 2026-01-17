@@ -271,13 +271,15 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
 
     # 4. Update User Metadata
     try:
-        supabase.auth.admin.update_user_by_id(
+        print(f"[onboarding] Attempting to update user metadata for user {user.id}")
+        result = supabase.auth.admin.update_user_by_id(
             user.id,
             {"user_metadata": {"onboarding_completed": True}}
         )
+        print(f"[onboarding] User metadata update result: {result}")
     except Exception as e:
-        print(f"Failed to update user metadata: {e}")
+        print(f"[onboarding] Failed to update user metadata: {type(e).__name__}: {e}")
         # Note: If service key is invalid/missing rights, this fails.
-        raise HTTPException(status_code=500, detail="Failed to finalize onboarding.")
+        raise HTTPException(status_code=500, detail=f"Failed to finalize onboarding: {str(e)}")
 
     return {"ok": True}

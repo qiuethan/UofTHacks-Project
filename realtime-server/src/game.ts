@@ -4,17 +4,17 @@ import { broadcast } from './network';
 
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
 
-// Add perimeter walls (2x2 entities)
+// Add perimeter walls (1x1 entities)
 // Top and Bottom edges
-for (let x = 0; x < MAP_WIDTH; x += 2) {
+for (let x = 0; x < MAP_WIDTH; x++) {
   world.addEntity(createWall(`wall-top-${x}`, x, 0));
-  world.addEntity(createWall(`wall-bottom-${x}`, x, MAP_HEIGHT - 2));
+  world.addEntity(createWall(`wall-bottom-${x}`, x, MAP_HEIGHT - 1));
 }
 
 // Left and Right edges (skipping corners already handled)
-for (let y = 2; y < MAP_HEIGHT - 2; y += 2) {
+for (let y = 1; y < MAP_HEIGHT - 1; y++) {
   world.addEntity(createWall(`wall-left-${y}`, 0, y));
-  world.addEntity(createWall(`wall-right-${y}`, MAP_WIDTH - 2, y));
+  world.addEntity(createWall(`wall-right-${y}`, MAP_WIDTH - 1, y));
 }
 
 

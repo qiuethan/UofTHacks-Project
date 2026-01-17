@@ -94,24 +94,24 @@ export function IncomingRequests({ requests, onAccept, onReject }: IncomingReque
   if (requests.length === 0) return null
   
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 space-y-2">
       {requests.map(req => (
-        <div key={req.requestId} className="bg-gray-800 p-4 rounded-lg shadow-xl">
-          <p className="text-white mb-2">
-            <strong>{req.initiatorName}</strong> wants to talk!
+        <div key={req.requestId} className="bg-gray-900/80 backdrop-blur-md px-6 py-4 rounded-xl shadow-2xl border border-gray-700/50 min-w-[320px]">
+          <p className="text-white mb-3 text-center font-serif italic text-lg">
+            <strong className="text-green-400">{req.initiatorName}</strong> wants to talk!
           </p>
-          <div className="flex gap-2">
+          <div className="flex gap-3 justify-center">
             <button
-              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+              className="px-5 py-2 bg-green-500/90 text-gray-900 rounded-lg text-sm font-semibold hover:bg-green-400 transition-all shadow-lg"
               onClick={() => onAccept(req.requestId)}
             >
-              Accept
+              ✓ Accept
             </button>
             <button
-              className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+              className="px-5 py-2 bg-gray-700/80 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-600 transition-all"
               onClick={() => onReject(req.requestId)}
             >
-              Decline
+              ✕ Decline
             </button>
           </div>
         </div>
@@ -127,16 +127,18 @@ interface ActiveConversationProps {
 
 export function ActiveConversation({ partnerName, onEnd }: ActiveConversationProps) {
   return (
-    <div className="fixed bottom-4 right-4 z-50 bg-green-800 p-4 rounded-lg shadow-xl">
-      <p className="text-white mb-2">
-        In conversation with <strong>{partnerName}</strong>
-      </p>
-      <button
-        className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-        onClick={onEnd}
-      >
-        End Conversation
-      </button>
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
+      <div className="bg-gray-900/80 backdrop-blur-md px-6 py-4 rounded-xl shadow-2xl border border-green-500/30 min-w-[300px]">
+        <p className="text-white mb-3 text-center font-serif italic text-lg">
+          Chatting with <strong className="text-green-400">{partnerName}</strong>
+        </p>
+        <button
+          className="w-full px-4 py-2 bg-red-500/80 text-white rounded-lg text-sm font-semibold hover:bg-red-400 transition-all"
+          onClick={onEnd}
+        >
+          End Conversation
+        </button>
+      </div>
     </div>
   )
 }

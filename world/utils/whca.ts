@@ -48,7 +48,7 @@ function heuristic(from: Point, to: Point): number {
 }
 
 /**
- * Check if a 2x2 entity can occupy a position at time t
+ * Check if a 2x1 entity (width 2, height 1) can occupy a position at time t
  */
 function isValidPosition(
   pos: Point,
@@ -58,17 +58,15 @@ function isValidPosition(
   reservations: ReservationTable,
   entityId: string
 ): boolean {
-  // Check map bounds for 2x2 entity
-  if (pos.x < 0 || pos.x + 1 >= map.width || pos.y < 0 || pos.y + 1 >= map.height) {
+  // Check map bounds for 2x1 entity (width 2, height 1)
+  if (pos.x < 0 || pos.x + 1 >= map.width || pos.y < 0 || pos.y >= map.height) {
     return false;
   }
 
-  // Check static obstacles (walls)
+  // Check static obstacles (walls) - only 2 cells for 2x1 hitbox
   const cells = [
     `${pos.x},${pos.y}`,
     `${pos.x + 1},${pos.y}`,
-    `${pos.x},${pos.y + 1}`,
-    `${pos.x + 1},${pos.y + 1}`,
   ];
 
   for (const cell of cells) {
@@ -90,7 +88,7 @@ function isValidPosition(
 }
 
 /**
- * Reserve space-time cells for a path
+ * Reserve space-time cells for a path (2x1 hitbox: width 2, height 1)
  */
 function reservePath(
   path: Point[],
@@ -102,11 +100,10 @@ function reservePath(
     const pos = path[i];
     const t = startTime + i;
     
+    // 2x1 hitbox: only 2 cells
     const cells = [
       `${pos.x},${pos.y}`,
       `${pos.x + 1},${pos.y}`,
-      `${pos.x},${pos.y + 1}`,
-      `${pos.x + 1},${pos.y + 1}`,
     ];
 
     for (const cell of cells) {

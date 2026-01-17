@@ -67,11 +67,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshAvatarStatus = async () => {
     if (user) {
-      // Refresh user metadata
-      const { data: { user: refreshedUser } } = await supabase.auth.getUser()
-      if (refreshedUser) {
-        setUser(refreshedUser)
-        setOnboardingCompleted(refreshedUser.user_metadata?.onboarding_completed === true)
+      // Refresh session from server to get updated user metadata
+      const { data: { session: refreshedSession } } = await supabase.auth.refreshSession()
+      if (refreshedSession?.user) {
+        setUser(refreshedSession.user)
+        setSession(refreshedSession)
+        setOnboardingCompleted(refreshedSession.user.user_metadata?.onboarding_completed === true)
       }
       await checkAvatarStatus(user.id)
     }

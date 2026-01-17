@@ -39,11 +39,13 @@ export function getDistance(
   x1: number, y1: number,
   x2: number, y2: number
 ): number {
-  // For 2x2 entities, use center-to-center distance
+  // For 2x1 entities (width 2, height 1), use center-to-center distance
+  // Center X is at x + 1 (middle of width 2)
+  // Center Y is at y + 0.5 (middle of height 1)
   const centerX1 = x1 + 1;
-  const centerY1 = y1 + 1;
+  const centerY1 = y1 + 0.5;
   const centerX2 = x2 + 1;
-  const centerY2 = y2 + 1;
+  const centerY2 = y2 + 0.5;
   
   return Math.sqrt(
     Math.pow(centerX2 - centerX1, 2) + 
@@ -69,20 +71,20 @@ export function areAdjacent(
   x1: number, y1: number,
   x2: number, y2: number
 ): boolean {
-  // For 2x2 entities, check if they are in one of the 4 cardinal directions
-  // Entity 1 occupies: (x1, y1), (x1+1, y1), (x1, y1+1), (x1+1, y1+1)
-  // Entity 2 occupies: (x2, y2), (x2+1, y2), (x2, y2+1), (x2+1, y2+1)
+  // For 2x1 entities (width 2, height 1), check if they are in one of the 4 cardinal directions
+  // Entity 1 occupies: (x1, y1), (x1+1, y1)
+  // Entity 2 occupies: (x2, y2), (x2+1, y2)
   
   // Adjacent means one entity is directly next to another (not overlapping)
   // Right: x2 = x1 + 2, y2 = y1
   // Left:  x2 = x1 - 2, y2 = y1
-  // Down:  x2 = x1, y2 = y1 + 2
-  // Up:    x2 = x1, y2 = y1 - 2
+  // Down:  x2 = x1, y2 = y1 + 1 (height is 1)
+  // Up:    x2 = x1, y2 = y1 - 1 (height is 1)
   
   const isRight = x2 === x1 + 2 && y2 === y1;
   const isLeft = x2 === x1 - 2 && y2 === y1;
-  const isDown = x2 === x1 && y2 === y1 + 2;
-  const isUp = x2 === x1 && y2 === y1 - 2;
+  const isDown = x2 === x1 && y2 === y1 + 1;
+  const isUp = x2 === x1 && y2 === y1 - 1;
   
   return isRight || isLeft || isDown || isUp;
 }

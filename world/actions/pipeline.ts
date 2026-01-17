@@ -165,31 +165,31 @@ function applyMoveAction(
   targetX: number,
   targetY: number
 ): WorldEvent[] {
-  // Clamp to map bounds
-  // Entity is 2x2, so it occupies (x,y), (x+1,y), (x,y+1), (x+1,y+1)
-  // Max x is width - 2 (so x+1 is width-1)
-  // Max y is height - 2
-  // But wait, our clampToBound might effectively restrict it to 0..width-1.
-  // We need to ensure we don't go out of bounds with the "tail" of the 2x2.
-  // Let's rely on clampToBounds but maybe check valid range manually for the 2x2 nature?
-  // Actually, simplest is to treat x,y as top-left.
+  // Determine entity hitbox dimensions based on type
+  // Walls are 1x1, Players and Robots are 2x1 (width 2, height 1)
+  const actorWidth = actor.kind === 'WALL' ? 1 : 2;
+  const actorHeight = 1;  // All entities have height 1 for collision
   
-  // Custom clamp for 2x2 entity
-  const maxX = state.map.width - 2;
-  const maxY = state.map.height - 2;
+  // Clamp to map bounds based on entity size
+  const maxX = state.map.width - actorWidth;
+  const maxY = state.map.height - actorHeight;
   
   const safeX = Math.max(0, Math.min(targetX, maxX));
   const safeY = Math.max(0, Math.min(targetY, maxY));
   
-  // Collision Detection (2x2 vs 2x2)
+  // Collision Detection - handle different entity sizes
   for (const other of state.entities.values()) {
     if (other.entityId !== actor.entityId) {
-       // Check overlap
-       // Overlap if: abs(ax - bx) * 2 < (widthA + widthB)
-       // Here width = 2 for both.
-       // So: abs(ax - bx) < 2 AND abs(ay - by) < 2
+       const otherWidth = other.kind === 'WALL' ? 1 : 2;
+       const otherHeight = 1;  // All entities have height 1 for collision
        
-       if (Math.abs(safeX - other.x) < 2 && Math.abs(safeY - other.y) < 2) {
+       // Check overlap using AABB collision
+       // Actor occupies [safeX, safeX + actorWidth) x [safeY, safeY + actorHeight)
+       // Other occupies [other.x, other.x + otherWidth) x [other.y, other.y + otherHeight)
+       const overlapX = safeX < other.x + otherWidth && safeX + actorWidth > other.x;
+       const overlapY = safeY < other.y + otherHeight && safeY + actorHeight > other.y;
+       
+       if (overlapX && overlapY) {
          // Block collision with all entity types (WALL, PLAYER, ROBOT)
          return [];
        }

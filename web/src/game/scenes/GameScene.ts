@@ -1,13 +1,15 @@
 import Phaser from 'phaser'
 import type { GameEntity, SceneData } from '../types'
 
-// Character sprite size
-const SPRITE_SIZE = 64
+// Character sprite dimensions
+const SPRITE_WIDTH = 80
+const SPRITE_HEIGHT = 120  // Taller characters
+const GRID_SIZE = 32
 
 interface EntitySprite {
   container: Phaser.GameObjects.Container
   sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image
-  nameText: Phaser.GameObjects.Text
+  hoverBanner?: Phaser.GameObjects.Container
   lastFacing?: { x: number; y: number }
 }
 
@@ -137,10 +139,10 @@ export class GameScene extends Phaser.Scene {
     const existing = this.entitySprites.get(entity.entityId)
     
     // Convert grid position to pixel position
-    // Using a simple 32px grid for positioning
-    const GRID_SIZE = 32
-    const targetX = entity.x * GRID_SIZE + GRID_SIZE / 2
-    const targetY = entity.y * GRID_SIZE + GRID_SIZE / 2
+    // Entity hitbox is 2x1 (bottom row only), so position at the hitbox center
+    // Visual sprite extends upward from the hitbox
+    const targetX = entity.x * GRID_SIZE + GRID_SIZE  // Center of 2-wide hitbox
+    const targetY = entity.y * GRID_SIZE + GRID_SIZE / 2  // Center of 1-tall hitbox
 
     if (existing) {
       // Smooth movement with tween
@@ -175,25 +177,25 @@ export class GameScene extends Phaser.Scene {
       const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
       
       if (!this.textures.exists(textureKey)) {
-        // Placeholder while loading
-        const placeholder = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, isMe ? 0x4ade80 : 0xf87171)
+        // Placeholder while loading - offset upward so bottom aligns with hitbox
+        const placeholder = this.add.rectangle(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT, isMe ? 0x4ade80 : 0xf87171)
         container.add(placeholder)
         
         this.loadExternalTexture(textureKey, spriteUrl, container, entity)
         sprite = placeholder as unknown as Phaser.GameObjects.Sprite
       } else {
-        sprite = this.add.sprite(0, 0, textureKey)
-        this.scaleSprite(sprite, SPRITE_SIZE)
+        sprite = this.add.sprite(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, textureKey)
+        this.scaleSprite(sprite)
         container.add(sprite)
       }
     } else {
-      // Default colored square with direction arrow
+      // Default colored rectangle with direction arrow - offset upward
       const color = isMe ? 0x4ade80 : (entity.color ? parseInt(entity.color.replace('#', ''), 16) : 0xf87171)
-      const rect = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, color)
+      const rect = this.add.rectangle(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT, color)
       rect.setStrokeStyle(2, 0xffffff)
       container.add(rect)
       
-      const arrow = this.add.text(0, 0, this.getFacingArrow(entity.facing), {
+      const arrow = this.add.text(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, this.getFacingArrow(entity.facing), {
         fontSize: '24px',
         color: '#ffffff'
       }).setOrigin(0.5)
@@ -202,32 +204,42 @@ export class GameScene extends Phaser.Scene {
       sprite = rect as unknown as Phaser.GameObjects.Sprite
     }
 
-    // Name label (shown on hover)
-    const nameText = this.add.text(0, -SPRITE_SIZE / 2 - 12, entity.displayName || '', {
-      fontSize: '14px',
-      color: '#ffffff',
-      backgroundColor: '#000000cc',
-      padding: { x: 6, y: 3 }
-    }).setOrigin(0.5).setVisible(false)
-    container.add(nameText)
+    // Create hover banner (shown on hover) - positioned above the sprite
+    const hoverBanner = this.createHoverBanner(entity, isMe)
+    hoverBanner.setPosition(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 60)
+    hoverBanner.setVisible(false)
+    container.add(hoverBanner)
 
-    // Hover interaction
+    // Hover interaction - cover the full visual sprite area
     container.setInteractive(
-      new Phaser.Geom.Rectangle(-SPRITE_SIZE / 2, -SPRITE_SIZE / 2, SPRITE_SIZE, SPRITE_SIZE),
+      new Phaser.Geom.Rectangle(-SPRITE_WIDTH / 2, -SPRITE_HEIGHT + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT),
       Phaser.Geom.Rectangle.Contains
     )
-    container.on('pointerover', () => nameText.setVisible(true))
-    container.on('pointerout', () => nameText.setVisible(false))
+    container.on('pointerover', () => hoverBanner.setVisible(true))
+    container.on('pointerout', () => hoverBanner.setVisible(false))
 
     // Player highlight and camera setup
     if (isMe) {
-      const highlight = this.add.circle(0, SPRITE_SIZE / 2 + 8, 6, 0x4ade80)
-      highlight.setAlpha(0.9)
-      container.add(highlight)
+      // Arrow pointing down above the player's head
+      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 + 10, '▼', {
+        fontSize: '36px',
+        color: '#4ade80'
+      }).setOrigin(0.5)
+      container.add(arrow)
+      
+      // Add bobbing animation to the arrow
+      this.tweens.add({
+        targets: arrow,
+        y: arrow.y - 8,
+        duration: 500,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      })
       
       if (this.sceneDataRef.current.mode === 'play') {
         this.cameras.main.startFollow(container, true, 0.1, 0.1)
-        this.cameras.main.setZoom(1.5)
+        this.cameras.main.setZoom(0.75)
         this.cameras.main.setDeadzone(0, 0)
       }
     }
@@ -235,7 +247,7 @@ export class GameScene extends Phaser.Scene {
     this.entitySprites.set(entity.entityId, {
       container,
       sprite,
-      nameText,
+      hoverBanner,
       lastFacing: entity.facing
     })
   }
@@ -256,8 +268,8 @@ export class GameScene extends Phaser.Scene {
           }
         })
         
-        const sprite = this.add.sprite(0, 0, textureKey)
-        this.scaleSprite(sprite, SPRITE_SIZE)
+        const sprite = this.add.sprite(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, textureKey)
+        this.scaleSprite(sprite)
         container.addAt(sprite, 0)
         
         const entitySprite = this.entitySprites.get(entity.entityId)
@@ -269,13 +281,75 @@ export class GameScene extends Phaser.Scene {
     this.load.start()
   }
 
-  private scaleSprite(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image, maxSize: number) {
-    const frame = sprite.texture.get()
+  private scaleSprite(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image) {
+    const texture = sprite.texture
+    const frame = texture.get()
+    
     if (frame && frame.width > 0 && frame.height > 0) {
-      const scale = maxSize / Math.max(frame.width, frame.height)
-      sprite.setScale(scale)
+      // Try to measure actual content bounds from non-transparent pixels
+      const contentBounds = this.getContentBounds(texture, frame)
+      
+      if (contentBounds) {
+        // Scale based on content height to standardize all sprites
+        const contentHeight = contentBounds.bottom - contentBounds.top
+        const scale = SPRITE_HEIGHT / contentHeight
+        sprite.setScale(scale)
+        
+        // Adjust origin to align bottom of content with bottom of sprite area
+        // Content bottom should align with the hitbox
+        const frameHeight = frame.height
+        const contentCenterY = (contentBounds.top + contentBounds.bottom) / 2
+        const originY = contentCenterY / frameHeight
+        sprite.setOrigin(0.5, originY)
+      } else {
+        // Fallback: scale to fit height
+        const scale = SPRITE_HEIGHT / frame.height
+        sprite.setScale(scale)
+      }
     } else {
-      sprite.setDisplaySize(maxSize, maxSize)
+      sprite.setDisplaySize(SPRITE_WIDTH, SPRITE_HEIGHT)
+    }
+  }
+  
+  private getContentBounds(texture: Phaser.Textures.Texture, frame: Phaser.Textures.Frame): { top: number; bottom: number } | null {
+    try {
+      // Get the source image
+      const source = texture.getSourceImage() as HTMLImageElement | HTMLCanvasElement
+      if (!source) return null
+      
+      // Create a temporary canvas to read pixel data
+      const canvas = document.createElement('canvas')
+      canvas.width = frame.width
+      canvas.height = frame.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+      
+      // Draw the image onto the canvas
+      ctx.drawImage(source, 0, 0)
+      
+      // Get pixel data
+      const imageData = ctx.getImageData(0, 0, frame.width, frame.height)
+      const data = imageData.data
+      
+      let topmost = frame.height
+      let bottommost = 0
+      
+      // Scan for non-transparent pixels
+      for (let y = 0; y < frame.height; y++) {
+        for (let x = 0; x < frame.width; x++) {
+          const alpha = data[(y * frame.width + x) * 4 + 3]
+          if (alpha > 10) { // Non-transparent threshold
+            if (y < topmost) topmost = y
+            if (y > bottommost) bottommost = y
+          }
+        }
+      }
+      
+      if (topmost >= bottommost) return null
+      
+      return { top: topmost, bottom: bottommost }
+    } catch {
+      return null
     }
   }
 
@@ -296,18 +370,94 @@ export class GameScene extends Phaser.Scene {
           this.load.once('complete', () => {
             if (this.textures.exists(textureKey) && entitySprite.sprite instanceof Phaser.GameObjects.Sprite) {
               entitySprite.sprite.setTexture(textureKey)
-              this.scaleSprite(entitySprite.sprite, SPRITE_SIZE)
+              this.scaleSprite(entitySprite.sprite)
             }
           })
           this.load.start()
         } else if (entitySprite.sprite instanceof Phaser.GameObjects.Sprite) {
           entitySprite.sprite.setTexture(textureKey)
-          this.scaleSprite(entitySprite.sprite, SPRITE_SIZE)
+          this.scaleSprite(entitySprite.sprite)
         }
       }
     }
 
-    entitySprite.nameText.setText(entity.displayName || '')
+    // Banner updates handled by recreating if needed
+  }
+
+  private createHoverBanner(entity: GameEntity, isMe: boolean): Phaser.GameObjects.Container {
+    const banner = this.add.container(0, 0)
+    const isPlayMode = this.sceneDataRef.current.mode === 'play'
+    const showButton = isPlayMode && !isMe && entity.kind !== 'WALL'
+    
+    // Calculate banner size
+    const bannerWidth = 200
+    const bannerHeight = showButton ? 80 : 50
+    
+    // Translucent tinted background
+    const bg = this.add.rectangle(0, 0, bannerWidth, bannerHeight, 0x1a1a2e, 0.85)
+    bg.setStrokeStyle(2, 0x4ade80, 0.6)
+    banner.add(bg)
+    
+    // Display name with sophisticated font
+    const nameText = this.add.text(0, showButton ? -15 : 0, entity.displayName || 'Unknown', {
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      fontSize: '20px',
+      fontStyle: 'italic',
+      color: '#ffffff',
+      shadow: {
+        offsetX: 2,
+        offsetY: 2,
+        color: '#000000',
+        blur: 4,
+        fill: true
+      }
+    }).setOrigin(0.5)
+    banner.add(nameText)
+    
+    // Conversation button (only in play mode, for other entities, not self)
+    if (showButton) {
+      const canConverse = entity.conversationState === 'IDLE' || !entity.conversationState
+      
+      const btnBg = this.add.rectangle(0, 20, 120, 30, canConverse ? 0x4ade80 : 0x555555, 0.9)
+      btnBg.setStrokeStyle(1, 0xffffff, 0.5)
+      banner.add(btnBg)
+      
+      const btnText = this.add.text(0, 20, canConverse ? '💬 Talk' : 'Busy', {
+        fontFamily: 'Georgia, "Times New Roman", serif',
+        fontSize: '14px',
+        color: canConverse ? '#1a1a2e' : '#888888'
+      }).setOrigin(0.5)
+      banner.add(btnText)
+      
+      if (canConverse) {
+        btnBg.setInteractive({ useHandCursor: true })
+        btnBg.on('pointerover', () => {
+          btnBg.setFillStyle(0x22c55e, 1)
+        })
+        btnBg.on('pointerout', () => {
+          btnBg.setFillStyle(0x4ade80, 0.9)
+        })
+        btnBg.on('pointerdown', () => {
+          this.initiateConversation(entity.entityId)
+        })
+      }
+    }
+    
+    // Set high depth so it appears above other sprites
+    banner.setDepth(1000)
+    
+    return banner
+  }
+
+  private initiateConversation(targetEntityId: string) {
+    // Emit event to parent React component to handle conversation initiation
+    const myEntityId = this.sceneDataRef.current.myEntityId
+    if (myEntityId && myEntityId !== targetEntityId) {
+      // Dispatch a custom event that React can listen to
+      window.dispatchEvent(new CustomEvent('initiateConversation', {
+        detail: { targetEntityId }
+      }))
+    }
   }
 
   private getSpriteUrl(entity: GameEntity): string | undefined {
