@@ -5,13 +5,13 @@ import { broadcast } from './network';
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
 
 // Add some walls
-world.addEntity(createWall('wall-1', 5, 5));
-world.addEntity(createWall('wall-2', 5, 6));
-world.addEntity(createWall('wall-3', 5, 7));
-world.addEntity(createWall('wall-4', 6, 5));
+world.addEntity(createWall('wall-1', 10, 10));
+world.addEntity(createWall('wall-2', 10, 12));
+world.addEntity(createWall('wall-3', 10, 14));
+world.addEntity(createWall('wall-4', 12, 10));
 
 // Add a robot
-world.addEntity(createRobot('robot-1', 10, 10));
+world.addEntity(createRobot('robot-1', 20, 20));
 
 export function startGameLoop() {
   // Game Loop

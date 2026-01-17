@@ -21,7 +21,8 @@ export function createEntity(
   displayName: string,
   x: number,
   y: number,
-  color?: string
+  color?: string,
+  initialFacing?: { x: 0 | 1 | -1; y: 0 | 1 | -1 }
 ): Entity {
   return {
     entityId,
@@ -31,6 +32,6 @@ export function createEntity(
     y: Math.floor(y),
     color,
     direction: { x: 0, y: 0 }, // Default no movement
-    facing: { x: 0, y: 1 } // Default facing down
+    facing: initialFacing || { x: 0, y: 1 } // Default facing down, or use initialFacing
   };
 }

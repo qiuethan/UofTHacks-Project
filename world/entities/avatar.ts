@@ -7,9 +7,10 @@ export function createAvatar(
   entityId: string,
   displayName: string,
   x: number,
-  y: number
+  y: number,
+  facing?: { x: 0 | 1 | -1; y: 0 | 1 | -1 }
 ): Avatar {
-  return createEntity(entityId, 'PLAYER', displayName, x, y);
+  return createEntity(entityId, 'PLAYER', displayName, x, y, undefined, facing);
 }
 
 export function createRobot(

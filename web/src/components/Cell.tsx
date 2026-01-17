@@ -1,12 +1,12 @@
-import type { ReactNode } from 'react'
+import React from 'react'
 
 interface CellProps {
-  children?: ReactNode
+  children?: React.ReactNode
 }
 
 export default function Cell({ children }: CellProps) {
   return (
-    <div className="w-8 h-8 bg-gray-700 flex items-center justify-center">
+    <div className="w-4 h-4 bg-white flex items-center justify-center relative overflow-visible">
       {children}
     </div>
   )

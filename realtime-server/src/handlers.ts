@@ -46,7 +46,7 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   // If user has an AI agent active, take over its position and replace it
   const existing = world.getEntity(userId);
   if (existing && existing.kind === 'ROBOT') {
-    pos = { x: existing.x, y: existing.y };
+    pos = { x: existing.x, y: existing.y, facing: existing.facing || pos.facing }; // Preserve facing from robot
     // Remove the robot so we can spawn the player
     const removeResult = world.removeEntity(userId);
     if (removeResult.ok) {
@@ -55,7 +55,7 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   }
   
   // Use userId as entityId for consistency
-  const avatar = createAvatar(userId, displayName, pos.x, pos.y);
+  const avatar = createAvatar(userId, displayName, pos.x, pos.y, pos.facing);
   const result = world.addEntity(avatar);
   
   if (!result.ok) {
@@ -109,7 +109,7 @@ export async function handleDisconnect(client: Client, oderId: string) {
     // Save final position and convert to AI
     const entity = world.getEntity(client.userId);
     if (entity) {
-      await updatePosition(client.userId, entity.x, entity.y);
+      await updatePosition(client.userId, entity.x, entity.y, entity.facing);
 
       // Convert to ROBOT for AI control
       world.removeEntity(client.userId);
@@ -119,7 +119,8 @@ export async function handleDisconnect(client: Client, oderId: string) {
         entity.displayName,
         entity.x,
         entity.y,
-        entity.color
+        entity.color,
+        entity.facing // Pass facing to new robot
       );
       const result = world.addEntity(robot);
       if (result.ok) {

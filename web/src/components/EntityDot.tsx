@@ -20,7 +20,7 @@ export default function EntityDot({ isPlayer = false, color, facing }: EntityDot
   
   return (
     <div
-      className={`w-5 h-5 rounded-full ${color ? '' : bgColor} flex items-center justify-center`}
+      className={`absolute top-0 left-0 w-[calc(200%+1px)] h-[calc(200%+1px)] z-10 pointer-events-none rounded-full ${color ? '' : bgColor} flex items-center justify-center`}
       style={{ backgroundColor: color }}
     >
       <span className="text-white text-xs font-bold leading-none select-none">

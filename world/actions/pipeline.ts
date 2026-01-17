@@ -109,24 +109,46 @@ function applyMoveAction(
   targetY: number
 ): WorldEvent[] {
   // Clamp to map bounds
-  const clamped = clampToBounds(state.map, targetX, targetY);
+  // Entity is 2x2, so it occupies (x,y), (x+1,y), (x,y+1), (x+1,y+1)
+  // Max x is width - 2 (so x+1 is width-1)
+  // Max y is height - 2
+  // But wait, our clampToBound might effectively restrict it to 0..width-1.
+  // We need to ensure we don't go out of bounds with the "tail" of the 2x2.
+  // Let's rely on clampToBounds but maybe check valid range manually for the 2x2 nature?
+  // Actually, simplest is to treat x,y as top-left.
   
-  // Collision Detection
+  // Custom clamp for 2x2 entity
+  const maxX = state.map.width - 2;
+  const maxY = state.map.height - 2;
+  
+  const safeX = Math.max(0, Math.min(targetX, maxX));
+  const safeY = Math.max(0, Math.min(targetY, maxY));
+  
+  // Collision Detection (2x2 vs 2x2)
   for (const other of state.entities.values()) {
-    if (other.entityId !== actor.entityId && other.x === clamped.x && other.y === clamped.y) {
-      if (other.kind === 'WALL') {
-        // Blocked by wall - do nothing
-        return [];
-      }
-      // Optional: Blocked by other players? For now, allow overlapping players/robots, but block walls.
+    if (other.entityId !== actor.entityId) {
+       // Check overlap
+       // Overlap if: abs(ax - bx) * 2 < (widthA + widthB)
+       // Here width = 2 for both.
+       // So: abs(ax - bx) < 2 AND abs(ay - by) < 2
+       
+       if (Math.abs(safeX - other.x) < 2 && Math.abs(safeY - other.y) < 2) {
+         if (other.kind === 'WALL') {
+           // Blocked by wall
+           return [];
+         }
+         // Optional: Blocked by players/robots?
+         // For now, let's allow overlapping players to avoid stuck situations, but block walls.
+       }
     }
   }
 
   // Update entity position (immutable update via Map.set)
   const updatedAvatar: Entity = {
     ...actor,
-    x: clamped.x,
-    y: clamped.y,
+    x: safeX,
+    y: safeY,
+    // Preserve facing/direction
   };
   state.entities.set(actor.entityId, updatedAvatar);
 
@@ -134,8 +156,8 @@ function applyMoveAction(
     {
       type: 'ENTITY_MOVED',
       entityId: actor.entityId,
-      x: clamped.x,
-      y: clamped.y,
+      x: safeX,
+      y: safeY,
       facing: actor.facing
     },
   ];

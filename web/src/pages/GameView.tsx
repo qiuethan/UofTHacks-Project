@@ -297,7 +297,7 @@ export default function GameView() {
       </Grid>
       
       <p className="mt-4 text-gray-500 text-sm">
-        Use arrow keys or WASD to move (Server Tick Rate: 5Hz)
+        Use arrow keys or WASD to move (Server Tick Rate: 10Hz)
       </p>
     </div>
   )
