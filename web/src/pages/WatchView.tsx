@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Grid, Cell, EntityDot, ConnectionStatus } from '../components'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
+import type { SpriteUrls } from '../types/game'
 
 interface Entity {
   entityId: string
@@ -10,6 +11,7 @@ interface Entity {
   y: number
   color?: string
   facing?: { x: number; y: number }
+  sprites?: SpriteUrls
 }
 
 interface WorldSnapshot {
@@ -166,7 +168,8 @@ export default function WatchView() {
           {entityHere && (
             <EntityDot 
               color={entityHere.color} 
-              facing={entityHere.facing} 
+              facing={entityHere.facing}
+              sprites={entityHere.sprites}
               y={entityHere.y}
               kind={entityHere.kind}
             />

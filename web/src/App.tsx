@@ -5,10 +5,10 @@ import WatchView from './pages/WatchView'
 import CreateAvatar from './pages/CreateAvatar'
 import Login from './pages/Login'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
+function ProtectedRoute({ children, requireAvatar = false }: { children: React.ReactNode, requireAvatar?: boolean }) {
+  const { user, loading, hasAvatar, checkingAvatar } = useAuth()
   
-  if (loading) {
+  if (loading || checkingAvatar) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
@@ -20,11 +20,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   
+  // If route requires avatar and user doesn't have one, redirect to create
+  if (requireAvatar && hasAvatar === false) {
+    return <Navigate to="/create" replace />
+  }
+  
   return <>{children}</>
 }
 
 export default function App() {
-  const { user, signOut, loading } = useAuth()
+  const { user, signOut, loading, hasAvatar } = useAuth()
 
   return (
     <div className="min-h-screen">
@@ -37,9 +42,11 @@ export default function App() {
             <Link to="/watch" className="text-white hover:text-green-400 font-medium">
               Watch
             </Link>
-            <Link to="/create" className="text-white hover:text-green-400 font-medium">
-              Create Avatar
-            </Link>
+            {user && !hasAvatar && (
+              <Link to="/create" className="text-yellow-400 hover:text-yellow-300 font-medium">
+                Create Avatar
+              </Link>
+            )}
           </div>
           <div className="flex items-center gap-4">
             {!loading && user ? (
@@ -64,7 +71,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/watch" replace />} />
-          <Route path="/play" element={<ProtectedRoute><GameView /></ProtectedRoute>} />
+          <Route path="/play" element={<ProtectedRoute requireAvatar><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
           <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />
         </Routes>

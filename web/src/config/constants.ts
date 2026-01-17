@@ -10,7 +10,7 @@ export const WS_CONFIG = {
 
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: 'http://localhost:3002',
+  BASE_URL: 'http://localhost:3003',
 }
 
 // Map defaults

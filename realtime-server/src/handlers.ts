@@ -43,12 +43,16 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   // Get position from DB (source of truth)
   let pos = await getPosition(userId);
   
+  // Use display name from DB if available, otherwise use provided name
+  const actualDisplayName = pos.displayName || displayName;
+  client.displayName = actualDisplayName;
+  
   // If user has an AI agent active, take over its position and replace it
   const existing = world.getEntity(userId);
   let existingConversationState: any = {};
   
   if (existing && existing.kind === 'ROBOT') {
-    pos = { x: existing.x, y: existing.y, facing: existing.facing || pos.facing }; // Preserve facing from robot
+    pos = { ...pos, x: existing.x, y: existing.y, facing: existing.facing || pos.facing }; // Preserve facing from robot
     
     // Capture conversation state to restore it to the player
     existingConversationState = {
@@ -68,8 +72,10 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   // Use userId as entityId for consistency
   const facing = pos.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
   const avatar: any = {
-    ...createAvatar(userId, displayName, pos.x, pos.y, facing),
-    ...existingConversationState
+    ...createAvatar(userId, actualDisplayName, pos.x, pos.y, facing),
+    ...existingConversationState,
+    // Add sprite URLs if available
+    sprites: pos.sprites
   };
   
   const result = world.addEntity(avatar);
@@ -77,7 +83,7 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   if (!result.ok) {
     if (result.error.code === 'ENTITY_EXISTS') {
       // This is fine, entity is already there (seamless handover)
-      console.log(`Player rejoined: ${displayName} (${userId})`);
+      console.log(`Player rejoined: ${actualDisplayName} (${userId})`);
       send(ws, { type: 'WELCOME', entityId: userId });
       send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
       return client;
@@ -88,7 +94,7 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
     }
   }
   
-  console.log(`Player joined: ${displayName} (${userId}) at (${pos.x}, ${pos.y})`);
+  console.log(`Player joined: ${actualDisplayName} (${userId}) at (${pos.x}, ${pos.y})${pos.sprites ? ' [has sprites]' : ''}`);
   
   send(ws, { type: 'WELCOME', entityId: userId });
   send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });

@@ -99,6 +99,7 @@ export default function GameView() {
               isPlayer={isMe} 
               color={entityHere.color} 
               facing={entityHere.facing}
+              sprites={entityHere.sprites}
               isSelected={isSelected}
               inConversation={entityHere.conversationState === 'IN_CONVERSATION'}
               y={entityHere.y}

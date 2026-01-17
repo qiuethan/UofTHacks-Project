@@ -1,5 +1,12 @@
 export type EntityType = 'PLAYER' | 'WALL' | 'ROBOT';
 
+export interface SpriteUrls {
+  readonly front?: string;
+  readonly back?: string;
+  readonly left?: string;
+  readonly right?: string;
+}
+
 export interface Entity {
   readonly entityId: string;
   readonly kind: EntityType;
@@ -7,6 +14,8 @@ export interface Entity {
   readonly x: number;
   readonly y: number;
   readonly color?: string;
+  // Sprite URLs for each direction
+  readonly sprites?: SpriteUrls;
   // Movement intent (for tick-based movement)
   readonly direction?: { x: 0 | 1 | -1; y: 0 | 1 | -1 };
   // Orientation (where the entity is looking)

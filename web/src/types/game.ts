@@ -1,5 +1,12 @@
 // Game-related types for the frontend
 
+export interface SpriteUrls {
+  front?: string
+  back?: string
+  left?: string
+  right?: string
+}
+
 export interface Entity {
   entityId: string
   kind: 'PLAYER' | 'WALL' | 'ROBOT'
@@ -8,6 +15,7 @@ export interface Entity {
   y: number
   color?: string
   facing?: { x: number; y: number }
+  sprites?: SpriteUrls
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
@@ -39,6 +47,7 @@ export interface WorldEvent {
   x?: number
   y?: number
   facing?: { x: number; y: number }
+  sprites?: SpriteUrls
   // Conversation fields
   requestId?: string
   initiatorId?: string
