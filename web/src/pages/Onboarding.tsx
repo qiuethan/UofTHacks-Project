@@ -14,6 +14,7 @@ export default function Onboarding() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isCompleting, setIsCompleting] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -106,6 +107,7 @@ export default function Onboarding() {
   }
 
   const handleCompletion = async (convId: string) => {
+    setIsCompleting(true)
     try {
         const res = await fetch(`${API_CONFIG.BASE_URL}/onboarding/complete`, {
             method: 'POST',
@@ -120,15 +122,16 @@ export default function Onboarding() {
             await refreshAvatarStatus() // Updates user metadata in context
             setTimeout(() => {
                 navigate('/play')
-            }, 2000)
+            }, 500)
         }
     } catch (err) {
         console.error("Completion error:", err)
+        setIsCompleting(false)
     }
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900 text-white">
       {/* Header */}
       <div className="bg-gray-800 p-4 shadow-md border-b border-gray-700">
         <div className="max-w-3xl mx-auto flex justify-between items-center">
@@ -143,9 +146,17 @@ export default function Onboarding() {
             </div>
             <button 
                 onClick={() => conversationId && handleCompletion(conversationId)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 rounded-lg transition"
+                disabled={isLoading || isCompleting || !conversationId}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm text-gray-300 rounded-lg transition flex items-center gap-2"
             >
-                End Interview
+                {isCompleting ? (
+                    <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Saving...</span>
+                    </>
+                ) : (
+                    <span>End Interview</span>
+                )}
             </button>
         </div>
       </div>

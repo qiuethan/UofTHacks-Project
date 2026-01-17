@@ -134,7 +134,7 @@ export default function CreateAvatar() {
   // Input Step
   if (step === 'input') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl">
           <h1 className="text-3xl font-bold mb-2 text-center">Create Your Avatar</h1>
           <p className="text-gray-400 text-center mb-8">
@@ -218,7 +218,7 @@ export default function CreateAvatar() {
   // Generating Step
   if (step === 'generating') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
           <div className="animate-spin w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-6"></div>
           <h2 className="text-2xl font-bold mb-2">Creating Your Avatar</h2>
@@ -236,7 +236,7 @@ export default function CreateAvatar() {
     const directions: Array<'front' | 'back' | 'left' | 'right'> = ['front', 'back', 'left', 'right']
     
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl">
           <h2 className="text-2xl font-bold mb-2 text-center">Your Avatar is Ready!</h2>
           <p className="text-gray-400 text-center mb-6">
@@ -332,7 +332,7 @@ export default function CreateAvatar() {
   // Saving Step
   if (step === 'saving') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
           <div className="animate-spin w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-6"></div>
           <h2 className="text-xl font-bold">Saving your avatar...</h2>
@@ -344,7 +344,7 @@ export default function CreateAvatar() {
   // Complete Step
   if (step === 'complete') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
           <div className="text-6xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold mb-2">Avatar Created!</h2>

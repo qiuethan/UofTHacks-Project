@@ -1,4 +1,4 @@
-import { Routes, Route, Link, Navigate } from 'react-router-dom'
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
 import WatchView from './pages/WatchView'
@@ -9,12 +9,12 @@ import Login from './pages/Login'
 
 import Header from './components/Header'
 
-function ProtectedRoute({ 
-  children, 
+function ProtectedRoute({
+  children,
   requireAvatar = false,
-  requireOnboarding = false 
-}: { 
-  children: React.ReactNode, 
+  requireOnboarding = false
+}: {
+  children: React.ReactNode,
   requireAvatar?: boolean,
   requireOnboarding?: boolean
 }) {
@@ -22,7 +22,7 @@ function ProtectedRoute({
   
   if (loading || checkingAvatar) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
       </div>
     )
@@ -45,13 +45,15 @@ function ProtectedRoute({
   return <>{children}</>
 }
 
-export default function App() {
+function AppContent() {
   const { user, signOut, loading, hasAvatar } = useAuth()
+  const location = useLocation()
+  const hideHeader = location.pathname === '/onboarding' || location.pathname === '/create'
 
   return (
-    <div className="min-h-screen">
-      <Header />
-      <main>
+    <div className="h-screen flex flex-col overflow-hidden bg-[#1a1a2e]">
+      {!hideHeader && <Header />}
+      <main className="flex-1 overflow-auto relative">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/watch" replace />} />
@@ -64,4 +66,8 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+export default function App() {
+  return <AppContent />
 }

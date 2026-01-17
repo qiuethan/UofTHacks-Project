@@ -59,7 +59,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="h-full flex items-center justify-center p-4">
       <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md shadow-2xl">
         <h1 className="text-3xl font-bold mb-2 text-center">
           {isSignUp ? 'Join Avatar World' : 'Welcome Back'}
