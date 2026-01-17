@@ -4,9 +4,9 @@ export const PLAY_PORT = 3001;
 export const WATCH_PORT = 3002;
 // Map size in tiles (each tile is 32 pixels)
 // Should match your background.png dimensions: width_in_pixels / 32, height_in_pixels / 32
-// Default: 1920x1472 pixels = 60x46 tiles
-export const MAP_WIDTH = 60;
-export const MAP_HEIGHT = 46;
+// Background: 2400x1792 pixels = 75x56 tiles
+export const MAP_WIDTH = 75;
+export const MAP_HEIGHT = 56;
 export const TICK_RATE = 100; // ms
 export const AI_TICK_RATE = 1000; // ms
 export const API_URL = 'http://localhost:3003/agent/decision';

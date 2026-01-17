@@ -78,25 +78,48 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Get initial session and fetch fresh user data
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
       setSession(session)
-      setUser(session?.user ?? null)
+      
       if (session?.user) {
-        setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
-        checkAvatarStatus(session.user.id)
+        // Always fetch fresh user data from server (not cached JWT)
+        const { data: { user: freshUser } } = await supabase.auth.getUser()
+        if (freshUser) {
+          setUser(freshUser)
+          setOnboardingCompleted(freshUser.user_metadata?.onboarding_completed === true)
+          await checkAvatarStatus(freshUser.id)
+        } else {
+          setUser(session.user)
+          setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
+          await checkAvatarStatus(session.user.id)
+        }
+      } else {
+        setUser(null)
       }
       setLoading(false)
-    })
+    }
+    
+    initAuth()
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session)
-      setUser(session?.user ?? null)
       if (session?.user) {
-        setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
-        checkAvatarStatus(session.user.id)
+        // Fetch fresh user data on auth state change
+        const { data: { user: freshUser } } = await supabase.auth.getUser()
+        if (freshUser) {
+          setUser(freshUser)
+          setOnboardingCompleted(freshUser.user_metadata?.onboarding_completed === true)
+          await checkAvatarStatus(freshUser.id)
+        } else {
+          setUser(session.user)
+          setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
+          await checkAvatarStatus(session.user.id)
+        }
       } else {
+        setUser(null)
         setHasAvatar(null)
         setOnboardingCompleted(false)
       }
