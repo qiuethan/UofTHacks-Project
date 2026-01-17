@@ -6,7 +6,9 @@ import {
   ConnectionStatus,
   EntityActionBanner,
   IncomingRequests,
-  ActiveConversation
+  ActiveConversation,
+  CELL_SIZE,
+  GAP_SIZE
 } from '../components'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket, useKeyboardInput } from '../hooks'
@@ -55,20 +57,16 @@ export default function GameView() {
     enabled: connected && !inConversationWith && !isWalkingToConversation
   })
 
-  // Build grid cells using components
+  // Build empty grid cells
   const cells = []
   for (let y = 0; y < mapSize.height; y++) {
     for (let x = 0; x < mapSize.width; x++) {
-      // Find entity at top-left (x, y)
-      const entityHere = Array.from(entities.values()).find(e => e.x === x && e.y === y)
-      
-      // Also check if this cell is part of a 2x2 entity (check all 4 possible top-left positions)
+      // Check if this cell is part of a 2x2 entity (for click handling)
       const entityOccupyingCell = Array.from(entities.values()).find(e => {
         return x >= e.x && x <= e.x + 1 && y >= e.y && y <= e.y + 1
       })
       
-      const isMe = entityHere?.entityId === myEntityId
-      const isSelected = entityHere?.entityId === selectedEntity?.entityId
+      const isMe = entityOccupyingCell?.entityId === myEntityId
       const canInitiateConversation = entityOccupyingCell && !isMe && entityOccupyingCell.kind !== 'WALL' && !inConversationWith && entityOccupyingCell.entityId !== myEntityId
       
       cells.push(
@@ -77,46 +75,73 @@ export default function GameView() {
           onClick={() => {
             if (canInitiateConversation) {
               setSelectedEntity(entityOccupyingCell)
-            } else if (selectedEntity && isSelected) {
-              setSelectedEntity(null) // Deselect if clicking again
             }
           }}
-        >
-          {selectedEntity && entityHere?.entityId === selectedEntity.entityId && !inConversationWith && (
-            <EntityActionBanner
-              entity={selectedEntity}
-              myEntity={myEntityId ? entities.get(myEntityId) : undefined}
-              isOnCooldown={myEntityId ? cooldowns.has(`${myEntityId}:${selectedEntity.entityId}`) : false}
-              onConfirm={() => {
-                requestConversation(selectedEntity.entityId)
-                setSelectedEntity(null)
-              }}
-              onCancel={() => setSelectedEntity(null)}
-            />
-          )}
-          {entityHere && (
+        />
+      )
+    }
+  }
+
+  // Render entities separately with stable keys to prevent remounting (no blinking)
+  const entityLayer = (
+    <div className="relative" style={{ width: mapSize.width * (CELL_SIZE + GAP_SIZE), height: mapSize.height * (CELL_SIZE + GAP_SIZE) }}>
+      {Array.from(entities.values()).map(entity => {
+        const isMe = entity.entityId === myEntityId
+        const isSelected = entity.entityId === selectedEntity?.entityId
+        const canInitiateConversation = !isMe && entity.kind !== 'WALL' && !inConversationWith
+        
+        // Calculate pixel position: each cell is CELL_SIZE + GAP_SIZE wide
+        const cellStep = CELL_SIZE + GAP_SIZE
+        const left = entity.x * cellStep
+        const top = entity.y * cellStep
+        
+        return (
+          <div
+            key={entity.entityId}
+            className="absolute"
+            style={{
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${CELL_SIZE}px`,
+              height: `${CELL_SIZE}px`,
+              transition: 'left 100ms ease-out, top 100ms ease-out'
+            }}
+          >
+            {selectedEntity && entity.entityId === selectedEntity.entityId && !inConversationWith && (
+              <EntityActionBanner
+                entity={selectedEntity}
+                myEntity={myEntityId ? entities.get(myEntityId) : undefined}
+                isOnCooldown={myEntityId ? cooldowns.has(`${myEntityId}:${selectedEntity.entityId}`) : false}
+                onConfirm={() => {
+                  requestConversation(selectedEntity.entityId)
+                  setSelectedEntity(null)
+                }}
+                onCancel={() => setSelectedEntity(null)}
+              />
+            )}
             <EntityDot 
               isPlayer={isMe} 
-              color={entityHere.color} 
-              facing={entityHere.facing}
-              sprites={entityHere.sprites}
+              color={entity.color} 
+              facing={entity.facing}
+              sprites={entity.sprites}
+              displayName={entity.displayName}
               isSelected={isSelected}
-              inConversation={entityHere.conversationState === 'IN_CONVERSATION'}
-              y={entityHere.y}
-              kind={entityHere.kind}
+              inConversation={entity.conversationState === 'IN_CONVERSATION'}
+              y={entity.y}
+              kind={entity.kind}
               onClick={() => {
                 if (canInitiateConversation) {
-                  setSelectedEntity(entityHere)
+                  setSelectedEntity(entity)
                 } else if (selectedEntity && isSelected) {
                   setSelectedEntity(null)
                 }
               }}
             />
-          )}
-        </Cell>
-      )
-    }
-  }
+          </div>
+        )
+      })}
+    </div>
+  )
 
   return (
     <div className="flex flex-col items-center p-4">
@@ -133,7 +158,7 @@ export default function GameView() {
         </div>
       )}
       
-      <Grid width={mapSize.width} height={mapSize.height}>
+      <Grid width={mapSize.width} height={mapSize.height} entityLayer={entityLayer}>
         {cells}
       </Grid>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Grid, Cell, EntityDot, ConnectionStatus } from '../components'
+import { Grid, Cell, EntityDot, ConnectionStatus, CELL_SIZE, GAP_SIZE } from '../components'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 import type { SpriteUrls } from '../types/game'
 
@@ -157,27 +157,48 @@ export default function WatchView() {
     }
   }, [connect])
 
-  // Build grid cells
+  // Build empty grid cells
   const cells = []
   for (let y = 0; y < mapSize.height; y++) {
     for (let x = 0; x < mapSize.width; x++) {
-      const entityHere = Array.from(entities.values()).find(e => e.x === x && e.y === y)
-      
-      cells.push(
-        <Cell key={`${x}-${y}`}>
-          {entityHere && (
-            <EntityDot 
-              color={entityHere.color} 
-              facing={entityHere.facing}
-              sprites={entityHere.sprites}
-              y={entityHere.y}
-              kind={entityHere.kind}
-            />
-          )}
-        </Cell>
-      )
+      cells.push(<Cell key={`${x}-${y}`} />)
     }
   }
+
+  // Render entities separately with stable keys to prevent blinking
+  const entityLayer = (
+    <div className="relative" style={{ width: mapSize.width * (CELL_SIZE + GAP_SIZE), height: mapSize.height * (CELL_SIZE + GAP_SIZE) }}>
+      {Array.from(entities.values()).map(entity => {
+        // Calculate pixel position: each cell is CELL_SIZE + GAP_SIZE wide
+        const cellStep = CELL_SIZE + GAP_SIZE
+        const left = entity.x * cellStep
+        const top = entity.y * cellStep
+        
+        return (
+          <div
+            key={entity.entityId}
+            className="absolute"
+            style={{
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${CELL_SIZE}px`,
+              height: `${CELL_SIZE}px`,
+              transition: 'left 100ms ease-out, top 100ms ease-out'
+            }}
+          >
+            <EntityDot 
+              color={entity.color} 
+              facing={entity.facing}
+              sprites={entity.sprites}
+              displayName={entity.displayName}
+              y={entity.y}
+              kind={entity.kind}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
 
   return (
     <div className="flex flex-col items-center p-4">
@@ -191,7 +212,7 @@ export default function WatchView() {
         <ConnectionStatus connected={connected} />
       </div>
       
-      <Grid width={mapSize.width} height={mapSize.height}>
+      <Grid width={mapSize.width} height={mapSize.height} entityLayer={entityLayer}>
         {cells}
       </Grid>
     </div>

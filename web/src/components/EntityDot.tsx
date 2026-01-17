@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { SpriteUrls } from '../types/game'
 
 export interface EntityDotProps {
@@ -5,6 +6,7 @@ export interface EntityDotProps {
   color?: string
   facing?: { x: number; y: number }
   sprites?: SpriteUrls
+  displayName?: string
   isSelected?: boolean
   inConversation?: boolean
   y?: number
@@ -17,12 +19,14 @@ export default function EntityDot({
   color, 
   facing, 
   sprites,
+  displayName,
   isSelected, 
   inConversation, 
   y = 0,
   kind = 'PLAYER',
   onClick
 }: EntityDotProps) {
+  const [isHovered, setIsHovered] = useState(false)
   // Walls are simple grey squares
   if (kind === 'WALL') {
     return (
@@ -85,7 +89,18 @@ export default function EntityDot({
             onClick()
           }
         }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
+        {/* Display name tooltip on hover */}
+        {isHovered && displayName && (
+          <div 
+            className="absolute left-1/2 -translate-x-1/2 -top-6 px-2 py-1 bg-gray-900/90 text-white text-xs font-medium rounded whitespace-nowrap pointer-events-none shadow-lg border border-gray-700"
+            style={{ zIndex: zIndex + 100 }}
+          >
+            {displayName}
+          </div>
+        )}
         <img
           src={spriteUrl}
           alt="avatar"
@@ -116,7 +131,18 @@ export default function EntityDot({
           onClick()
         }
       }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
+      {/* Display name tooltip on hover */}
+      {isHovered && displayName && (
+        <div 
+          className="absolute left-1/2 -translate-x-1/2 -top-6 px-2 py-1 bg-gray-900/90 text-white text-xs font-medium rounded whitespace-nowrap pointer-events-none shadow-lg border border-gray-700"
+          style={{ zIndex: zIndex + 100 }}
+        >
+          {displayName}
+        </div>
+      )}
       <div 
         className="w-full h-1/2 rounded-t-lg opacity-90 shadow-sm"
         style={{ backgroundColor: bgColor }}

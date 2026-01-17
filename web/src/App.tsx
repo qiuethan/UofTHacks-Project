@@ -3,6 +3,7 @@ import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
 import WatchView from './pages/WatchView'
 import CreateAvatar from './pages/CreateAvatar'
+import Profile from './pages/Profile'
 import Login from './pages/Login'
 
 function ProtectedRoute({ children, requireAvatar = false }: { children: React.ReactNode, requireAvatar?: boolean }) {
@@ -42,6 +43,11 @@ export default function App() {
             <Link to="/watch" className="text-white hover:text-green-400 font-medium">
               Watch
             </Link>
+            {user && hasAvatar && (
+              <Link to="/profile" className="text-white hover:text-green-400 font-medium">
+                Profile
+              </Link>
+            )}
             {user && !hasAvatar && (
               <Link to="/create" className="text-yellow-400 hover:text-yellow-300 font-medium">
                 Create Avatar
@@ -74,6 +80,7 @@ export default function App() {
           <Route path="/play" element={<ProtectedRoute requireAvatar><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
           <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute requireAvatar><Profile /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
