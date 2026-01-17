@@ -38,3 +38,10 @@ export { validateAction, applyAction, processAction } from './actions';
 // State (exposed for testing/advanced use)
 export type { WorldState } from './state';
 export { createWorldState, getEntity, hasEntity, getAllEntities } from './state';
+
+// Reservation table for space-time coordination
+export { ReservationTable, resolveMoves } from './utils/reservations';
+export type { MoveProposal } from './utils/reservations';
+
+// WHCA* cooperative pathfinding
+export { planCooperativePaths, getNextMove } from './utils/whca';

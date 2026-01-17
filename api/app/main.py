@@ -66,11 +66,52 @@ def get_agent_decision(req: AgentRequest):
     """
     Get a decision for a robot agent.
     Currently implements a simple random walk target selector.
+    Avoids edges and wall positions to prevent wall-hugging behavior.
     """
-    # Simple logic: pick a random point on the map
-    # In a real scenario, this would involve LLM or RL inference
-    target_x = random.randint(0, req.map_width - 1)
-    target_y = random.randint(0, req.map_height - 1)
+    # Define safe zone boundaries (avoid edges for 2x2 entities)
+    # Also add margin to avoid targets too close to walls
+    MARGIN = 3  # Cells away from edges
+    
+    # Ensure we have valid bounds
+    min_x = MARGIN
+    max_x = max(min_x + 1, req.map_width - MARGIN - 2)  # -2 for 2x2 entity size
+    min_y = MARGIN
+    max_y = max(min_y + 1, req.map_height - MARGIN - 2)
+    
+    # Pick random point in safe zone (away from edges and walls)
+    target_x = random.randint(min_x, max_x)
+    target_y = random.randint(min_y, max_y)
+    
+    # Known wall positions (hardcoded from game.ts)
+    # In production, this would be passed in the request
+    walls = [
+        (10, 10), (11, 10), (10, 11), (11, 11),  # wall-1
+        (10, 12), (11, 12), (10, 13), (11, 13),  # wall-2
+        (10, 14), (11, 14), (10, 15), (11, 15),  # wall-3
+        (12, 10), (13, 10), (12, 11), (13, 11),  # wall-4
+    ]
+    
+    # Avoid targets on or immediately adjacent to walls
+    max_attempts = 50
+    for _ in range(max_attempts):
+        is_near_wall = False
+        
+        # Check if target or its 2x2 footprint overlaps with walls or is adjacent
+        for dx in range(-1, 3):  # Check -1 to +2 (adjacent + 2x2 entity)
+            for dy in range(-1, 3):
+                check_pos = (target_x + dx, target_y + dy)
+                if check_pos in walls:
+                    is_near_wall = True
+                    break
+            if is_near_wall:
+                break
+        
+        if not is_near_wall:
+            break
+        
+        # Try new random position
+        target_x = random.randint(min_x, max_x)
+        target_y = random.randint(min_y, max_y)
     
     return {
         "target_x": target_x,
