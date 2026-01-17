@@ -15,6 +15,7 @@ import type { Entity } from '../types/game'
 export default function GameView() {
   const { user, session } = useAuth()
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null)
+  const [showStatusModal, setShowStatusModal] = useState(false)
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -117,19 +118,15 @@ export default function GameView() {
   }
 
   return (
-    <div className="flex flex-col items-center p-8">
-      <h1 className="text-2xl font-bold mb-4 text-gray-400">World Simulation</h1>
-      
-      <ConnectionStatus connected={connected} />
-      
+    <div className="flex flex-col items-center p-4">
       {error && (
-        <div className="mb-4 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
+        <div className="mb-4 px-4 py-2 rounded text-sm bg-red-900/50 text-red-400 border border-red-900/50">
           {error}
         </div>
       )}
 
       {notification && (
-        <div className="mb-4 px-4 py-2 rounded text-sm bg-blue-900 text-blue-100 animate-pulse flex justify-between items-center min-w-[300px]">
+        <div className="mb-4 px-4 py-2 rounded text-sm bg-blue-900/30 text-blue-100 animate-pulse border border-blue-900/50 flex justify-between items-center min-w-[300px]">
           <span>{notification}</span>
           <button onClick={clearNotification} className="ml-4 text-xs underline opacity-50 hover:opacity-100">Dismiss</button>
         </div>
@@ -138,10 +135,6 @@ export default function GameView() {
       <Grid width={mapSize.width} height={mapSize.height}>
         {cells}
       </Grid>
-      
-      <p className="mt-4 text-gray-500 text-sm">
-        Use arrow keys or WASD to move. Click on another player to request conversation.
-      </p>
 
       {/* Incoming Conversation Requests */}
       <IncomingRequests
@@ -156,6 +149,29 @@ export default function GameView() {
           partnerName={entities.get(inConversationWith)?.displayName || 'someone'}
           onEnd={endConversation}
         />
+      )}
+
+      {/* Status Modal - keeping logic but removing the trigger button from main flow */}
+      {showStatusModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 p-8 rounded-3xl border border-gray-800 shadow-2xl max-w-sm w-full animate-in fade-in zoom-in duration-200">
+            <h2 className="text-2xl font-bold text-gray-400 mb-4 text-center">World Simulation</h2>
+            
+            <div className="flex flex-col items-center gap-4 mb-6">
+              <ConnectionStatus connected={connected} />
+              <div className="text-gray-500 text-sm">
+                Entity ID: <span className="font-mono text-gray-300">{myEntityId?.split('-')[0] || '...'}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowStatusModal(false)}
+              className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
