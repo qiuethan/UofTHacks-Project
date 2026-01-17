@@ -8,6 +8,7 @@ interface Entity {
   x: number
   y: number
   color?: string
+  facing?: { x: number; y: number }
 }
 
 interface WorldSnapshot {
@@ -16,11 +17,12 @@ interface WorldSnapshot {
 }
 
 interface WorldEvent {
-  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED'
+  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED'
   entityId?: string
   entity?: Entity
   x?: number
   y?: number
+  facing?: { x: number; y: number }
 }
 
 const WS_URL = 'ws://localhost:3002'
@@ -105,7 +107,20 @@ export default function WatchView() {
                     if (event.entityId) {
                       const entity = next.get(event.entityId)
                       if (entity && event.x !== undefined && event.y !== undefined) {
-                        next.set(event.entityId, { ...entity, x: event.x, y: event.y })
+                        next.set(event.entityId, { 
+                          ...entity, 
+                          x: event.x, 
+                          y: event.y,
+                          facing: event.facing || entity.facing
+                        })
+                      }
+                    }
+                    break
+                  case 'ENTITY_TURNED':
+                    if (event.entityId && event.facing) {
+                      const entity = next.get(event.entityId)
+                      if (entity) {
+                        next.set(event.entityId, { ...entity, facing: event.facing })
                       }
                     }
                     break
@@ -160,7 +175,7 @@ export default function WatchView() {
       
       cells.push(
         <Cell key={`${x}-${y}`}>
-          {entityHere && <EntityDot color={entityHere.color} />}
+          {entityHere && <EntityDot color={entityHere.color} facing={entityHere.facing} />}
         </Cell>
       )
     }
