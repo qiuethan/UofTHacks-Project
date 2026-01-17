@@ -19,6 +19,17 @@ from supabase import create_client, Client
 
 from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse, GenerateAvatarResponse
 from . import database as db
+from .agent_models import (
+    InitializeAgentRequest,
+    InitializeAgentResponse,
+    AgentStateUpdateRequest,
+    SentimentUpdateRequest,
+    AgentPersonality,
+    AgentState,
+    AgentActionResponse,
+)
+from . import agent_database as agent_db
+from .agent_worker import process_agent_tick
 
 # Add image_gen to path for importing pipeline
 IMAGE_GEN_PATH = Path(__file__).parent.parent.parent / "image_gen"
@@ -182,16 +193,45 @@ def get_agent_decision(req: AgentRequest):
     
 
 # ============================================================================
-# AI INTEREST CALCULATIONS
+# AI INTEREST CALCULATIONS (Enhanced with Agent System)
 # ============================================================================
 
 def calculate_ai_interest_to_initiate(robot_id: str, target_id: str, target_type: str) -> float:
     """
     Calculate AI interest score for initiating a conversation.
-    Returns probability between 0 and 1.
-    TODO: Replace with actual interest calculation based on personality, history, etc.
+    Uses agent personality and social memory if available, falls back to random.
     """
-    base = 0.3  # Lower base for initiation
+    try:
+        client = agent_db.get_supabase_client()
+        if client:
+            # Try to use the new agent system
+            personality = agent_db.get_personality(client, robot_id)
+            state = agent_db.get_state(client, robot_id)
+            memory = agent_db.get_social_memory(client, robot_id, target_id)
+            
+            if personality and state:
+                # Base interest from personality
+                base = personality.sociability * 0.5
+                
+                # Boost from loneliness
+                if state.loneliness > 0.5:
+                    base += (state.loneliness - 0.5) * 0.4
+                
+                # Modify by social memory
+                if memory:
+                    base += memory.sentiment * 0.2
+                    base += memory.familiarity * 0.1
+                
+                # Prefer players
+                if target_type == "PLAYER":
+                    base += 0.2
+                
+                return max(0.0, min(1.0, base))
+    except Exception as e:
+        print(f"Using fallback interest calculation: {e}")
+    
+    # Fallback to simple random
+    base = 0.3
     variance = 0.2
     return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
 
@@ -199,11 +239,34 @@ def calculate_ai_interest_to_initiate(robot_id: str, target_id: str, target_type
 def calculate_ai_interest_to_accept(robot_id: str, initiator_id: str, initiator_type: str = "PLAYER") -> float:
     """
     Calculate AI interest in accepting a conversation request.
+    Uses agent personality if available.
     """
     if initiator_type == "PLAYER":
         return 1.0  # Always accept humans
-        
-    base = 0.5  # Base for other robots
+    
+    try:
+        client = agent_db.get_supabase_client()
+        if client:
+            personality = agent_db.get_personality(client, robot_id)
+            memory = agent_db.get_social_memory(client, robot_id, initiator_id)
+            
+            if personality:
+                # Base from agreeableness
+                base = personality.agreeableness * 0.6 + 0.3
+                
+                # Modify by social memory
+                if memory:
+                    base += memory.sentiment * 0.2
+                    # Negative sentiment might lead to rejection
+                    if memory.sentiment < -0.3:
+                        base -= 0.3
+                
+                return max(0.0, min(1.0, base))
+    except Exception as e:
+        print(f"Using fallback accept calculation: {e}")
+    
+    # Fallback
+    base = 0.5
     variance = 0.2
     return max(0, min(1, base + (random.random() - 0.5) * 2 * variance))
 
@@ -448,6 +511,202 @@ async def generate_avatar(photo: UploadFile = File(...)):
     except Exception as e:
         print(f"[generate-avatar] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AGENT DECISION SYSTEM ENDPOINTS
+# ============================================================================
+
+@app.post("/agent/{avatar_id}/action", response_model=AgentActionResponse)
+def get_next_agent_action(avatar_id: str, debug: bool = False):
+    """
+    Get the next action for an agent.
+    
+    Call this when an agent is free/done with their current action
+    to determine what they should do next.
+    
+    This is the on-demand decision endpoint - agents request their
+    next action when ready, rather than being batch-processed.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    result = process_agent_tick(client, avatar_id, debug=debug)
+    if result:
+        return AgentActionResponse(
+            ok=True,
+            avatar_id=avatar_id,
+            action=result["action"],
+            target=result.get("target"),
+            score=result.get("score"),
+            state=result.get("state")
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Avatar not found or context unavailable")
+
+
+@app.post("/agent/initialize", response_model=InitializeAgentResponse)
+def initialize_agent(request: InitializeAgentRequest):
+    """
+    Initialize agent data (personality and state) for an avatar.
+    
+    Call this when a new avatar is created to set up their AI agent.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        personality, state = agent_db.initialize_agent(
+            client, 
+            request.avatar_id,
+            request.personality
+        )
+        return InitializeAgentResponse(
+            ok=True,
+            avatar_id=request.avatar_id,
+            personality=personality,
+            state=state
+        )
+    except Exception as e:
+        print(f"Error initializing agent: {e}")
+        return InitializeAgentResponse(
+            ok=False,
+            avatar_id=request.avatar_id,
+            error=str(e)
+        )
+
+
+@app.get("/agent/{avatar_id}/personality")
+def get_agent_personality(avatar_id: str):
+    """Get personality data for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    personality = agent_db.get_personality(client, avatar_id)
+    if not personality:
+        raise HTTPException(status_code=404, detail="Personality not found")
+    
+    return {"ok": True, "data": personality.model_dump()}
+
+
+@app.get("/agent/{avatar_id}/state")
+def get_agent_state(avatar_id: str):
+    """Get current state (needs) for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    state = agent_db.get_state(client, avatar_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    return {"ok": True, "data": state.model_dump()}
+
+
+@app.patch("/agent/{avatar_id}/state")
+def update_agent_state(avatar_id: str, request: AgentStateUpdateRequest):
+    """Manually update agent state (for testing or admin purposes)."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    state = agent_db.get_state(client, avatar_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    # Apply updates
+    if request.energy is not None:
+        state.energy = max(0.0, min(1.0, request.energy))
+    if request.hunger is not None:
+        state.hunger = max(0.0, min(1.0, request.hunger))
+    if request.loneliness is not None:
+        state.loneliness = max(0.0, min(1.0, request.loneliness))
+    if request.mood is not None:
+        state.mood = max(-1.0, min(1.0, request.mood))
+    
+    agent_db.update_state(client, state)
+    return {"ok": True, "data": state.model_dump()}
+
+
+@app.get("/agent/{avatar_id}/social-memory")
+def get_agent_social_memory(avatar_id: str):
+    """Get all social memories for an avatar."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    memories = agent_db.get_social_memories(client, avatar_id)
+    return {"ok": True, "data": [m.model_dump() for m in memories]}
+
+
+@app.post("/agent/sentiment")
+def update_sentiment(request: SentimentUpdateRequest):
+    """
+    Update sentiment after a conversation.
+    
+    Called by the server after conversations complete.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        memory = agent_db.update_social_memory(
+            client,
+            request.from_avatar_id,
+            request.to_avatar_id,
+            sentiment_delta=request.sentiment_delta,
+            familiarity_delta=request.familiarity_delta,
+            conversation_topic=request.conversation_topic
+        )
+        return {"ok": True, "data": memory.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/world/locations")
+def get_world_locations():
+    """Get all world locations."""
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    locations = agent_db.get_all_world_locations(client)
+    return {"ok": True, "data": [l.model_dump() for l in locations]}
+
+
+@app.get("/agent/{avatar_id}/context")
+def get_agent_context(avatar_id: str):
+    """
+    Get the full decision context for an avatar (for debugging).
+    
+    This shows everything the agent considers when making a decision.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    context = agent_db.build_agent_context(client, avatar_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    return {
+        "ok": True,
+        "data": {
+            "avatar_id": context.avatar_id,
+            "position": {"x": context.x, "y": context.y},
+            "personality": context.personality.model_dump(),
+            "state": context.state.model_dump(),
+            "nearby_avatars": [a.model_dump() for a in context.nearby_avatars],
+            "world_locations": [l.model_dump() for l in context.world_locations],
+            "active_cooldowns": context.active_cooldowns,
+            "in_conversation": context.in_conversation,
+            "social_memories_count": len(context.social_memories),
+        }
+    }
 
 
 if __name__ == "__main__":
