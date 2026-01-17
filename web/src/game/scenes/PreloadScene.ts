@@ -6,20 +6,8 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload() {
-    // Load background image
+    // Load the background image - this defines the game world
     this.load.image('background', '/assets/backgrounds/background.png')
-    
-    // Load tileset (optional - game has fallback)
-    this.load.image('tiles', '/assets/tiles/tileset.png')
-    
-    // Load default sprites for entities without custom avatars (SVG format)
-    this.load.svg('default-front', '/assets/sprites/default-front.svg', { width: 32, height: 64 })
-    this.load.svg('default-back', '/assets/sprites/default-back.svg', { width: 32, height: 64 })
-    this.load.svg('default-left', '/assets/sprites/default-left.svg', { width: 32, height: 64 })
-    this.load.svg('default-right', '/assets/sprites/default-right.svg', { width: 32, height: 64 })
-    
-    // Load wall sprite
-    this.load.svg('wall', '/assets/sprites/wall.svg', { width: 64, height: 64 })
     
     // Show loading progress
     const width = this.cameras.main.width
