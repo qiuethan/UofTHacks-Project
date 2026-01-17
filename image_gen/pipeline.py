@@ -330,8 +330,8 @@ def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
     person_description = vision_response.choices[0].message.content
     print(f"    Person description: {person_description[:100]}...")
     
-    # Generate sprite sheet with DALL-E 3
-    dalle_prompt = f"""Create a 256x256 pixel art sprite sheet in Pokemon GBA overworld style.
+    # Generate sprite sheet with GPT-Image-1.5
+    sprite_prompt = f"""Create a 256x256 pixel art sprite sheet in Pokemon GBA overworld style.
 The character should match this description: {person_description}
 
 The sprite sheet must be a 4x4 grid (64x64 pixels per cell):
@@ -344,19 +344,24 @@ Use solid #00FF7F green background. Clean pixel art style, no anti-aliasing.
 The character should have a 1-pixel dark outline."""
 
     response = client.images.generate(
-        model="dall-e-3",
-        prompt=dalle_prompt,
+        model="gpt-image-1.5",
+        prompt=sprite_prompt,
         size="1024x1024",
-        quality="hd",
+        quality="high",
         n=1
     )
     
-    # Download the generated image
-    image_url = response.data[0].url
-    img_response = requests.get(image_url)
-    img_response.raise_for_status()
-    
-    return Image.open(io.BytesIO(img_response.content))
+    # GPT-Image-1 returns base64 data directly
+    if response.data[0].b64_json:
+        image_data = base64.b64decode(response.data[0].b64_json)
+        return Image.open(io.BytesIO(image_data))
+    elif response.data[0].url:
+        # Fallback to URL if b64_json not available
+        img_response = requests.get(response.data[0].url)
+        img_response.raise_for_status()
+        return Image.open(io.BytesIO(img_response.content))
+    else:
+        raise RuntimeError("No image data in OpenAI response")
 
 
 def remove_background(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, tolerance: int = 30) -> Image.Image:
