@@ -7,11 +7,13 @@ then extracts individual direction views with transparent backgrounds.
 
 import os
 import io
+import time
 from pathlib import Path
 from datetime import datetime
 from PIL import Image
 from google import genai
 from google.genai import types
+from google.genai.errors import ServerError
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -19,6 +21,16 @@ load_dotenv()
 
 # Default input image path
 DEFAULT_INPUT_IMAGE = Path(__file__).parent / "image_examples" / "william.png"
+
+# Model priority list (primary + fallbacks)
+# 1. Nano Banana Pro (Gemini 3 Pro Image) - Best quality
+# 2. Nano Banana (Gemini 2.5 Flash Image) - Good quality fallback
+# 3. Gemini 2.0 Flash Experimental - Stable fallback
+GOOGLE_MODELS = [
+    "gemini-3-pro-image-preview",      # Nano Banana Pro (primary)
+    "gemini-2.5-flash-image",          # Nano Banana (fallback 1)
+    "gemini-2.0-flash-exp",            # Fallback 2
+]
 
 # The exact prompt as specified (word for word)
 SPRITE_SHEET_PROMPT = """Generate one pixel-art sprite sheet PNG from the provided single-person photo in a Pokemon GBA overworld sprite style.
@@ -135,13 +147,13 @@ def load_image(image_path: str) -> Image.Image:
     return Image.open(image_path)
 
 
-def generate_sprite_sheet(
+def generate_sprite_sheet_with_model(
     client: genai.Client,
     input_image_path: str,
-    model_name: str = "gemini-3-pro-image-preview"
+    model_name: str
 ) -> Image.Image:
     """
-    Generate a sprite sheet from an input photo using Nano Banana (Gemini 2.5 Flash).
+    Generate a sprite sheet using a specific model.
     
     Args:
         client: The genai.Client instance.
@@ -149,7 +161,7 @@ def generate_sprite_sheet(
         model_name: The Gemini model to use.
     
     Returns:
-        PIL Image of the generated 256x256 sprite sheet.
+        PIL Image of the generated sprite sheet.
     """
     # Read the image file
     with open(input_image_path, "rb") as f:
@@ -182,6 +194,169 @@ def generate_sprite_sheet(
                 return Image.open(io.BytesIO(image_data))
     
     raise RuntimeError("Failed to generate sprite sheet - no image in response")
+
+
+def generate_sprite_sheet(
+    client: genai.Client,
+    input_image_path: str,
+    model_name: str = None,
+    max_retries: int = 3,
+    retry_delay: float = 5.0
+) -> Image.Image:
+    """
+    Generate a sprite sheet with automatic fallback to alternative models.
+    
+    Tries the primary model first, then falls back to alternatives if the
+    model is overloaded (503 error). Includes retry logic with delays.
+    
+    Args:
+        client: The genai.Client instance.
+        input_image_path: Path to the input image.
+        model_name: Preferred model (optional, uses GOOGLE_MODELS if None).
+        max_retries: Max retry attempts per model.
+        retry_delay: Seconds to wait between retries.
+    
+    Returns:
+        PIL Image of the generated sprite sheet.
+    """
+    # Build list of models to try
+    if model_name:
+        models_to_try = [model_name] + [m for m in GOOGLE_MODELS if m != model_name]
+    else:
+        models_to_try = GOOGLE_MODELS.copy()
+    
+    last_error = None
+    
+    for model in models_to_try:
+        print(f"  Trying model: {model}")
+        
+        for attempt in range(max_retries):
+            try:
+                result = generate_sprite_sheet_with_model(client, input_image_path, model)
+                print(f"  ✓ Success with model: {model}")
+                return result
+                
+            except ServerError as e:
+                last_error = e
+                error_str = str(e)
+                
+                if '503' in error_str or 'overloaded' in error_str.lower():
+                    print(f"    ⚠ Model overloaded (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        print(f"    Waiting {retry_delay}s before retry...")
+                        time.sleep(retry_delay)
+                    continue
+                else:
+                    # Other server error, try next model
+                    print(f"    ✗ Server error: {e}")
+                    break
+                    
+            except Exception as e:
+                last_error = e
+                print(f"    ✗ Error: {e}")
+                break
+        
+        print(f"  Model {model} failed, trying next fallback...")
+    
+    # Try OpenAI as final fallback
+    print("  Trying OpenAI DALL-E as final fallback...")
+    try:
+        result = generate_sprite_sheet_openai(input_image_path)
+        if result:
+            print("  ✓ Success with OpenAI DALL-E")
+            return result
+    except Exception as e:
+        print(f"  ✗ OpenAI fallback failed: {e}")
+        last_error = e
+    
+    # All models failed
+    raise RuntimeError(f"All models failed. Last error: {last_error}")
+
+
+def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
+    """
+    Generate a sprite sheet using OpenAI's DALL-E/GPT-Image API as fallback.
+    
+    Args:
+        input_image_path: Path to the input image.
+    
+    Returns:
+        PIL Image of the generated sprite sheet.
+    """
+    import base64
+    import requests
+    
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError("OpenAI package not installed. Run: pip install openai")
+    
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set in environment")
+    
+    client = OpenAI(api_key=api_key)
+    
+    # Read and encode the input image
+    with open(input_image_path, "rb") as f:
+        image_bytes = f.read()
+    
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    
+    # Use GPT-4o with vision to describe the person, then generate sprite
+    # First, get a description of the person
+    vision_response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Describe this person's appearance in detail for a pixel art sprite: hair color/style, glasses, clothing colors, skin tone. Be concise but specific."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ],
+        max_tokens=200
+    )
+    
+    person_description = vision_response.choices[0].message.content
+    print(f"    Person description: {person_description[:100]}...")
+    
+    # Generate sprite sheet with DALL-E 3
+    dalle_prompt = f"""Create a 256x256 pixel art sprite sheet in Pokemon GBA overworld style.
+The character should match this description: {person_description}
+
+The sprite sheet must be a 4x4 grid (64x64 pixels per cell):
+- Row 1: Front-facing idle (4 frames)
+- Row 2: Left-facing walk cycle (4 frames)
+- Row 3: Right-facing walk cycle (4 frames)  
+- Row 4: Back-facing walk cycle (4 frames)
+
+Use solid #00FF7F green background. Clean pixel art style, no anti-aliasing.
+The character should have a 1-pixel dark outline."""
+
+    response = client.images.generate(
+        model="dall-e-3",
+        prompt=dalle_prompt,
+        size="1024x1024",
+        quality="hd",
+        n=1
+    )
+    
+    # Download the generated image
+    image_url = response.data[0].url
+    img_response = requests.get(image_url)
+    img_response.raise_for_status()
+    
+    return Image.open(io.BytesIO(img_response.content))
 
 
 def remove_background(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, tolerance: int = 30) -> Image.Image:
