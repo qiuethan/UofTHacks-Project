@@ -1,0 +1,9 @@
+This is a placeholder. Replace with an actual 32x32 tileset PNG.
+
+Suggested free tilesets:
+- Kenney.nl: https://kenney.nl/assets/tiny-dungeon
+- OpenGameArt: https://opengameart.org/content/tiny-16-basic
+- itch.io: https://cupnooble.itch.io/sprout-lands-asset-pack
+
+The tileset should be a grid of 32x32 pixel tiles.
+The GameScene will fall back to colored rectangles if no tileset is found.
