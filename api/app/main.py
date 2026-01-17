@@ -30,6 +30,7 @@ from .agent_models import (
 )
 from . import agent_database as agent_db
 from .agent_worker import process_agent_tick
+from . import onboarding
 
 # Add image_gen to path for importing pipeline
 IMAGE_GEN_PATH = Path(__file__).parent.parent.parent / "image_gen"
@@ -68,6 +69,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(onboarding.router)
 
 # ============================================================================
 # ROUTES

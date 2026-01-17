@@ -1,22 +1,16 @@
 import { useState, useCallback } from 'react'
 import { 
-  Grid, 
-  Cell, 
-  EntityDot, 
   ConnectionStatus,
-  EntityActionBanner,
   IncomingRequests,
-  ActiveConversation,
-  CELL_SIZE,
-  GAP_SIZE
+  ActiveConversation
 } from '../components'
+import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
-import { useGameSocket, useKeyboardInput } from '../hooks'
-import type { Entity } from '../types/game'
+import { useGameSocket } from '../hooks'
+import type { GameEntity } from '../game/types'
 
 export default function GameView() {
   const { user, session } = useAuth()
-  const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null)
   const [showStatusModal, setShowStatusModal] = useState(false)
 
   // Game socket connection and state management
@@ -34,133 +28,68 @@ export default function GameView() {
     inConversationWith,
     isWalkingToConversation,
     pendingRequests,
-    cooldowns,
     notification,
     error 
   } = gameState
 
   const { 
     sendDirection, 
-    requestConversation, 
     acceptConversation, 
     rejectConversation, 
     endConversation,
     clearNotification
   } = gameActions
   
-    // Keyboard input for movement
-    const handleDirectionChange = useCallback((direction: { x: -1 | 0 | 1; y: -1 | 0 | 1 }) => {
-      sendDirection(direction.x, direction.y)
-    }, [sendDirection])
-  useKeyboardInput({
-    onDirectionChange: handleDirectionChange,
-    enabled: connected && !inConversationWith && !isWalkingToConversation
-  })
+  // Handle direction changes from Phaser
+  const handleDirectionChange = useCallback((dx: -1 | 0 | 1, dy: -1 | 0 | 1) => {
+    sendDirection(dx, dy)
+  }, [sendDirection])
 
-  // Build empty grid cells
-  const cells = []
-  for (let y = 0; y < mapSize.height; y++) {
-    for (let x = 0; x < mapSize.width; x++) {
-      // Check if this cell is part of a 2x2 entity (for click handling)
-      const entityOccupyingCell = Array.from(entities.values()).find(e => {
-        return x >= e.x && x <= e.x + 1 && y >= e.y && y <= e.y + 1
-      })
-      
-      const isMe = entityOccupyingCell?.entityId === myEntityId
-      const canInitiateConversation = entityOccupyingCell && !isMe && entityOccupyingCell.kind !== 'WALL' && !inConversationWith && entityOccupyingCell.entityId !== myEntityId
-      
-      cells.push(
-        <Cell 
-          key={`${x}-${y}`}
-          onClick={() => {
-            if (canInitiateConversation) {
-              setSelectedEntity(entityOccupyingCell)
-            }
-          }}
-        />
-      )
-    }
+  // Convert entities to GameEntity format for Phaser
+  const gameEntities = new Map<string, GameEntity>()
+  for (const [id, entity] of entities) {
+    gameEntities.set(id, {
+      entityId: entity.entityId,
+      kind: entity.kind,
+      displayName: entity.displayName,
+      x: entity.x,
+      y: entity.y,
+      color: entity.color,
+      facing: entity.facing,
+      sprites: entity.sprites,
+      conversationState: entity.conversationState,
+      conversationPartnerId: entity.conversationPartnerId
+    })
   }
 
-  // Render entities separately with stable keys to prevent remounting (no blinking)
-  const entityLayer = (
-    <div className="relative" style={{ width: mapSize.width * (CELL_SIZE + GAP_SIZE), height: mapSize.height * (CELL_SIZE + GAP_SIZE) }}>
-      {Array.from(entities.values()).map(entity => {
-        const isMe = entity.entityId === myEntityId
-        const isSelected = entity.entityId === selectedEntity?.entityId
-        const canInitiateConversation = !isMe && entity.kind !== 'WALL' && !inConversationWith
-        
-        // Calculate pixel position: each cell is CELL_SIZE + GAP_SIZE wide
-        const cellStep = CELL_SIZE + GAP_SIZE
-        const left = entity.x * cellStep
-        const top = entity.y * cellStep
-        
-        return (
-          <div
-            key={entity.entityId}
-            className="absolute"
-            style={{
-              left: `${left}px`,
-              top: `${top}px`,
-              width: `${CELL_SIZE}px`,
-              height: `${CELL_SIZE}px`,
-              transition: 'left 100ms ease-out, top 100ms ease-out'
-            }}
-          >
-            {selectedEntity && entity.entityId === selectedEntity.entityId && !inConversationWith && (
-              <EntityActionBanner
-                entity={selectedEntity}
-                myEntity={myEntityId ? entities.get(myEntityId) : undefined}
-                isOnCooldown={myEntityId ? cooldowns.has(`${myEntityId}:${selectedEntity.entityId}`) : false}
-                onConfirm={() => {
-                  requestConversation(selectedEntity.entityId)
-                  setSelectedEntity(null)
-                }}
-                onCancel={() => setSelectedEntity(null)}
-              />
-            )}
-            <EntityDot 
-              isPlayer={isMe} 
-              color={entity.color} 
-              facing={entity.facing}
-              sprites={entity.sprites}
-              displayName={entity.displayName}
-              isSelected={isSelected}
-              inConversation={entity.conversationState === 'IN_CONVERSATION'}
-              y={entity.y}
-              kind={entity.kind}
-              onClick={() => {
-                if (canInitiateConversation) {
-                  setSelectedEntity(entity)
-                } else if (selectedEntity && isSelected) {
-                  setSelectedEntity(null)
-                }
-              }}
-            />
-          </div>
-        )
-      })}
-    </div>
-  )
+  // Determine if input should be enabled
+  const inputEnabled = connected && !inConversationWith && !isWalkingToConversation
 
   return (
-    <div className="flex flex-col items-center p-4">
+    <div className="w-full h-[calc(100vh-64px)] overflow-hidden">
+      {/* Error/Notification overlays */}
       {error && (
-        <div className="mb-4 px-4 py-2 rounded text-sm bg-red-900/50 text-red-400 border border-red-900/50">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-red-900/50 text-red-400 border border-red-900/50">
           {error}
         </div>
       )}
 
       {notification && (
-        <div className="mb-4 px-4 py-2 rounded text-sm bg-blue-900/30 text-blue-100 animate-pulse border border-blue-900/50 flex justify-between items-center min-w-[300px]">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-blue-900/30 text-blue-100 animate-pulse border border-blue-900/50 flex justify-between items-center min-w-[300px]">
           <span>{notification}</span>
           <button onClick={clearNotification} className="ml-4 text-xs underline opacity-50 hover:opacity-100">Dismiss</button>
         </div>
       )}
       
-      <Grid width={mapSize.width} height={mapSize.height} entityLayer={entityLayer}>
-        {cells}
-      </Grid>
+      {/* Phaser Game Canvas */}
+      <PhaserGame
+        entities={gameEntities}
+        mapSize={mapSize}
+        myEntityId={myEntityId}
+        mode="play"
+        onDirectionChange={handleDirectionChange}
+        inputEnabled={inputEnabled}
+      />
 
       {/* Incoming Conversation Requests */}
       <IncomingRequests

@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Grid, Cell, EntityDot, ConnectionStatus, CELL_SIZE, GAP_SIZE } from '../components'
+import { ConnectionStatus } from '../components'
+import { PhaserGame } from '../game'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
+import type { GameEntity } from '../game/types'
 import type { SpriteUrls } from '../types/game'
 
 interface Entity {
@@ -157,53 +159,25 @@ export default function WatchView() {
     }
   }, [connect])
 
-  // Build empty grid cells
-  const cells = []
-  for (let y = 0; y < mapSize.height; y++) {
-    for (let x = 0; x < mapSize.width; x++) {
-      cells.push(<Cell key={`${x}-${y}`} />)
-    }
+  // Convert entities to GameEntity format for Phaser
+  const gameEntities = new Map<string, GameEntity>()
+  for (const [id, entity] of entities) {
+    gameEntities.set(id, {
+      entityId: entity.entityId,
+      kind: entity.kind,
+      displayName: entity.displayName,
+      x: entity.x,
+      y: entity.y,
+      color: entity.color,
+      facing: entity.facing,
+      sprites: entity.sprites
+    })
   }
 
-  // Render entities separately with stable keys to prevent blinking
-  const entityLayer = (
-    <div className="relative" style={{ width: mapSize.width * (CELL_SIZE + GAP_SIZE), height: mapSize.height * (CELL_SIZE + GAP_SIZE) }}>
-      {Array.from(entities.values()).map(entity => {
-        // Calculate pixel position: each cell is CELL_SIZE + GAP_SIZE wide
-        const cellStep = CELL_SIZE + GAP_SIZE
-        const left = entity.x * cellStep
-        const top = entity.y * cellStep
-        
-        return (
-          <div
-            key={entity.entityId}
-            className="absolute"
-            style={{
-              left: `${left}px`,
-              top: `${top}px`,
-              width: `${CELL_SIZE}px`,
-              height: `${CELL_SIZE}px`,
-              transition: 'left 100ms ease-out, top 100ms ease-out'
-            }}
-          >
-            <EntityDot 
-              color={entity.color} 
-              facing={entity.facing}
-              sprites={entity.sprites}
-              displayName={entity.displayName}
-              y={entity.y}
-              kind={entity.kind}
-            />
-          </div>
-        )
-      })}
-    </div>
-  )
-
   return (
-    <div className="flex flex-col items-center p-4">
+    <div className="w-full h-[calc(100vh-64px)] overflow-hidden">
       {error && (
-        <div className="mb-4 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
           {error}
         </div>
       )}
@@ -212,9 +186,13 @@ export default function WatchView() {
         <ConnectionStatus connected={connected} />
       </div>
       
-      <Grid width={mapSize.width} height={mapSize.height} entityLayer={entityLayer}>
-        {cells}
-      </Grid>
+      {/* Phaser Game Canvas - Watch mode (no input) */}
+      <PhaserGame
+        entities={gameEntities}
+        mapSize={mapSize}
+        mode="watch"
+        inputEnabled={false}
+      />
     </div>
   )
 }

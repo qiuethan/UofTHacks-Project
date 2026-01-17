@@ -196,18 +196,128 @@ def generate_sprite_sheet_with_model(
     raise RuntimeError("Failed to generate sprite sheet - no image in response")
 
 
+def count_sprite_islands(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, tolerance: int = 30) -> int:
+    """
+    Count the number of distinct sprite islands (connected components) in the image.
+    
+    Uses flood fill to identify connected regions of non-background pixels.
+    Sprites are separated by the green background.
+    
+    Args:
+        image: The sprite sheet image.
+        bg_color: RGB tuple of the background color.
+        tolerance: Color matching tolerance for background.
+    
+    Returns:
+        Number of distinct sprite islands found.
+    """
+    img = image.convert("RGB")
+    pixels = img.load()
+    width, height = img.size
+    
+    # Create a mask of non-background pixels
+    visited = [[False] * width for _ in range(height)]
+    
+    def is_background(r, g, b):
+        # Check if pixel matches background color
+        if (abs(r - bg_color[0]) <= tolerance and 
+            abs(g - bg_color[1]) <= tolerance and 
+            abs(b - bg_color[2]) <= tolerance):
+            return True
+        # Check for bright green variants
+        if g > 200 and r < 100 and b < 180:
+            return True
+        if g > 180 and g > r + 60 and g > b + 40:
+            return True
+        return False
+    
+    def flood_fill(start_x, start_y):
+        """Flood fill to mark all connected non-background pixels."""
+        stack = [(start_x, start_y)]
+        pixel_count = 0
+        
+        while stack:
+            x, y = stack.pop()
+            
+            if x < 0 or x >= width or y < 0 or y >= height:
+                continue
+            if visited[y][x]:
+                continue
+            
+            r, g, b = pixels[x, y]
+            if is_background(r, g, b):
+                continue
+            
+            visited[y][x] = True
+            pixel_count += 1
+            
+            # Add 4-connected neighbors
+            stack.append((x + 1, y))
+            stack.append((x - 1, y))
+            stack.append((x, y + 1))
+            stack.append((x, y - 1))
+        
+        return pixel_count
+    
+    # Count islands
+    island_count = 0
+    min_island_size = 100  # Minimum pixels to count as a sprite (ignore noise)
+    
+    for y in range(height):
+        for x in range(width):
+            if not visited[y][x]:
+                r, g, b = pixels[x, y]
+                if not is_background(r, g, b):
+                    pixel_count = flood_fill(x, y)
+                    if pixel_count >= min_island_size:
+                        island_count += 1
+    
+    return island_count
+
+
+def validate_sprite_sheet_grid(image: Image.Image) -> tuple[bool, str]:
+    """
+    Validate that a sprite sheet is a proper 4x4 grid by counting sprite islands.
+    
+    Uses connected component analysis to count distinct sprite regions
+    after removing the green background. Validates exactly 16 sprites.
+    
+    Args:
+        image: The sprite sheet image to validate.
+    
+    Returns:
+        Tuple of (is_valid, error_message).
+    """
+    width, height = image.size
+    
+    # Check minimum size
+    if width < 256 or height < 256:
+        return (False, f"Image too small: {width}x{height} (minimum 256x256)")
+    
+    # Count sprite islands using connected component analysis
+    island_count = count_sprite_islands(image)
+    
+    if island_count != 16:
+        return (False, f"Expected 16 sprite islands, found {island_count}")
+    
+    return (True, "")
+
+
 def generate_sprite_sheet(
     client: genai.Client,
     input_image_path: str,
     model_name: str = None,
     max_retries: int = 3,
-    retry_delay: float = 5.0
+    retry_delay: float = 5.0,
+    max_validation_retries: int = 3
 ) -> Image.Image:
     """
     Generate a sprite sheet with automatic fallback to alternative models.
     
     Tries the primary model first, then falls back to alternatives if the
     model is overloaded (503 error). Includes retry logic with delays.
+    Also validates that the generated sprite sheet is a proper 4x4 grid
+    and retries if validation fails.
     
     Args:
         client: The genai.Client instance.
@@ -215,6 +325,7 @@ def generate_sprite_sheet(
         model_name: Preferred model (optional, uses GOOGLE_MODELS if None).
         max_retries: Max retry attempts per model.
         retry_delay: Seconds to wait between retries.
+        max_validation_retries: Max attempts to get a valid 4x4 grid.
     
     Returns:
         PIL Image of the generated sprite sheet.
@@ -227,42 +338,74 @@ def generate_sprite_sheet(
     
     last_error = None
     
-    for model in models_to_try:
-        print(f"  Trying model: {model}")
+    # Outer loop for validation retries
+    for validation_attempt in range(max_validation_retries):
+        if validation_attempt > 0:
+            print(f"\n  Validation retry {validation_attempt + 1}/{max_validation_retries} (previous image was not 4x4)")
         
-        for attempt in range(max_retries):
-            try:
-                result = generate_sprite_sheet_with_model(client, input_image_path, model)
-                print(f"  ✓ Success with model: {model}")
-                return result
-                
-            except ServerError as e:
-                last_error = e
-                error_str = str(e)
-                
-                if '503' in error_str or 'overloaded' in error_str.lower():
-                    print(f"    ⚠ Model overloaded (attempt {attempt + 1}/{max_retries})")
-                    if attempt < max_retries - 1:
-                        print(f"    Waiting {retry_delay}s before retry...")
-                        time.sleep(retry_delay)
-                    continue
-                else:
-                    # Other server error, try next model
-                    print(f"    ✗ Server error: {e}")
-                    break
+        for model in models_to_try:
+            print(f"  Trying model: {model}")
+            
+            for attempt in range(max_retries):
+                try:
+                    result = generate_sprite_sheet_with_model(client, input_image_path, model)
                     
-            except Exception as e:
-                last_error = e
-                print(f"    ✗ Error: {e}")
+                    # Validate the sprite sheet is 4x4
+                    is_valid, error_msg = validate_sprite_sheet_grid(result)
+                    if not is_valid:
+                        print(f"    ⚠ Invalid sprite sheet: {error_msg}")
+                        last_error = RuntimeError(f"Invalid grid: {error_msg}")
+                        # Break to try validation retry
+                        break
+                    
+                    print(f"  ✓ Success with model: {model}")
+                    return result
+                    
+                except ServerError as e:
+                    last_error = e
+                    error_str = str(e)
+                    
+                    if '503' in error_str or 'overloaded' in error_str.lower():
+                        print(f"    ⚠ Model overloaded (attempt {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            print(f"    Waiting {retry_delay}s before retry...")
+                            time.sleep(retry_delay)
+                        continue
+                    else:
+                        # Other server error, try next model
+                        print(f"    ✗ Server error: {e}")
+                        break
+                        
+                except Exception as e:
+                    last_error = e
+                    print(f"    ✗ Error: {e}")
+                    break
+            
+            # If we got a valid result, it would have returned already
+            # If validation failed, break model loop to retry with validation
+            if isinstance(last_error, RuntimeError) and "Invalid grid" in str(last_error):
                 break
+            
+            print(f"  Model {model} failed, trying next fallback...")
         
-        print(f"  Model {model} failed, trying next fallback...")
+        # If we got here due to validation failure, continue to next validation attempt
+        if isinstance(last_error, RuntimeError) and "Invalid grid" in str(last_error):
+            continue
+        
+        # Otherwise, all models failed for other reasons, try OpenAI
+        break
     
     # Try OpenAI GPT-Image-1 as final fallback
     print("  Trying OpenAI GPT-Image-1 as final fallback...")
     try:
         result = generate_sprite_sheet_openai(input_image_path)
         if result:
+            # Validate OpenAI result too
+            is_valid, error_msg = validate_sprite_sheet_grid(result)
+            if not is_valid:
+                print(f"    ⚠ Invalid sprite sheet from OpenAI: {error_msg}")
+                raise RuntimeError(f"OpenAI generated invalid grid: {error_msg}")
+            
             print("  ✓ Success with OpenAI GPT-Image-1")
             return result
     except Exception as e:
@@ -270,7 +413,7 @@ def generate_sprite_sheet(
         last_error = e
     
     # All models failed
-    raise RuntimeError(f"All models failed. Last error: {last_error}")
+    raise RuntimeError(f"All models failed to generate valid 4x4 sprite sheet. Last error: {last_error}")
 
 
 def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
@@ -464,42 +607,403 @@ def remove_background(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, to
     return image
 
 
-def extract_first_column(sprite_sheet: Image.Image) -> list[Image.Image]:
+def get_sprite_pixels(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, tolerance: int = 30) -> list[tuple]:
     """
-    Extract the first column (first frame) from each row of the sprite sheet.
+    Extract non-background pixel positions from a sprite.
     
-    The sprite sheet is a 4x4 grid where:
-    - Row 0: Front view (idle)
-    - Row 1: Left view (walk)
-    - Row 2: Right view (walk)
-    - Row 3: Back view (walk)
+    Args:
+        image: PIL Image of a single sprite cell.
+        bg_color: RGB tuple of the background color.
+        tolerance: Color matching tolerance.
+    
+    Returns:
+        List of (x, y) tuples for non-background pixels.
+    """
+    img = image.convert("RGBA")
+    pixels = img.load()
+    width, height = img.size
+    
+    content_pixels = []
+    
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+            
+            is_background = False
+            
+            # Check if pixel matches background color
+            if (abs(r - bg_color[0]) <= tolerance and 
+                abs(g - bg_color[1]) <= tolerance and 
+                abs(b - bg_color[2]) <= tolerance):
+                is_background = True
+            # Check for bright green variants
+            elif g > 200 and r < 100 and b < 180:
+                is_background = True
+            elif g > 180 and g > r + 60 and g > b + 40:
+                is_background = True
+            
+            if not is_background:
+                content_pixels.append((x, y))
+    
+    return content_pixels
+
+
+def detect_sprite_direction(image: Image.Image) -> tuple[str, float]:
+    """
+    Detect which direction a sprite is facing using a decision tree.
+    
+    Decision tree:
+    1. Check if symmetric
+       - If YES: Check facial area variance
+         - High variance (facial features) -> FRONT
+         - Low variance (uniform) -> BACK
+       - If NO: Check horizontal asymmetry
+         - More mass on right -> LEFT
+         - More mass on left -> RIGHT
+    
+    Args:
+        image: PIL Image of a single sprite cell.
+    
+    Returns:
+        Tuple of (direction_name, confidence_score).
+        direction_name is one of: "front", "left", "right", "back"
+    """
+    content_pixels = get_sprite_pixels(image)
+    
+    if len(content_pixels) < 10:
+        return ("unknown", 0.0)
+    
+    width, height = image.size
+    img = image.convert("RGB")
+    pixels_img = img.load()
+    
+    xs = [p[0] for p in content_pixels]
+    ys = [p[1] for p in content_pixels]
+    
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    sprite_width = max_x - min_x + 1
+    sprite_height = max_y - min_y + 1
+    bbox_center_x = (min_x + max_x) / 2
+    
+    # STEP 1: Calculate horizontal symmetry
+    # Build pixel dictionary with colors
+    pixels_dict = {}
+    for x, y in content_pixels:
+        r, g, b = pixels_img[x, y]
+        pixels_dict[(x, y)] = (r, g, b)
+    
+    # Count symmetric matches (with color tolerance)
+    symmetric_matches = 0
+    for x, y in content_pixels:
+        mirror_x = int(2 * bbox_center_x - x)
+        if (mirror_x, y) in pixels_dict:
+            r1, g1, b1 = pixels_dict[(x, y)]
+            r2, g2, b2 = pixels_dict[(mirror_x, y)]
+            # Check if colors are similar (tolerance of 30)
+            if abs(r1 - r2) < 30 and abs(g1 - g2) < 30 and abs(b1 - b2) < 30:
+                symmetric_matches += 1
+    
+    symmetry_ratio = symmetric_matches / len(content_pixels) if content_pixels else 0
+    
+    # Calculate horizontal mass distribution for asymmetry check
+    left_mass = sum(1 for x, y in content_pixels if x < bbox_center_x)
+    right_mass = sum(1 for x, y in content_pixels if x >= bbox_center_x)
+    total_mass = left_mass + right_mass
+    
+    if total_mass == 0:
+        return ("unknown", 0.0)
+    
+    # Asymmetry: positive = more on right, negative = more on left
+    mass_asymmetry = (right_mass - left_mass) / total_mass
+    
+    # Also check edge distribution
+    quarter_width = sprite_width / 4
+    left_quarter_x = min_x + quarter_width
+    right_quarter_x = max_x - quarter_width
+    
+    left_edge_pixels = sum(1 for x, y in content_pixels if x < left_quarter_x)
+    right_edge_pixels = sum(1 for x, y in content_pixels if x > right_quarter_x)
+    edge_asymmetry = (right_edge_pixels - left_edge_pixels) / len(content_pixels)
+    
+    # Combine asymmetry metrics
+    combined_asymmetry = (mass_asymmetry * 0.5 + edge_asymmetry * 0.5)
+    
+    # DECISION TREE:
+    # 1. Check if it's a side view (asymmetric) using threshold
+    # 2. If not side view, check if symmetric (front or back)
+    
+    side_threshold = 0.015  # Threshold for left/right detection (very sensitive)
+    
+    if abs(combined_asymmetry) > side_threshold:
+        # ASYMMETRIC -> Left or Right
+        # Positive asymmetry = more mass on right = facing LEFT (we see their right side)
+        # Negative asymmetry = more mass on left = facing RIGHT (we see their left side)
+        if combined_asymmetry > 0:
+            confidence = 0.6 + min(0.3, abs(combined_asymmetry) * 2)
+            return ("left", confidence)
+        else:
+            confidence = 0.6 + min(0.3, abs(combined_asymmetry) * 2)
+            return ("right", confidence)
+    
+    # Check if symmetric (for front/back classification)
+    if symmetry_ratio > 0.65:
+        # SYMMETRIC -> Front or Back
+        # Distinguish by checking facial area variance
+        
+        # Get head region (top 30% of sprite)
+        head_cutoff = min_y + sprite_height * 0.30
+        head_pixels = [(x, y) for x, y in content_pixels if y < head_cutoff]
+        
+        if len(head_pixels) < 5:
+            return ("front", 0.5)
+        
+        # Get colors in facial area (top 30% of sprite)
+        head_colors = [pixels_img[x, y] for x, y in head_pixels]
+        
+        # Isolate the face region - position it BELOW the hair/top of head
+        # Focus on the lower portion of the head region where actual face/eyes would be
+        head_height = head_cutoff - min_y
+        face_top = min_y + head_height * 0.50  # Start at middle of head (below hair)
+        face_bottom = min_y + head_height * 0.85  # End near bottom of head region
+        face_pixels = [(x, y) for x, y in head_pixels if face_top <= y < face_bottom]
+        
+        if len(face_pixels) < 5:
+            return ("front", 0.5)
+        
+        face_colors = [pixels_img[x, y] for x, y in face_pixels]
+        
+        # Check for HIGH CONTRAST between dark (eyes) and light (skin) pixels
+        # Front view: dark eyes on lighter skin = high contrast
+        # Back view: uniform hair color = low contrast
+        
+        dark_pixels = [(r, g, b) for r, g, b in face_colors if r < 80 and g < 80 and b < 80]
+        light_pixels = [(r, g, b) for r, g, b in face_colors if r > 120 or g > 120 or b > 120]
+        
+        dark_count = len(dark_pixels)
+        light_count = len(light_pixels)
+        dark_ratio = dark_count / len(face_colors) if face_colors else 0
+        light_ratio = light_count / len(face_colors) if face_colors else 0
+        
+        # High contrast = both dark and light pixels present
+        has_high_contrast = dark_ratio > 0.02 and light_ratio > 0.15
+        
+        # Check for color diversity in face region
+        face_colors_quantized = set((r // 30, g // 30, b // 30) for r, g, b in face_colors)
+        face_color_diversity = len(face_colors_quantized)
+        
+        # Calculate color variance in facial area
+        if len(face_colors) > 1:
+            r_values = [r for r, g, b in face_colors]
+            g_values = [g for r, g, b in face_colors]
+            b_values = [b for r, g, b in face_colors]
+            
+            r_mean = sum(r_values) / len(r_values)
+            g_mean = sum(g_values) / len(g_values)
+            b_mean = sum(b_values) / len(b_values)
+            
+            r_var = sum((r - r_mean) ** 2 for r in r_values) / len(r_values)
+            g_var = sum((g - g_mean) ** 2 for g in g_values) / len(g_values)
+            b_var = sum((b - b_mean) ** 2 for b in b_values) / len(b_values)
+            
+            # Standard deviation (variance measure)
+            facial_variance = ((r_var + g_var + b_var) / 3) ** 0.5
+        else:
+            facial_variance = 0
+        
+        # DECISION: Does facial area have sufficient contrast/features?
+        # Front has: dark pixels (eyes), color diversity (features), high variance
+        # Back has: uniform color (hair), no dark pixels, low variance
+        
+        front_score = 0
+        
+        # HIGH CONTRAST check - most important indicator
+        # Front: dark eyes on light skin = high contrast
+        # Back: uniform hair = low contrast
+        if has_high_contrast:
+            front_score += 4  # Strong indicator of front
+        else:
+            front_score -= 2  # Likely back
+        
+        # Dark pixels ratio analysis
+        # Front: should have SOME dark (eyes) but not ALL dark
+        # Back: usually ALL dark (uniform hair) or ALL light
+        if dark_ratio > 0.90:
+            # Almost all dark = uniform hair = BACK
+            front_score -= 3
+        elif dark_ratio > 0.03 and dark_ratio < 0.70:
+            # Some dark pixels (eyes) but not uniform = FRONT
+            front_score += 2
+        elif dark_ratio > 0.01 and dark_ratio < 0.70:
+            front_score += 1
+        
+        # Color diversity in face
+        if face_color_diversity >= 4:
+            front_score += 1
+        elif face_color_diversity >= 3:
+            front_score += 1
+        elif face_color_diversity <= 2:
+            front_score -= 1
+        
+        # Facial variance
+        if facial_variance > 15:
+            front_score += 1
+        elif facial_variance > 10:
+            front_score += 1
+        elif facial_variance < 8:
+            front_score -= 1
+        
+        # Threshold: >= 2 = front, < 2 = back
+        if front_score >= 2:
+            # FRONT
+            confidence = 0.7 + min(0.2, front_score / 10)
+            return ("front", confidence)
+        else:
+            # BACK
+            confidence = 0.7 + min(0.2, abs(front_score) / 10)
+            return ("back", confidence)
+    
+    # Fallback: not clearly asymmetric and not clearly symmetric
+    # Default to front with low confidence
+    return ("front", 0.5)
+
+
+def score_sprite_quality(image: Image.Image) -> float:
+    """
+    Score a sprite's quality independent of direction.
+    
+    Evaluates:
+    - Content amount (should have reasonable sprite content)
+    - Centeredness
+    - Proper proportions
+    
+    Args:
+        image: PIL Image of a single sprite cell.
+    
+    Returns:
+        Float score (higher is better).
+    """
+    content_pixels = get_sprite_pixels(image)
+    content_count = len(content_pixels)
+    
+    if content_count == 0:
+        return 0.0
+    
+    width, height = image.size
+    total_pixels = width * height
+    
+    xs = [p[0] for p in content_pixels]
+    ys = [p[1] for p in content_pixels]
+    
+    center_x = sum(xs) / content_count
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    bbox_width = max_x - min_x + 1
+    bbox_height = max_y - min_y + 1
+    
+    # Score components:
+    
+    # 1. Content ratio (ideal: 10-50% of cell area)
+    content_ratio = content_count / total_pixels
+    if content_ratio < 0.05:
+        content_score = content_ratio * 10
+    elif content_ratio > 0.60:
+        content_score = max(0, 1.0 - (content_ratio - 0.60) * 2)
+    else:
+        content_score = 1.0
+    
+    # 2. Horizontal centeredness
+    ideal_center_x = width / 2
+    x_deviation = abs(center_x - ideal_center_x) / (width / 2)
+    center_score = max(0, 1.0 - x_deviation)
+    
+    # 3. Vertical coverage (should span most of cell height)
+    vertical_coverage = bbox_height / height
+    coverage_score = min(1.0, vertical_coverage / 0.7)
+    
+    # 4. Aspect ratio (taller than wide)
+    if bbox_height > 0:
+        aspect = bbox_width / bbox_height
+        aspect_score = 1.0 if 0.3 <= aspect <= 0.9 else max(0, 1.0 - abs(aspect - 0.6) * 0.5)
+    else:
+        aspect_score = 0.0
+    
+    return content_score * 0.3 + center_score * 0.3 + coverage_score * 0.2 + aspect_score * 0.2
+
+
+def extract_best_sprites(sprite_sheet: Image.Image) -> list[Image.Image]:
+    """
+    Extract the best sprite for each direction from all 16 sprites.
+    
+    Analyzes all 16 sprites to detect which direction each is facing,
+    then picks the best quality sprite for each direction.
     
     Args:
         sprite_sheet: The sprite sheet image (any size, assumes 4x4 grid).
     
     Returns:
-        List of 4 PIL Images, one for each direction.
+        List of 4 PIL Images in order: [front, left, right, back]
     """
-    # Calculate actual cell size based on sprite sheet dimensions
     width, height = sprite_sheet.size
     cell_width = width // GRID_COLS
     cell_height = height // GRID_ROWS
     
     print(f"  Sprite sheet size: {width}x{height}, cell size: {cell_width}x{cell_height}")
+    print("  Analyzing all 16 sprites for direction...")
     
-    frames = []
+    # Extract all 16 sprites with their detected direction and quality
+    all_sprites = []  # List of (image, row, col, direction, direction_confidence, quality_score)
     
     for row in range(GRID_ROWS):
-        # Extract the first column (column 0) of each row
-        left = 0
-        top = row * cell_height
-        right = cell_width
-        bottom = (row + 1) * cell_height
-        
-        frame = sprite_sheet.crop((left, top, right, bottom))
-        frames.append(frame)
+        for col in range(GRID_COLS):
+            left = col * cell_width
+            top = row * cell_height
+            right = (col + 1) * cell_width
+            bottom = (row + 1) * cell_height
+            
+            frame = sprite_sheet.crop((left, top, right, bottom))
+            direction, confidence = detect_sprite_direction(frame)
+            quality = score_sprite_quality(frame)
+            
+            all_sprites.append({
+                "image": frame,
+                "row": row,
+                "col": col,
+                "direction": direction,
+                "confidence": confidence,
+                "quality": quality,
+                "combined_score": confidence * 0.6 + quality * 0.4
+            })
+            
+            print(f"    [{row},{col}]: direction={direction}, conf={confidence:.2f}, quality={quality:.2f}")
     
-    return frames
+    # Group sprites by detected direction
+    by_direction = {"front": [], "left": [], "right": [], "back": []}
+    for sprite in all_sprites:
+        if sprite["direction"] in by_direction:
+            by_direction[sprite["direction"]].append(sprite)
+    
+    # Select best sprite for each direction
+    best_frames = []
+    
+    for direction in VIEW_NAMES:  # ["front", "left", "right", "back"]
+        candidates = by_direction[direction]
+        
+        if candidates:
+            # Pick the one with highest combined score
+            best = max(candidates, key=lambda s: s["combined_score"])
+            best_frames.append(best["image"])
+            print(f"  Selected for {direction}: row={best['row']}, col={best['col']}, "
+                  f"score={best['combined_score']:.3f}")
+        else:
+            # Fallback: no sprite detected for this direction
+            # Use the expected row's first column as fallback
+            fallback_row = VIEW_NAMES.index(direction)
+            fallback = [s for s in all_sprites if s["row"] == fallback_row][0]
+            best_frames.append(fallback["image"])
+            print(f"  WARNING: No {direction} sprite detected, using fallback [{fallback_row},0]")
+    
+    return best_frames
 
 
 def run_pipeline(
@@ -563,8 +1067,8 @@ def run_pipeline(
         print(f"  Saved sprite sheet: {sheet_path}")
         results["sprite_sheet"] = str(sheet_path)
         
-        # Extract first column and save front, left, right, back directly in the output folder
-        frames = extract_first_column(sprite_sheet)
+        # Extract best sprites from each row and save front, left, right, back directly in the output folder
+        frames = extract_best_sprites(sprite_sheet)
         
         for frame, view_name in zip(frames, VIEW_NAMES):
             # Remove the green background

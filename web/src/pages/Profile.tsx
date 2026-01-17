@@ -212,7 +212,7 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="text-gray-400">Loading profile...</div>
       </div>
     )
@@ -220,7 +220,7 @@ export default function Profile() {
 
   if (!profile?.has_avatar) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="h-full flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold mb-4">No Avatar Yet</h2>
           <p className="text-gray-400 mb-6">You haven't created an avatar yet. Create one to start playing!</p>
@@ -236,7 +236,7 @@ export default function Profile() {
   }
 
   return (
-    <div className="min-h-screen p-4">
+    <div className="h-full p-4">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold mb-8 text-center">Your Profile</h1>
 
