@@ -30,8 +30,8 @@ export function validateAction(
       }
       return validateMoveAction(action.x, action.y);
     case 'SET_DIRECTION':
-      if (actor.conversationState === 'IN_CONVERSATION') {
-        return err('IN_CONVERSATION', 'Cannot change direction while in a conversation');
+      if (actor.conversationState === 'IN_CONVERSATION' || actor.conversationState === 'WALKING_TO_CONVERSATION') {
+        return err('IN_CONVERSATION', 'Cannot change direction while in a conversation or walking to one');
       }
       return ok(undefined);
     case 'STAND_STILL':

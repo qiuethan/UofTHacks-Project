@@ -26,11 +26,17 @@ export function startAiLoop() {
   setInterval(async () => {
     const snapshot = world.getSnapshot();
     const robots = snapshot.entities.filter(e => e.kind === 'ROBOT');
+    const currentTime = Date.now();
     
     for (const robot of robots) {
       // SAFETY CHECK: Ensure we're only processing ROBOT entities
       if (robot.kind !== 'ROBOT') {
         console.error(`ERROR: AI loop tried to process non-ROBOT entity: ${robot.entityId} (kind: ${robot.kind})`);
+        continue;
+      }
+      
+      // Skip if robot is on a decision cooldown (e.g. standing still for a duration)
+      if (robot.nextDecisionAt && currentTime < robot.nextDecisionAt) {
         continue;
       }
       
@@ -85,7 +91,9 @@ export function startAiLoop() {
                 break;
                 
               case 'STAND_STILL':
-                // Do nothing, robot stays in place
+                if (data.duration) {
+                  world.setEntityNextDecision(robot.entityId, currentTime + (data.duration * 1000));
+                }
                 break;
                 
               case 'REQUEST_CONVERSATION':

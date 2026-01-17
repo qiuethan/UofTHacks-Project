@@ -28,19 +28,29 @@ export default function GameView() {
     myEntityId, 
     mapSize, 
     entities, 
-    error, 
-    pendingRequests, 
-    inConversationWith 
+    inConversationWith,
+    isWalkingToConversation,
+    pendingRequests,
+    notification,
+    error 
   } = gameState
 
-  // Keyboard input for movement
-  const handleDirectionChange = useCallback((direction: { x: -1 | 0 | 1; y: -1 | 0 | 1 }) => {
-    gameActions.sendDirection(direction.x, direction.y)
-  }, [gameActions])
-
+  const { 
+    sendDirection, 
+    requestConversation, 
+    acceptConversation, 
+    rejectConversation, 
+    endConversation,
+    clearNotification
+  } = gameActions
+  
+    // Keyboard input for movement
+    const handleDirectionChange = useCallback((direction: { x: -1 | 0 | 1; y: -1 | 0 | 1 }) => {
+      sendDirection(direction.x, direction.y)
+    }, [sendDirection])
   useKeyboardInput({
     onDirectionChange: handleDirectionChange,
-    enabled: connected && !inConversationWith
+    enabled: connected && !inConversationWith && !isWalkingToConversation
   })
 
   // Build grid cells using components
@@ -100,6 +110,13 @@ export default function GameView() {
           {error}
         </div>
       )}
+
+      {notification && (
+        <div className="mb-4 px-4 py-2 rounded text-sm bg-blue-900 text-blue-100 animate-pulse flex justify-between items-center min-w-[300px]">
+          <span>{notification}</span>
+          <button onClick={clearNotification} className="ml-4 text-xs underline opacity-50 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
       
       <Grid width={mapSize.width} height={mapSize.height}>
         {cells}
@@ -114,7 +131,7 @@ export default function GameView() {
         <ConversationRequestDialog
           entity={selectedEntity}
           onConfirm={() => {
-            gameActions.requestConversation(selectedEntity.entityId)
+            requestConversation(selectedEntity.entityId)
             setSelectedEntity(null)
           }}
           onCancel={() => setSelectedEntity(null)}
@@ -124,15 +141,15 @@ export default function GameView() {
       {/* Incoming Conversation Requests */}
       <IncomingRequests
         requests={pendingRequests}
-        onAccept={gameActions.acceptConversation}
-        onReject={gameActions.rejectConversation}
+        onAccept={acceptConversation}
+        onReject={rejectConversation}
       />
 
       {/* In Conversation Indicator */}
       {inConversationWith && (
         <ActiveConversation
           partnerName={entities.get(inConversationWith)?.displayName || 'someone'}
-          onEnd={gameActions.endConversation}
+          onEnd={endConversation}
         />
       )}
     </div>

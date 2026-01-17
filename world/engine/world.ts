@@ -300,25 +300,38 @@ export class World {
                   const updatedWithFacing = {
                     ...currentEntity,
                     facing: facingDirection,
-                    targetPosition: undefined,
-                    targetSetAt: undefined
                   };
                   this.state.entities.set(entity.entityId, updatedWithFacing);
 
                   // Emit facing event
-                  events.push({
-                    type: 'ENTITY_TURNED',
+                  if (!currentEntity.facing || currentEntity.facing.x !== facingDirection.x || currentEntity.facing.y !== facingDirection.y) {
+                    events.push({
+                      type: 'ENTITY_TURNED',
+                      entityId: entity.entityId,
+                      facing: facingDirection
+                    });
+                  }
+                }
+                
+                // ONLY push a wait proposal if this entity is actually at its target.
+                // For the receiver, targetPosition is their current position, so this is always true.
+                // For the initiator, this is only true when they've arrived.
+                if (entity.x === entity.targetPosition.x && entity.y === entity.targetPosition.y) {
+                  moveProposals.push({
                     entityId: entity.entityId,
-                    facing: facingDirection
+                    from: { x: entity.x, y: entity.y },
+                    to: { x: entity.x, y: entity.y },
+                    priority: 0 // High priority to stay put
                   });
                 }
+              } else {
+                target = undefined;
+                targetSetAt = undefined;
+                positionHistory = [];
+                stuckCounter = 0;
+                plannedPath = undefined;
+                lastMovedTime = currentTime;
               }
-              
-              target = undefined;
-              targetSetAt = undefined;
-              positionHistory = [];
-              stuckCounter = 0;
-              plannedPath = undefined;
             } else {
               // Propose next move from path
               const next = plannedPath[0];
@@ -469,8 +482,26 @@ export class World {
     const conversationEvents = this.checkConversationProximity();
     events.push(...conversationEvents);
     
-    // Cleanup expired conversation requests
-    this.conversationRequests.cleanupExpired();
+    // Cleanup expired conversation requests and sync entity state
+    const expiredRequests = this.conversationRequests.cleanupExpired();
+    for (const req of expiredRequests) {
+      // If the initiator was in PENDING_REQUEST state for this specific request, reset them
+      const initiator = this.state.entities.get(req.initiatorId);
+      if (initiator && initiator.conversationState === 'PENDING_REQUEST' && initiator.pendingConversationRequestId === req.requestId) {
+        const updated = {
+          ...initiator,
+          conversationState: 'IDLE' as const,
+          conversationTargetId: undefined,
+          pendingConversationRequestId: undefined
+        };
+        this.state.entities.set(req.initiatorId, updated);
+        events.push({
+          type: 'ENTITY_STATE_CHANGED',
+          entityId: req.initiatorId,
+          conversationState: 'IDLE'
+        });
+      }
+    }
 
     return events;
   }
@@ -588,6 +619,7 @@ export class World {
       conversationState: 'WALKING_TO_CONVERSATION' as const,
       conversationTargetId: request.targetId,
       targetPosition: adjacentPosition, // Walk to adjacent position
+      direction: { x: 0 as const, y: 0 as const },
       pendingConversationRequestId: undefined
     };
     
@@ -595,6 +627,7 @@ export class World {
       ...target,
       conversationState: 'WALKING_TO_CONVERSATION' as const,
       conversationTargetId: request.initiatorId,
+      targetPosition: { x: target.x, y: target.y }, // Lock them here using the same target system
       direction: { x: 0 as const, y: 0 as const } // Target stands still
     };
     
@@ -658,7 +691,14 @@ export class World {
       cooldownUntil
     };
     
-    return ok([event]);
+    return ok([
+      event,
+      {
+        type: 'ENTITY_STATE_CHANGED',
+        entityId: request.initiatorId,
+        conversationState: 'IDLE'
+      }
+    ]);
   }
 
   /**
@@ -869,6 +909,17 @@ export class World {
       }
     }
     return result;
+  }
+
+  /**
+   * Set the timestamp when an entity can make its next AI decision.
+   */
+  setEntityNextDecision(entityId: string, timestamp: number): void {
+    const entity = this.state.entities.get(entityId);
+    if (entity) {
+      const updated = { ...entity, nextDecisionAt: timestamp };
+      this.state.entities.set(entityId, updated);
+    }
   }
 
   /**

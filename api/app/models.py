@@ -59,3 +59,4 @@ class AgentResponse(BaseModel):
     target_y: Optional[int] = None
     target_entity_id: Optional[str] = None  # For REQUEST_CONVERSATION
     request_id: Optional[str] = None  # For ACCEPT/REJECT_CONVERSATION
+    duration: Optional[float] = None  # Duration in seconds for actions like STAND_STILL

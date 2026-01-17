@@ -128,8 +128,12 @@ export function calculateAIInterestToAccept(
   initiatorId: string,
   initiatorType: 'PLAYER' | 'ROBOT'
 ): number {
-  // Higher acceptance rate for humans
-  const baseAcceptance = initiatorType === 'PLAYER' ? 0.7 : 0.5;
+  if (initiatorType === 'PLAYER') {
+    return 1.0; // Always accept humans
+  }
+  
+  // Base acceptance for other robots
+  const baseAcceptance = 0.5;
   const variance = 0.2;
   
   return Math.max(0, Math.min(1, baseAcceptance + (Math.random() - 0.5) * 2 * variance));
@@ -325,12 +329,15 @@ export class ConversationRequestManager {
     return this.cooldowns.getCooldownRemaining(initiatorId, targetId);
   }
   
-  cleanupExpired(): void {
+  cleanupExpired(): ConversationRequest[] {
     const now = Date.now();
+    const expired: ConversationRequest[] = [];
     
     for (const [id, request] of this.requests.entries()) {
       if (request.status === 'PENDING' && now >= request.expiresAt) {
-        this.requests.set(id, { ...request, status: 'EXPIRED' });
+        const expiredReq = { ...request, status: 'EXPIRED' as const };
+        this.requests.set(id, expiredReq);
+        expired.push(expiredReq);
       }
       
       // Remove old completed requests
@@ -343,6 +350,7 @@ export class ConversationRequestManager {
     }
     
     this.cooldowns.clearExpired();
+    return expired;
   }
 }
 

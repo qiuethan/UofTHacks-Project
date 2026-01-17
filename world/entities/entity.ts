@@ -21,6 +21,8 @@ export interface Entity {
   readonly plannedPath?: Array<{ x: number; y: number }>; // Space-time path from WHCA*
   readonly pathPlanTime?: number; // When the path was last planned
   readonly lastMovedTime?: number; // Last time robot successfully moved (for progress timeout)
+  // AI Decisions
+  readonly nextDecisionAt?: number; // Timestamp when robot can make next decision
   // Conversation state
   readonly conversationState?: 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION';
   readonly conversationTargetId?: string; // Entity we're trying to talk to or talking with

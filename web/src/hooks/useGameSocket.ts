@@ -16,6 +16,8 @@ interface GameSocketState {
   error: string | null
   pendingRequests: ConversationRequest[]
   inConversationWith: string | null
+  isWalkingToConversation: boolean
+  notification: string | null
 }
 
 interface GameSocketActions {
@@ -24,6 +26,7 @@ interface GameSocketActions {
   acceptConversation: (requestId: string) => void
   rejectConversation: (requestId: string) => void
   endConversation: () => void
+  clearNotification: () => void
 }
 
 /**
@@ -38,6 +41,8 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const [error, setError] = useState<string | null>(null)
   const [pendingRequests, setPendingRequests] = useState<ConversationRequest[]>([])
   const [inConversationWith, setInConversationWith] = useState<string | null>(null)
+  const [isWalkingToConversation, setIsWalkingToConversation] = useState(false)
+  const [notification, setNotification] = useState<string | null>(null)
   
   // Sync conversation state from entities map
   useEffect(() => {
@@ -47,6 +52,12 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         setInConversationWith(me.conversationPartnerId)
       } else {
         setInConversationWith(null)
+      }
+
+      if (me?.conversationState === 'WALKING_TO_CONVERSATION') {
+        setIsWalkingToConversation(true)
+      } else {
+        setIsWalkingToConversation(false)
       }
     }
   }, [entities, myEntityId])  
@@ -133,6 +144,19 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
       case 'CONVERSATION_REJECTED':
         // Remove from pending requests
         setPendingRequests(prev => prev.filter(r => r.requestId !== event.requestId))
+        
+        // Show notification if we were part of this
+        if (event.initiatorId === myEntityId) {
+          setEntities(current => {
+            const target = current.get(event.targetId!)
+            setNotification(`Conversation request to ${target?.displayName || 'target'} was rejected.`)
+            return current
+          })
+          setTimeout(() => setNotification(null), 5000)
+        } else if (event.targetId === myEntityId) {
+          setNotification('You rejected the conversation request.')
+          setTimeout(() => setNotification(null), 5000)
+        }
         break
       case 'CONVERSATION_ENDED':
         // No manual sync needed, useEffect handles it from entity state
@@ -276,6 +300,10 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     ws.send(JSON.stringify({ type: 'END_CONVERSATION' }))
   }, [])
 
+  const clearNotification = useCallback(() => {
+    setNotification(null)
+  }, [])
+
   const state: GameSocketState = {
     connected,
     myEntityId,
@@ -283,7 +311,9 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     entities,
     error,
     pendingRequests,
-    inConversationWith
+    inConversationWith,
+    isWalkingToConversation,
+    notification
   }
 
   const actions: GameSocketActions = {
@@ -291,7 +321,8 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     requestConversation,
     acceptConversation,
     rejectConversation,
-    endConversation
+    endConversation,
+    clearNotification
   }
 
   return [state, actions]
