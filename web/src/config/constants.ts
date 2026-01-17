@@ -22,6 +22,8 @@ export const MAP_DEFAULTS = {
 // Conversation Configuration  
 export const CONVERSATION_CONFIG = {
   REQUEST_TIMEOUT_MS: 30000,
+  INITIATION_RADIUS: 15,
+  REJECTION_COOLDOWN_MS: 30000,
 }
 
 // Entity Configuration

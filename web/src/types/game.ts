@@ -44,6 +44,7 @@ export interface WorldEvent {
   initiatorId?: string
   targetId?: string
   expiresAt?: number
+  cooldownUntil?: number
   participant1Id?: string
   participant2Id?: string
   conversationState?: ConversationState

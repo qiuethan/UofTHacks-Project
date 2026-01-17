@@ -4,7 +4,7 @@ import {
   Cell, 
   EntityDot, 
   ConnectionStatus,
-  ConversationRequestDialog,
+  EntityActionBanner,
   IncomingRequests,
   ActiveConversation
 } from '../components'
@@ -31,6 +31,7 @@ export default function GameView() {
     inConversationWith,
     isWalkingToConversation,
     pendingRequests,
+    cooldowns,
     notification,
     error 
   } = gameState
@@ -75,9 +76,23 @@ export default function GameView() {
           onClick={() => {
             if (canInitiateConversation) {
               setSelectedEntity(entityOccupyingCell)
+            } else if (selectedEntity && isSelected) {
+              setSelectedEntity(null) // Deselect if clicking again
             }
           }}
         >
+          {selectedEntity && entityHere?.entityId === selectedEntity.entityId && !inConversationWith && (
+            <EntityActionBanner
+              entity={selectedEntity}
+              myEntity={myEntityId ? entities.get(myEntityId) : undefined}
+              isOnCooldown={myEntityId ? cooldowns.has(`${myEntityId}:${selectedEntity.entityId}`) : false}
+              onConfirm={() => {
+                requestConversation(selectedEntity.entityId)
+                setSelectedEntity(null)
+              }}
+              onCancel={() => setSelectedEntity(null)}
+            />
+          )}
           {entityHere && (
             <EntityDot 
               isPlayer={isMe} 
@@ -90,6 +105,8 @@ export default function GameView() {
               onClick={() => {
                 if (canInitiateConversation) {
                   setSelectedEntity(entityHere)
+                } else if (selectedEntity && isSelected) {
+                  setSelectedEntity(null)
                 }
               }}
             />
@@ -125,18 +142,6 @@ export default function GameView() {
       <p className="mt-4 text-gray-500 text-sm">
         Use arrow keys or WASD to move. Click on another player to request conversation.
       </p>
-
-      {/* Conversation Request Popup */}
-      {selectedEntity && !inConversationWith && (
-        <ConversationRequestDialog
-          entity={selectedEntity}
-          onConfirm={() => {
-            requestConversation(selectedEntity.entityId)
-            setSelectedEntity(null)
-          }}
-          onCancel={() => setSelectedEntity(null)}
-        />
-      )}
 
       {/* Incoming Conversation Requests */}
       <IncomingRequests

@@ -17,6 +17,7 @@ interface GameSocketState {
   pendingRequests: ConversationRequest[]
   inConversationWith: string | null
   isWalkingToConversation: boolean
+  cooldowns: Map<string, number>
   notification: string | null
 }
 
@@ -42,6 +43,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const [pendingRequests, setPendingRequests] = useState<ConversationRequest[]>([])
   const [inConversationWith, setInConversationWith] = useState<string | null>(null)
   const [isWalkingToConversation, setIsWalkingToConversation] = useState(false)
+  const [cooldowns, setCooldowns] = useState<Map<string, number>>(new Map())
   const [notification, setNotification] = useState<string | null>(null)
   
   // Sync conversation state from entities map
@@ -60,7 +62,26 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         setIsWalkingToConversation(false)
       }
     }
-  }, [entities, myEntityId])  
+  }, [entities, myEntityId])
+
+  // Cleanup expired cooldowns
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCooldowns(current => {
+        const now = Date.now()
+        let hasExpired = false
+        const next = new Map(current)
+        for (const [key, expiry] of next.entries()) {
+          if (now >= expiry) {
+            next.delete(key)
+            hasExpired = true
+          }
+        }
+        return hasExpired ? next : current
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])  
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
@@ -145,6 +166,15 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         // Remove from pending requests
         setPendingRequests(prev => prev.filter(r => r.requestId !== event.requestId))
         
+        // Update cooldowns
+        if (event.initiatorId && event.targetId && event.cooldownUntil) {
+          setCooldowns(prev => {
+            const next = new Map(prev)
+            next.set(`${event.initiatorId}:${event.targetId}`, event.cooldownUntil!)
+            return next
+          })
+        }
+
         // Show notification if we were part of this
         if (event.initiatorId === myEntityId) {
           setEntities(current => {
@@ -313,6 +343,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     pendingRequests,
     inConversationWith,
     isWalkingToConversation,
+    cooldowns,
     notification
   }
 
