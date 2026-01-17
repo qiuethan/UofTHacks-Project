@@ -89,6 +89,11 @@ export async function handleSetDirection(client: Client, dx: 0|1|-1, dy: 0|1|-1)
     send(client.ws, { type: 'ERROR', error: result.error.message });
     return;
   }
+
+  // Broadcast any events (e.g., ENTITY_TURNED)
+  if (result.value.length > 0) {
+    broadcast({ type: 'EVENTS', events: result.value });
+  }
 }
 
 export async function handleDisconnect(client: Client, oderId: string) {

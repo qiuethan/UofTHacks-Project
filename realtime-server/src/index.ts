@@ -66,3 +66,28 @@ watchWss.on('connection', (ws) => {
     console.log(`Spectator disconnected: ${watcherId}`);
   });
 });
+
+// ============================================================================
+// GRACEFUL SHUTDOWN
+// ============================================================================
+
+function shutdown() {
+  console.log('Shutting down servers...');
+  
+  playWss.close(() => {
+    console.log('Play server closed');
+  });
+  
+  watchWss.close(() => {
+    console.log('Watch server closed');
+  });
+
+  // Force exit if it takes too long
+  setTimeout(() => {
+    console.error('Forcing shutdown...');
+    process.exit(1);
+  }, 1000).unref();
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

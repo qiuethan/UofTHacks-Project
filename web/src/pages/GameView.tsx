@@ -9,6 +9,7 @@ interface Entity {
   x: number
   y: number
   color?: string
+  facing?: { x: number; y: number }
 }
 
 interface WorldSnapshot {
@@ -17,11 +18,12 @@ interface WorldSnapshot {
 }
 
 interface WorldEvent {
-  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED'
+  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED'
   entityId?: string
   entity?: Entity
   x?: number
   y?: number
+  facing?: { x: number; y: number }
 }
 
 const WS_URL = 'ws://localhost:3001'
@@ -41,7 +43,7 @@ export default function GameView() {
   const shouldReconnectRef = useRef(true)
 
   // Input tracking
-  const pressedKeys = useRef(new Set<string>())
+  const pressedKeysRef = useRef<string[]>([])
   const lastSentDirection = useRef({ x: 0, y: 0 })
 
   const handleEvent = useCallback((event: WorldEvent) => {
@@ -62,7 +64,20 @@ export default function GameView() {
           if (event.entityId) {
             const entity = next.get(event.entityId)
             if (entity && event.x !== undefined && event.y !== undefined) {
-              next.set(event.entityId, { ...entity, x: event.x, y: event.y })
+              next.set(event.entityId, { 
+                ...entity, 
+                x: event.x, 
+                y: event.y,
+                facing: event.facing || entity.facing
+              })
+            }
+          }
+          break
+        case 'ENTITY_TURNED':
+          if (event.entityId && event.facing) {
+            const entity = next.get(event.entityId)
+            if (entity) {
+              next.set(event.entityId, { ...entity, facing: event.facing })
             }
           }
           break
@@ -185,14 +200,33 @@ export default function GameView() {
     let dx = 0
     let dy = 0
 
-    if (pressedKeys.current.has('ArrowUp') || pressedKeys.current.has('w') || pressedKeys.current.has('W')) dy -= 1
-    if (pressedKeys.current.has('ArrowDown') || pressedKeys.current.has('s') || pressedKeys.current.has('S')) dy += 1
-    if (pressedKeys.current.has('ArrowLeft') || pressedKeys.current.has('a') || pressedKeys.current.has('A')) dx -= 1
-    if (pressedKeys.current.has('ArrowRight') || pressedKeys.current.has('d') || pressedKeys.current.has('D')) dx += 1
-
-    // Clamp to -1, 0, 1
-    dx = Math.sign(dx)
-    dy = Math.sign(dy)
+    // Use the last key in the stack that is still pressed
+    if (pressedKeysRef.current.length > 0) {
+      const lastKey = pressedKeysRef.current[pressedKeysRef.current.length - 1]
+      
+      switch (lastKey) {
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          dy = -1
+          break
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          dy = 1
+          break
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          dx = -1
+          break
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          dx = 1
+          break
+      }
+    }
 
     // Only send if changed
     if (dx !== lastSentDirection.current.x || dy !== lastSentDirection.current.y) {
@@ -207,15 +241,18 @@ export default function GameView() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!pressedKeys.current.has(e.key)) {
-        pressedKeys.current.add(e.key)
+      // Avoid duplicates
+      if (!pressedKeysRef.current.includes(e.key)) {
+        pressedKeysRef.current.push(e.key)
         updateDirection()
       }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (pressedKeys.current.has(e.key)) {
-        pressedKeys.current.delete(e.key)
+      // Remove from stack
+      const index = pressedKeysRef.current.indexOf(e.key)
+      if (index > -1) {
+        pressedKeysRef.current.splice(index, 1)
         updateDirection()
       }
     }
@@ -237,7 +274,7 @@ export default function GameView() {
       
       cells.push(
         <Cell key={`${x}-${y}`}>
-          {entityHere && <EntityDot isPlayer={isMe} color={entityHere.color} />}
+          {entityHere && <EntityDot isPlayer={isMe} color={entityHere.color} facing={entityHere.facing} />}
         </Cell>
       )
     }

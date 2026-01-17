@@ -63,16 +63,42 @@ function applySetDirection(
   dx: 0 | 1 | -1,
   dy: 0 | 1 | -1
 ): WorldEvent[] {
+  // Enforce single-axis movement (no diagonals)
+  // If both are set, prioritize the one that matches the current facing? Or just X?
+  // Let's strictly allow only one non-zero component.
+  let finalDx = dx;
+  let finalDy = dy;
+  
+  if (dx !== 0 && dy !== 0) {
+     // If diagonal attempted, just take X (arbitrary choice for safety)
+     finalDy = 0;
+  }
+
+  // Only update facing if there is movement intent
+  const newFacing = (finalDx !== 0 || finalDy !== 0) ? { x: finalDx, y: finalDy } : actor.facing;
+
   const updatedActor: Entity = {
     ...actor,
-    direction: { x: dx, y: dy }
+    direction: { x: finalDx, y: finalDy },
+    facing: newFacing
   };
   state.entities.set(actor.entityId, updatedActor);
   
-  // We don't necessarily need to emit an event for direction change unless we want to show it on client
-  // For now, let's just update state silently until they move?
-  // Actually, client prediction might benefit from knowing direction.
-  // But strict requirement was "tick speed". Movement happens on tick.
+  // Emit turn event if facing changed
+  if (actor.facing && (actor.facing.x !== newFacing!.x || actor.facing.y !== newFacing!.y)) {
+    return [{
+      type: 'ENTITY_TURNED',
+      entityId: actor.entityId,
+      facing: newFacing!
+    }];
+  } else if (!actor.facing && newFacing) {
+     return [{
+      type: 'ENTITY_TURNED',
+      entityId: actor.entityId,
+      facing: newFacing
+    }];
+  }
+
   return []; 
 }
 
@@ -110,6 +136,7 @@ function applyMoveAction(
       entityId: actor.entityId,
       x: clamped.x,
       y: clamped.y,
+      facing: actor.facing
     },
   ];
 }

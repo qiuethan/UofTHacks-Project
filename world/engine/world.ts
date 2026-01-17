@@ -171,8 +171,18 @@ export class World {
         }
 
         // Update state directly for AI "thinking"
-        const updatedRobot = { ...entity, targetPosition: target, direction: nextDir };
+        const newFacing = (nextDir.x !== 0 || nextDir.y !== 0) ? nextDir : entity.facing;
+        const updatedRobot = { ...entity, targetPosition: target, direction: nextDir, facing: newFacing };
         this.state.entities.set(entity.entityId, updatedRobot);
+
+        // If robot turned, emit event immediately so client sees it even if move is blocked
+        if (entity.facing && (entity.facing.x !== newFacing!.x || entity.facing.y !== newFacing!.y)) {
+           events.push({
+             type: 'ENTITY_TURNED',
+             entityId: entity.entityId,
+             facing: newFacing!
+           });
+        }
       }
 
       // Movement Processing (for both Players and Robots)

@@ -44,13 +44,21 @@ export interface EntityMovedEvent {
   readonly x: number;
   readonly y: number;
   readonly direction?: { x: number; y: number }; // Echo back the direction
+  readonly facing?: { x: number; y: number };
+}
+
+export interface EntityTurnedEvent {
+  readonly type: 'ENTITY_TURNED';
+  readonly entityId: string;
+  readonly facing: { x: number; y: number };
 }
 
 /** Discriminated union of all world events */
 export type WorldEvent =
   | EntityJoinedEvent
   | EntityLeftEvent
-  | EntityMovedEvent;
+  | EntityMovedEvent
+  | EntityTurnedEvent;
 
 // ============================================================================
 // RESULT TYPE - World never throws, returns Result instead

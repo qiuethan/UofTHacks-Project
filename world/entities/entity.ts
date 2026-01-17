@@ -9,6 +9,8 @@ export interface Entity {
   readonly color?: string;
   // Movement intent (for tick-based movement)
   readonly direction?: { x: 0 | 1 | -1; y: 0 | 1 | -1 };
+  // Orientation (where the entity is looking)
+  readonly facing?: { x: 0 | 1 | -1; y: 0 | 1 | -1 };
   // AI Goal
   readonly targetPosition?: { x: number; y: number };
 }
@@ -28,6 +30,7 @@ export function createEntity(
     x: Math.floor(x),
     y: Math.floor(y),
     color,
-    direction: { x: 0, y: 0 } // Default no movement
+    direction: { x: 0, y: 0 }, // Default no movement
+    facing: { x: 0, y: 1 } // Default facing down
   };
 }
