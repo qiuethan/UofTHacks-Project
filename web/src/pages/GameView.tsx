@@ -75,6 +75,13 @@ export default function GameView() {
               facing={entityHere.facing}
               isSelected={isSelected}
               inConversation={entityHere.conversationState === 'IN_CONVERSATION'}
+              y={entityHere.y}
+              kind={entityHere.kind}
+              onClick={() => {
+                if (canInitiateConversation) {
+                  setSelectedEntity(entityHere)
+                }
+              }}
             />
           )}
         </Cell>

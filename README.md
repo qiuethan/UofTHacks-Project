@@ -10,6 +10,7 @@ A multiplayer virtual world where users can create avatars, move around in real-
 - **Spectator Mode:** Watch-only view at `/watch` to observe the world without logging in
 - **Collision System:** Players, robots, and walls block each other's movement
 - **Directional Movement:** WASD/Arrow keys control movement with visual facing indicators
+- **Conversation System:** Players and AI robots can request, accept, and engage in real-time conversations with proximity-based initiation.
 
 ## 🏗 Architecture
 
@@ -143,10 +144,10 @@ UofTHacks-Project/
 │   └── app/models.py      # Pydantic schemas
 │
 ├── world/                  # Shared game engine (TypeScript)
-│   ├── engine/world.ts    # World class, tick(), pathfinding
-│   ├── actions/           # Movement validation & collision
+│   ├── engine/world.ts    # World class, tick(), Pathfinding, Conversations
+│   ├── actions/           # Movement validation & collision pipeline
 │   ├── entities/          # Player, Robot, Wall definitions
-│   └── utils/             # Pathfinding (BFS)
+│   └── utils/             # Pathfinding, Reservations, Conversations, Flowfields
 │
 └── supabase/
     └── migrations/         # Database schema (user_positions)

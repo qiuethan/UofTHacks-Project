@@ -39,6 +39,17 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const [pendingRequests, setPendingRequests] = useState<ConversationRequest[]>([])
   const [inConversationWith, setInConversationWith] = useState<string | null>(null)
   
+  // Sync conversation state from entities map
+  useEffect(() => {
+    if (myEntityId) {
+      const me = entities.get(myEntityId)
+      if (me?.conversationState === 'IN_CONVERSATION' && me.conversationPartnerId) {
+        setInConversationWith(me.conversationPartnerId)
+      } else {
+        setInConversationWith(null)
+      }
+    }
+  }, [entities, myEntityId])  
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
@@ -54,7 +65,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
           if (event.entity) {
             next.set(event.entity.entityId, event.entity)
           }
-          break
+          break;
         case 'ENTITY_LEFT':
           if (event.entityId) {
             next.delete(event.entityId)

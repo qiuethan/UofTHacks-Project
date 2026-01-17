@@ -29,6 +29,7 @@ A React application built with Vite that serves as the entry point for users. Pr
 - **`src/components/Grid.tsx`** - Renders the game grid (16px cells)
 - **`src/components/Cell.tsx`** - Individual grid cell (white background)
 - **`src/components/EntityDot.tsx`** - 2x2 entity visualization with facing arrows
+- **`src/components/ConversationUI.tsx`** - Overlay for managing conversation requests and active chats
 - **`src/components/ConnectionStatus.tsx`** - WebSocket connection indicator
 
 ### Contexts & Utils
@@ -60,10 +61,11 @@ The client handles these server events:
 
 - **`SNAPSHOT`** - Full world state (map + all entities)
 - **`EVENTS`** - Array of world events:
-  - `ENTITY_JOINED` - New entity spawned
-  - `ENTITY_LEFT` - Entity removed
-  - `ENTITY_MOVED` - Position changed
-  - `ENTITY_TURNED` - Facing direction changed
+  - `ENTITY_JOINED` / `ENTITY_LEFT` / `ENTITY_MOVED` / `ENTITY_TURNED`
+  - `ENTITY_STATE_CHANGED` - State updates (e.g., entering conversation)
+  - `CONVERSATION_REQUESTED` - Incoming request from another entity
+  - `CONVERSATION_STARTED` / `CONVERSATION_ENDED`
+  - `CONVERSATION_ACCEPTED` / `CONVERSATION_REJECTED`
 - **`ERROR`** - Server-side error message
 - **`WELCOME`** - Successful join confirmation (play mode only)
 

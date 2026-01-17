@@ -29,18 +29,20 @@ src/
 - Creates two WebSocket servers:
   - **Play Server** (port 3001): Authenticated player connections
   - **Watch Server** (port 3002): Spectator connections
-- Handles graceful shutdown
+- Handles message routing for:
+  - `JOIN`, `SET_DIRECTION`
+  - `CONVERSATION_REQUEST`, `CONVERSATION_ACCEPT`, `CONVERSATION_REJECT`, `CONVERSATION_END`
 
 **`game.ts`** - Simulation core
-- Initializes `World` instance with map (20x15 grid)
-- Spawns static walls
 - **Game Loop** (100ms): Calls `world.tick()`, broadcasts events
-- **AI Loop** (1000ms): Queries Python API for robot targets
+- **AI Loop** (1000ms): 
+  - Queries Python API for robot decisions.
+  - Sends current robot state, nearby entities, and pending conversation requests to the AI.
+  - Processes AI responses: `MOVE`, `STAND_STILL`, `REQUEST_CONVERSATION`, `ACCEPT_CONVERSATION`, `REJECT_CONVERSATION`.
 
-**`handlers.ts`** - Connection logic
-- `handleJoin()`: Validates auth, loads position from DB, spawns player
-- `handleSetDirection()`: Updates player direction, saves to DB
-- `handleDisconnect()`: Converts player to robot, saves position
+**`handlers.ts`** - Connection & Action logic
+- Handles player lifecycle (Join -> Play -> Disconnect -> Robot Takeover).
+- Manages conversation state transitions by calling `world` methods and broadcasting results.
 
 **`db.ts`** - Supabase integration
 - `getPosition(userId)`: Loads x, y, facing_x, facing_y from DB

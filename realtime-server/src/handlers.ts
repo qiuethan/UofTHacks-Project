@@ -45,8 +45,19 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   
   // If user has an AI agent active, take over its position and replace it
   const existing = world.getEntity(userId);
+  let existingConversationState: any = {};
+  
   if (existing && existing.kind === 'ROBOT') {
     pos = { x: existing.x, y: existing.y, facing: existing.facing || pos.facing }; // Preserve facing from robot
+    
+    // Capture conversation state to restore it to the player
+    existingConversationState = {
+      conversationState: existing.conversationState,
+      conversationTargetId: existing.conversationTargetId,
+      conversationPartnerId: existing.conversationPartnerId,
+      pendingConversationRequestId: existing.pendingConversationRequestId
+    };
+
     // Remove the robot so we can spawn the player
     const removeResult = world.removeEntity(userId);
     if (removeResult.ok) {
@@ -56,7 +67,11 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   
   // Use userId as entityId for consistency
   const facing = pos.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
-  const avatar = createAvatar(userId, displayName, pos.x, pos.y, facing);
+  const avatar: any = {
+    ...createAvatar(userId, displayName, pos.x, pos.y, facing),
+    ...existingConversationState
+  };
+  
   const result = world.addEntity(avatar);
   
   if (!result.ok) {
@@ -175,15 +190,14 @@ export async function handleDisconnect(client: Client, oderId: string) {
 
       // Convert to ROBOT for AI control
       world.removeEntity(client.userId);
-      const robot = createEntity(
-        entity.entityId,
-        'ROBOT',
-        entity.displayName,
-        entity.x,
-        entity.y,
-        entity.color,
-        entity.facing // Pass facing to new robot
-      );
+      const robot: any = {
+        ...entity,
+        kind: 'ROBOT',
+        direction: { x: 0, y: 0 },
+        targetPosition: undefined,
+        plannedPath: undefined
+      };
+      
       const result = world.addEntity(robot);
       if (result.ok) {
         broadcast({ type: 'EVENTS', events: result.value });

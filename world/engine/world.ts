@@ -69,15 +69,11 @@ export class World {
 
     // Clamp position to map bounds
     const clamped = clampToBounds(this.state.map, entity.x, entity.y);
-    const clampedEntity = createEntity(
-      entity.entityId,
-      entity.kind,
-      entity.displayName,
-      clamped.x,
-      clamped.y,
-      entity.color,
-      entity.facing
-    );
+    const clampedEntity: Entity = {
+      ...entity,
+      x: clamped.x,
+      y: clamped.y
+    };
 
     // Add to state
     this.state.entities.set(clampedEntity.entityId, clampedEntity);

@@ -175,7 +175,14 @@ export default function WatchView() {
       
       cells.push(
         <Cell key={`${x}-${y}`}>
-          {entityHere && <EntityDot color={entityHere.color} facing={entityHere.facing} />}
+          {entityHere && (
+            <EntityDot 
+              color={entityHere.color} 
+              facing={entityHere.facing} 
+              y={entityHere.y}
+              kind={entityHere.kind}
+            />
+          )}
         </Cell>
       )
     }

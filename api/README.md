@@ -22,7 +22,10 @@ A Python FastAPI service providing REST endpoints for avatar management and AI d
 - `POST /avatars/{id}/sprite`: Upload an image file. Images are stored in Supabase Storage, and the public URL is saved to the database.
 
 ### AI Agent
-- `POST /agent/decision`: Stateless endpoint used by the `realtime-server`. Receives a robot's position and map dimensions, returns the next move target. Currently implements a random walk algorithm.
+- `POST /agent/decision`: Stateful decision endpoint used by the `realtime-server`. 
+  - **Inputs:** Current position, map dimensions, nearby entities, and pending conversation requests.
+  - **Outputs:** Decisions such as `MOVE` (with target coordinates), `STAND_STILL`, `REQUEST_CONVERSATION`, `ACCEPT_CONVERSATION`, or `REJECT_CONVERSATION`.
+  - **Logic:** Currently uses interest-based probability scores to decide whether to interact with nearby players or other robots.
 
 ## 🚀 Usage
 
