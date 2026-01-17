@@ -32,16 +32,11 @@ export default function WatchView() {
   const [mapSize, setMapSize] = useState({ width: MAP_DEFAULTS.WIDTH, height: MAP_DEFAULTS.HEIGHT })
   const [entities, setEntities] = useState<Map<string, Entity>>(new Map())
   const [error, setError] = useState<string | null>(null)
-  const [debugLog, setDebugLog] = useState<string[]>([])
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
   const shouldReconnectRef = useRef(true)
-
-  const addLog = useCallback((msg: string) => {
-    setDebugLog(prev => [msg, ...prev].slice(0, 5))
-  }, [])
 
   const connect = useCallback(() => {
     if (connectingRef.current || wsRef.current?.readyState === WebSocket.OPEN) {
@@ -49,7 +44,6 @@ export default function WatchView() {
     }
     connectingRef.current = true
     setError(null)
-    addLog('Connecting...')
 
     const ws = new WebSocket(WS_CONFIG.WATCH_URL)
     wsRef.current = ws
@@ -57,14 +51,12 @@ export default function WatchView() {
     ws.onopen = () => {
       connectingRef.current = false
       setConnected(true)
-      addLog('Connected')
     }
 
     ws.onclose = () => {
       connectingRef.current = false
       setConnected(false)
       setEntities(new Map())
-      addLog('Disconnected')
       
       if (mountedRef.current && shouldReconnectRef.current) {
         setTimeout(connect, WS_CONFIG.RECONNECT_DELAY_MS)
@@ -74,7 +66,6 @@ export default function WatchView() {
     ws.onerror = () => {
       connectingRef.current = false
       ws.close()
-      addLog('Connection Error')
     }
 
     ws.onmessage = (event) => {
@@ -88,7 +79,6 @@ export default function WatchView() {
             const newEntities = new Map<string, Entity>()
             snapshot.entities.forEach(e => newEntities.set(e.entityId, e))
             setEntities(newEntities)
-            addLog(`Snapshot: ${snapshot.entities.length} entities`)
             break
           }
           
@@ -132,15 +122,13 @@ export default function WatchView() {
 
           case 'ERROR':
             setError(msg.error || 'Connection error')
-            addLog(`Error: ${msg.error}`)
             break
         }
       } catch (e) {
         console.error(e)
-        addLog('Error parsing message')
       }
     }
-  }, [addLog])
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -189,35 +177,20 @@ export default function WatchView() {
   }
 
   return (
-    <div className="flex flex-col items-center p-8">
-      <h1 className="text-2xl font-bold mb-4 text-gray-400">World Simulation - Spectator Mode</h1>
-      
-      <div className="flex gap-4 items-center mb-4">
-        <ConnectionStatus connected={connected} />
-        <span className="text-gray-500 text-sm">
-          {entities.size} entities | Map: {mapSize.width}x{mapSize.height}
-        </span>
-      </div>
-      
+    <div className="flex flex-col items-center p-4">
       {error && (
         <div className="mb-4 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
           {error}
         </div>
       )}
       
+      <div className="hidden">
+        <ConnectionStatus connected={connected} />
+      </div>
+      
       <Grid width={mapSize.width} height={mapSize.height}>
         {cells}
       </Grid>
-      
-      <div className="mt-8 w-full max-w-md">
-        <h3 className="text-gray-500 text-xs uppercase font-bold mb-2">Debug Log</h3>
-        <div className="bg-gray-900 p-2 rounded text-xs font-mono text-gray-400 h-24 overflow-y-auto">
-          {debugLog.map((log, i) => (
-            <div key={i}>{log}</div>
-          ))}
-          {debugLog.length === 0 && <span className="opacity-50">No logs yet...</span>}
-        </div>
-      </div>
     </div>
   )
 }

@@ -15,8 +15,8 @@ export const API_CONFIG = {
 
 // Map defaults
 export const MAP_DEFAULTS = {
-  WIDTH: 20,
-  HEIGHT: 15,
+  WIDTH: 60,
+  HEIGHT: 46,
 }
 
 // Conversation Configuration  

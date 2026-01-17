@@ -67,6 +67,9 @@ def get_agent_decision(req: AgentRequest):
     Get a decision for a robot agent.
     Supports: MOVE, STAND_STILL, REQUEST_CONVERSATION, ACCEPT_CONVERSATION, REJECT_CONVERSATION
     """
+    
+    # TODO: Implement AI decision logic
+    
     try:
         # Handle pending conversation requests first
         if req.pending_requests:

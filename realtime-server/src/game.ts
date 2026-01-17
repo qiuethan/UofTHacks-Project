@@ -4,11 +4,18 @@ import { broadcast } from './network';
 
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
 
-// Add some walls
-world.addEntity(createWall('wall-1', 10, 10));
-world.addEntity(createWall('wall-2', 10, 12));
-world.addEntity(createWall('wall-3', 10, 14));
-world.addEntity(createWall('wall-4', 12, 10));
+// Add perimeter walls (2x2 entities)
+// Top and Bottom edges
+for (let x = 0; x < MAP_WIDTH; x += 2) {
+  world.addEntity(createWall(`wall-top-${x}`, x, 0));
+  world.addEntity(createWall(`wall-bottom-${x}`, x, MAP_HEIGHT - 2));
+}
+
+// Left and Right edges (skipping corners already handled)
+for (let y = 2; y < MAP_HEIGHT - 2; y += 2) {
+  world.addEntity(createWall(`wall-left-${y}`, 0, y));
+  world.addEntity(createWall(`wall-right-${y}`, MAP_WIDTH - 2, y));
+}
 
 
 export function startGameLoop() {

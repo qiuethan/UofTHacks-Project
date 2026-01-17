@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { Entity, WorldEvent, WorldSnapshot, ConversationRequest } from '../types/game'
-import { WS_CONFIG } from '../config'
+import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 
 interface UseGameSocketOptions {
   token: string | undefined
@@ -37,7 +37,7 @@ interface GameSocketActions {
 export function useGameSocket({ token, userId, displayName }: UseGameSocketOptions): [GameSocketState, GameSocketActions] {
   const [connected, setConnected] = useState(false)
   const [myEntityId, setMyEntityId] = useState<string | null>(null)
-  const [mapSize, setMapSize] = useState({ width: 20, height: 15 })
+  const [mapSize, setMapSize] = useState({ width: MAP_DEFAULTS.WIDTH, height: MAP_DEFAULTS.HEIGHT })
   const [entities, setEntities] = useState<Map<string, Entity>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [pendingRequests, setPendingRequests] = useState<ConversationRequest[]>([])
