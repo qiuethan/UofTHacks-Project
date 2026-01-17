@@ -107,7 +107,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   updateEntities(entities: Map<string, GameEntity>, myEntityId: string | null) {
-    const currentIds = new Set(entities.keys())
+    // Filter out walls - we don't render them at all
+    const visibleEntities = new Map<string, GameEntity>()
+    for (const [id, entity] of entities) {
+      if (entity.kind !== 'WALL') {
+        visibleEntities.set(id, entity)
+      }
+    }
+    
+    const currentIds = new Set(visibleEntities.keys())
     
     // Remove entities that no longer exist
     for (const [id, entitySprite] of this.entitySprites) {
@@ -118,15 +126,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update or create entities
-    for (const [id, entity] of entities) {
+    for (const [id, entity] of visibleEntities) {
       const isMe = id === myEntityId
       this.updateOrCreateEntity(entity, isMe)
     }
   }
 
   private updateOrCreateEntity(entity: GameEntity, isMe: boolean) {
-    // Skip walls - they're invisible
-    if (entity.kind === 'WALL') return
 
     const existing = this.entitySprites.get(entity.entityId)
     

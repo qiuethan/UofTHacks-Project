@@ -15,7 +15,7 @@ export const createGameConfig = (
   width,
   height,
   pixelArt: true,
-  backgroundColor: '#1a1a2e', // Dark background to fill any gaps
+  transparent: true, // Transparent background - only show the game world
   scene: scenes,
   scale: {
     mode: Phaser.Scale.RESIZE, // Resize canvas to match container
