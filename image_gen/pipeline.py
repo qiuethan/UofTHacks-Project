@@ -258,15 +258,15 @@ def generate_sprite_sheet(
         
         print(f"  Model {model} failed, trying next fallback...")
     
-    # Try OpenAI as final fallback
-    print("  Trying OpenAI DALL-E as final fallback...")
+    # Try OpenAI GPT-Image-1 as final fallback
+    print("  Trying OpenAI GPT-Image-1 as final fallback...")
     try:
         result = generate_sprite_sheet_openai(input_image_path)
         if result:
-            print("  ✓ Success with OpenAI DALL-E")
+            print("  ✓ Success with OpenAI GPT-Image-1")
             return result
     except Exception as e:
-        print(f"  ✗ OpenAI fallback failed: {e}")
+        print(f"  ✗ OpenAI GPT-Image-1 fallback failed: {e}")
         last_error = e
     
     # All models failed
@@ -275,7 +275,10 @@ def generate_sprite_sheet(
 
 def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
     """
-    Generate a sprite sheet using OpenAI's DALL-E/GPT-Image API as fallback.
+    Generate a sprite sheet using OpenAI's GPT-Image-1 API with reference image.
+    
+    Uses the new responses.create API with image_generation tool to generate
+    a sprite sheet based on the input reference image.
     
     Args:
         input_image_path: Path to the input image.
@@ -284,7 +287,6 @@ def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
         PIL Image of the generated sprite sheet.
     """
     import base64
-    import requests
     
     try:
         from openai import OpenAI
@@ -303,65 +305,59 @@ def generate_sprite_sheet_openai(input_image_path: str) -> Image.Image:
     
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     
-    # Use GPT-4o with vision to describe the person, then generate sprite
-    # First, get a description of the person
-    vision_response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
+    # Prompt for sprite sheet generation with reference image
+    prompt = """Generate a pixel-art sprite sheet PNG based on the person in the reference image.
+Style: Pokemon GBA overworld sprite style.
+
+Requirements:
+- Canvas: 1024x1024 px (will be a 4x4 grid, each cell 256x256)
+- Background: solid #00FF7F (spring green)
+- Row 1: Front-facing idle (4 frames)
+- Row 2: Left-facing walk cycle (4 frames)
+- Row 3: Right-facing walk cycle (4 frames)
+- Row 4: Back-facing walk cycle (4 frames)
+
+The character should match the person in the reference image:
+- Preserve hair color/style
+- Preserve glasses if present
+- Preserve clothing colors and style
+- Use clean pixel art with 1px dark outline
+- No anti-aliasing, no gradients"""
+
+    print("    Using GPT-Image-1 with reference image...")
+    
+    # Use the new responses.create API with image_generation tool
+    response = client.responses.create(
+        model="gpt-image-1",
+        input=[
             {
                 "role": "user",
                 "content": [
+                    {"type": "input_text", "text": prompt},
                     {
-                        "type": "text",
-                        "text": "Describe this person's appearance in detail for a pixel art sprite: hair color/style, glasses, clothing colors, skin tone. Be concise but specific."
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}"
-                        }
+                        "type": "input_image",
+                        "image_url": f"data:image/png;base64,{base64_image}",
                     }
-                ]
+                ],
             }
         ],
-        max_tokens=200
+        tools=[{"type": "image_generation"}],
     )
     
-    person_description = vision_response.choices[0].message.content
-    print(f"    Person description: {person_description[:100]}...")
+    # Extract image from response
+    image_generation_calls = [
+        output
+        for output in response.output
+        if output.type == "image_generation_call"
+    ]
     
-    # Generate sprite sheet with GPT-Image-1.5
-    sprite_prompt = f"""Create a 256x256 pixel art sprite sheet in Pokemon GBA overworld style.
-The character should match this description: {person_description}
-
-The sprite sheet must be a 4x4 grid (64x64 pixels per cell):
-- Row 1: Front-facing idle (4 frames)
-- Row 2: Left-facing walk cycle (4 frames)
-- Row 3: Right-facing walk cycle (4 frames)  
-- Row 4: Back-facing walk cycle (4 frames)
-
-Use solid #00FF7F green background. Clean pixel art style, no anti-aliasing.
-The character should have a 1-pixel dark outline."""
-
-    response = client.images.generate(
-        model="gpt-image-1.5",
-        prompt=sprite_prompt,
-        size="1024x1024",
-        quality="high",
-        n=1
-    )
-    
-    # GPT-Image-1 returns base64 data directly
-    if response.data[0].b64_json:
-        image_data = base64.b64decode(response.data[0].b64_json)
+    if image_generation_calls:
+        image_base64 = image_generation_calls[0].result
+        image_data = base64.b64decode(image_base64)
         return Image.open(io.BytesIO(image_data))
-    elif response.data[0].url:
-        # Fallback to URL if b64_json not available
-        img_response = requests.get(response.data[0].url)
-        img_response.raise_for_status()
-        return Image.open(io.BytesIO(img_response.content))
-    else:
-        raise RuntimeError("No image data in OpenAI response")
+    
+    # Fallback: check for other output types
+    raise RuntimeError("GPT-Image-1 did not return an image")
 
 
 def remove_background(image: Image.Image, bg_color: tuple = BACKGROUND_COLOR, tolerance: int = 30) -> Image.Image:
