@@ -304,6 +304,13 @@ export class World {
                     targetSetAt: undefined
                   };
                   this.state.entities.set(entity.entityId, updatedWithFacing);
+
+                  // Emit facing event
+                  events.push({
+                    type: 'ENTITY_TURNED',
+                    entityId: entity.entityId,
+                    facing: facingDirection
+                  });
                 }
               }
               
@@ -716,6 +723,13 @@ export class World {
         conversationState: 'IDLE'
       }
     ];
+
+    // Reset facing to down for both
+    const defaultFacing = { x: 0 as const, y: 1 as const };
+    events.push(
+      { type: 'ENTITY_TURNED', entityId: entityId, facing: defaultFacing },
+      { type: 'ENTITY_TURNED', entityId: partnerId, facing: defaultFacing }
+    );
     
     return ok(events);
   }
@@ -797,6 +811,16 @@ export class World {
               entityId: target.entityId,
               conversationState: 'IN_CONVERSATION',
               conversationPartnerId: entity.entityId
+            },
+            {
+              type: 'ENTITY_TURNED',
+              entityId: entity.entityId,
+              facing: entityFacing
+            },
+            {
+              type: 'ENTITY_TURNED',
+              entityId: target.entityId,
+              facing: targetFacing
             }
           );
         }

@@ -128,20 +128,14 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         setPendingRequests([])
         break
       case 'CONVERSATION_STARTED':
-        // If we're a participant, update state
-        if (event.participant1Id === myEntityId || event.participant2Id === myEntityId) {
-          const partnerId = event.participant1Id === myEntityId ? event.participant2Id : event.participant1Id
-          setInConversationWith(partnerId || null)
-        }
+        // No manual sync needed, useEffect handles it from entity state
         break
       case 'CONVERSATION_REJECTED':
         // Remove from pending requests
         setPendingRequests(prev => prev.filter(r => r.requestId !== event.requestId))
         break
       case 'CONVERSATION_ENDED':
-        if (event.participant1Id === myEntityId || event.participant2Id === myEntityId) {
-          setInConversationWith(null)
-        }
+        // No manual sync needed, useEffect handles it from entity state
         break
     }
   }, [myEntityId])
