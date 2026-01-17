@@ -31,10 +31,18 @@ export function findPath(
     ];
 
     for (const neighbor of neighbors) {
-      const key = `${neighbor.x},${neighbor.y}`;
+      // For a 2x2 entity, check if the entire 2x2 square is valid
+      const isNeighborValid =
+        neighbor.x >= 0 && neighbor.x + 1 < map.width &&
+        neighbor.y >= 0 && neighbor.y + 1 < map.height &&
+        !obstacles.has(`${neighbor.x},${neighbor.y}`) &&
+        !obstacles.has(`${neighbor.x + 1},${neighbor.y}`) &&
+        !obstacles.has(`${neighbor.x},${neighbor.y + 1}`) &&
+        !obstacles.has(`${neighbor.x + 1},${neighbor.y + 1}`);
+
+      const key = `${neighbor.x},${neighbor.y}`; // Use top-left for visited key
       if (
-        isInBounds(map, neighbor.x, neighbor.y) &&
-        !obstacles.has(key) &&
+        isNeighborValid &&
         !visited.has(key)
       ) {
         visited.add(key);

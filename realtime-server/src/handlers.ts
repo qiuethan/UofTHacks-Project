@@ -82,7 +82,7 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
 }
 
 export async function handleSetDirection(client: Client, dx: 0|1|-1, dy: 0|1|-1): Promise<void> {
-  const action: SetDirectionAction = { type: 'SET_DIRECTION', dx, dy };
+    const action: SetDirectionAction = { type: 'SET_DIRECTION', dx, dy };
   const result = world.submitAction(client.userId, action);
   
   if (!result.ok) {
@@ -106,9 +106,16 @@ export async function handleDisconnect(client: Client, oderId: string) {
     
     console.log(`Client disconnected: ${client.userId}`);
     
+    // DEBUG LOG START
+    console.log('handleDisconnect for user:', client.userId);
+    // DEBUG LOG END
+    
     // Save final position and convert to AI
     const entity = world.getEntity(client.userId);
     if (entity) {
+      // DEBUG LOG START
+  
+      // DEBUG LOG END
       await updatePosition(client.userId, entity.x, entity.y, entity.facing);
 
       // Convert to ROBOT for AI control

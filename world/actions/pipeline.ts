@@ -84,6 +84,9 @@ function applySetDirection(
   };
   state.entities.set(actor.entityId, updatedActor);
   
+  // DEBUG LOGS START
+    // DEBUG LOGS END
+  
   // Emit turn event if facing changed
   if (actor.facing && (actor.facing.x !== newFacing!.x || actor.facing.y !== newFacing!.y)) {
     return [{

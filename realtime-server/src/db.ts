@@ -38,8 +38,14 @@ export async function updatePosition(userId: string, x: number, y: number, facin
     updateData.facing_y = facing.y;
   }
   
-  await supabase
+
+  
+  const { error } = await supabase
     .from('user_positions')
     .update(updateData)
     .eq('user_id', userId);
+
+  if (error) {
+    console.error('Supabase updatePosition error:', error);
+  }
 }

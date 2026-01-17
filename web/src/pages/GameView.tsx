@@ -231,6 +231,7 @@ export default function GameView() {
     // Only send if changed
     if (dx !== lastSentDirection.current.x || dy !== lastSentDirection.current.y) {
       lastSentDirection.current = { x: dx, y: dy }
+      console.log('Client sending SET_DIRECTION:', JSON.stringify({ dx, dy })); // NEW LOG
       ws.send(JSON.stringify({
         type: 'SET_DIRECTION',
         dx,
@@ -241,20 +242,24 @@ export default function GameView() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      console.log('KeyDown:', e.key, 'Stack before:', JSON.stringify([...pressedKeysRef.current])); // NEW LOG
       // Avoid duplicates
       if (!pressedKeysRef.current.includes(e.key)) {
         pressedKeysRef.current.push(e.key)
         updateDirection()
       }
+      console.log('Stack after KeyDown:', JSON.stringify([...pressedKeysRef.current])); // NEW LOG
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      console.log('KeyUp:', e.key, 'Stack before:', JSON.stringify([...pressedKeysRef.current])); // NEW LOG
       // Remove from stack
       const index = pressedKeysRef.current.indexOf(e.key)
       if (index > -1) {
         pressedKeysRef.current.splice(index, 1)
         updateDirection()
       }
+      console.log('Stack after KeyUp:', JSON.stringify([...pressedKeysRef.current])); // NEW LOG
     }
     
     window.addEventListener('keydown', handleKeyDown)

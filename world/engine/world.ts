@@ -64,7 +64,8 @@ export class World {
       entity.displayName,
       clamped.x,
       clamped.y,
-      entity.color
+      entity.color,
+      entity.facing
     );
 
     // Add to state
@@ -137,8 +138,13 @@ export class World {
     // Build obstacle map for pathfinding
     const obstacles = new Set<string>();
     for (const e of entities) {
+      // Assuming all non-PLAYER/ROBOT entities are 2x2 obstacles for pathfinding
       if (e.kind === 'WALL') {
+        // A 2x2 entity at (x,y) occupies (x,y), (x+1,y), (x,y+1), (x+1,y+1)
         obstacles.add(`${e.x},${e.y}`);
+        obstacles.add(`${e.x + 1},${e.y}`);
+        obstacles.add(`${e.x},${e.y + 1}`);
+        obstacles.add(`${e.x + 1},${e.y + 1}`);
       }
     }
 
