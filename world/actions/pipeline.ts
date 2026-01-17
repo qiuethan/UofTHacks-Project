@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { WorldState } from '../state/worldState';
-import type { Avatar } from '../entities/avatar';
+import type { Entity } from '../entities/entity';
 import type { WorldAction, WorldEvent, Result } from './types';
 import { ok, err } from './types';
 import { clampToBounds } from '../map/mapDef';
@@ -12,14 +12,6 @@ import { clampToBounds } from '../map/mapDef';
 // VALIDATION
 // ============================================================================
 
-/**
- * Validate an action before applying it.
- * Returns error result if validation fails.
- * 
- * Invariants:
- * - Actor must exist in the world
- * - MOVE: x and y must be finite numbers
- */
 export function validateAction(
   state: WorldState,
   actorId: string,
@@ -33,16 +25,49 @@ export function validateAction(
 
   switch (action.type) {
     case 'MOVE':
+      if (actor.conversationState === 'IN_CONVERSATION') {
+        return err('IN_CONVERSATION', 'Cannot move while in a conversation');
+      }
       return validateMoveAction(action.x, action.y);
+    case 'SET_DIRECTION':
+      if (actor.conversationState === 'IN_CONVERSATION' || actor.conversationState === 'WALKING_TO_CONVERSATION') {
+        return err('IN_CONVERSATION', 'Cannot change direction while in a conversation or walking to one');
+      }
+      return ok(undefined);
+    case 'STAND_STILL':
+      return ok(undefined);
+    case 'REQUEST_CONVERSATION':
+      return validateRequestConversation(state, actor, action.targetEntityId);
+    case 'ACCEPT_CONVERSATION':
+    case 'REJECT_CONVERSATION':
+      return ok(undefined); // Request validation handled in World class
+    case 'END_CONVERSATION':
+      return ok(undefined);
   }
+}
+
+function validateRequestConversation(
+  state: WorldState,
+  actor: Entity,
+  targetEntityId: string
+): Result<void> {
+  const target = state.entities.get(targetEntityId);
+  if (!target) {
+    return err('TARGET_NOT_FOUND', `Target entity ${targetEntityId} does not exist`);
+  }
+  if (target.entityId === actor.entityId) {
+    return err('INVALID_TARGET', 'Cannot request conversation with self');
+  }
+  if (target.kind === 'WALL') {
+    return err('INVALID_TARGET', 'Cannot request conversation with a wall');
+  }
+  return ok(undefined);
 }
 
 function validateMoveAction(x: number, y: number): Result<void> {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     return err('INVALID_COORDINATES', 'x and y must be finite numbers');
   }
-  // TODO: Add speed limit validation (max distance per action)
-  // TODO: Add rate limiting (actions per second)
   return ok(undefined);
 }
 
@@ -50,13 +75,6 @@ function validateMoveAction(x: number, y: number): Result<void> {
 // APPLICATION
 // ============================================================================
 
-/**
- * Apply a validated action to the world state.
- * Mutates state and returns events.
- * 
- * INVARIANT: This function assumes validation has already passed.
- * Always call validateAction first.
- */
 export function applyAction(
   state: WorldState,
   actorId: string,
@@ -67,26 +85,123 @@ export function applyAction(
   switch (action.type) {
     case 'MOVE':
       return applyMoveAction(state, actor, action.x, action.y);
+    case 'SET_DIRECTION':
+      return applySetDirection(state, actor, action.dx, action.dy);
+    case 'STAND_STILL':
+      return applyStandStill(state, actor);
+    case 'REQUEST_CONVERSATION':
+    case 'ACCEPT_CONVERSATION':
+    case 'REJECT_CONVERSATION':
+    case 'END_CONVERSATION':
+      // These are handled in World class, not here
+      return [];
   }
+}
+
+function applyStandStill(
+  state: WorldState,
+  actor: Entity
+): WorldEvent[] {
+  // Stop movement by setting direction to 0,0
+  const updatedActor: Entity = {
+    ...actor,
+    direction: { x: 0, y: 0 }
+  };
+  state.entities.set(actor.entityId, updatedActor);
+  return [];
+}
+
+function applySetDirection(
+  state: WorldState,
+  actor: Entity,
+  dx: 0 | 1 | -1,
+  dy: 0 | 1 | -1
+): WorldEvent[] {
+  // Enforce single-axis movement (no diagonals)
+  // If both are set, prioritize the one that matches the current facing? Or just X?
+  // Let's strictly allow only one non-zero component.
+  let finalDx = dx;
+  let finalDy = dy;
+  
+  if (dx !== 0 && dy !== 0) {
+     // If diagonal attempted, just take X (arbitrary choice for safety)
+     finalDy = 0;
+  }
+
+  // Only update facing if there is movement intent
+  const newFacing = (finalDx !== 0 || finalDy !== 0) ? { x: finalDx, y: finalDy } : actor.facing;
+
+  const updatedActor: Entity = {
+    ...actor,
+    direction: { x: finalDx, y: finalDy },
+    facing: newFacing
+  };
+  state.entities.set(actor.entityId, updatedActor);
+  
+  // DEBUG LOGS START
+    // DEBUG LOGS END
+  
+  // Emit turn event if facing changed
+  if (actor.facing && (actor.facing.x !== newFacing!.x || actor.facing.y !== newFacing!.y)) {
+    return [{
+      type: 'ENTITY_TURNED',
+      entityId: actor.entityId,
+      facing: newFacing!
+    }];
+  } else if (!actor.facing && newFacing) {
+     return [{
+      type: 'ENTITY_TURNED',
+      entityId: actor.entityId,
+      facing: newFacing
+    }];
+  }
+
+  return []; 
 }
 
 function applyMoveAction(
   state: WorldState,
-  actor: Avatar,
+  actor: Entity,
   targetX: number,
   targetY: number
 ): WorldEvent[] {
   // Clamp to map bounds
-  const clamped = clampToBounds(state.map, targetX, targetY);
+  // Entity is 2x2, so it occupies (x,y), (x+1,y), (x,y+1), (x+1,y+1)
+  // Max x is width - 2 (so x+1 is width-1)
+  // Max y is height - 2
+  // But wait, our clampToBound might effectively restrict it to 0..width-1.
+  // We need to ensure we don't go out of bounds with the "tail" of the 2x2.
+  // Let's rely on clampToBounds but maybe check valid range manually for the 2x2 nature?
+  // Actually, simplest is to treat x,y as top-left.
   
-  // TODO: Add collision detection - check if target tile is blocked
-  // TODO: Add proximity/interest management - only notify nearby entities
+  // Custom clamp for 2x2 entity
+  const maxX = state.map.width - 2;
+  const maxY = state.map.height - 2;
+  
+  const safeX = Math.max(0, Math.min(targetX, maxX));
+  const safeY = Math.max(0, Math.min(targetY, maxY));
+  
+  // Collision Detection (2x2 vs 2x2)
+  for (const other of state.entities.values()) {
+    if (other.entityId !== actor.entityId) {
+       // Check overlap
+       // Overlap if: abs(ax - bx) * 2 < (widthA + widthB)
+       // Here width = 2 for both.
+       // So: abs(ax - bx) < 2 AND abs(ay - by) < 2
+       
+       if (Math.abs(safeX - other.x) < 2 && Math.abs(safeY - other.y) < 2) {
+         // Block collision with all entity types (WALL, PLAYER, ROBOT)
+         return [];
+       }
+    }
+  }
 
   // Update entity position (immutable update via Map.set)
-  const updatedAvatar: Avatar = {
+  const updatedAvatar: Entity = {
     ...actor,
-    x: clamped.x,
-    y: clamped.y,
+    x: safeX,
+    y: safeY,
+    // Preserve facing/direction
   };
   state.entities.set(actor.entityId, updatedAvatar);
 
@@ -94,8 +209,9 @@ function applyMoveAction(
     {
       type: 'ENTITY_MOVED',
       entityId: actor.entityId,
-      x: clamped.x,
-      y: clamped.y,
+      x: safeX,
+      y: safeY,
+      facing: actor.facing
     },
   ];
 }
@@ -104,24 +220,14 @@ function applyMoveAction(
 // UNIFIED PIPELINE ENTRY POINT
 // ============================================================================
 
-/**
- * Process an action through the full pipeline: validate -> apply -> return events.
- * This is the ONLY way actions should be processed.
- */
 export function processAction(
   state: WorldState,
   actorId: string,
   action: WorldAction
 ): Result<WorldEvent[]> {
-  // Step 1: Validate
   const validationResult = validateAction(state, actorId, action);
   if (!validationResult.ok) {
     return validationResult;
   }
-
-  // Step 2: Apply and get events
-  const events = applyAction(state, actorId, action);
-
-  // Step 3: Return events
-  return ok(events);
+  return ok(applyAction(state, actorId, action));
 }

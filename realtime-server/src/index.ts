@@ -1,158 +1,101 @@
-import { WebSocketServer, WebSocket } from 'ws';
-import { World, createMapDef, createAvatar } from '../../world/index.ts';
-import type { WorldEvent, MoveAction } from '../../world/index.ts';
+import { WebSocketServer } from 'ws';
+import { PLAY_PORT, WATCH_PORT } from './config';
+import { startGameLoop, startAiLoop, world } from './game';
+import { generateOrderId, generateWatcherId, spectators } from './state';
+import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation } from './handlers';
+import { send } from './network';
+import type { ClientMessage, Client } from './types';
+
+// Start loops
+startGameLoop();
+startAiLoop();
 
 // ============================================================================
-// CONFIG
+// PLAY WEBSOCKET SERVER (port 3001)
 // ============================================================================
 
-const PORT = 3001;
-const MAP_WIDTH = 20;
-const MAP_HEIGHT = 15;
+const playWss = new WebSocketServer({ port: PLAY_PORT });
 
-// ============================================================================
-// WORLD INSTANCE
-// ============================================================================
+console.log(`Play server running on ws://localhost:${PLAY_PORT}`);
 
-const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
+playWss.on('connection', (ws) => {
+  const oderId = generateOrderId();
+  let client: Client | null = null;
 
-// ============================================================================
-// CLIENT TRACKING
-// ============================================================================
-
-interface Client {
-  ws: WebSocket;
-  entityId: string;
-}
-
-const clients = new Map<string, Client>();
-let nextClientId = 1;
-
-// ============================================================================
-// MESSAGE TYPES
-// ============================================================================
-
-interface ClientMessage {
-  type: 'JOIN' | 'MOVE';
-  displayName?: string;
-  x?: number;
-  y?: number;
-}
-
-interface ServerMessage {
-  type: 'SNAPSHOT' | 'EVENTS' | 'ERROR' | 'WELCOME';
-  snapshot?: ReturnType<typeof world.getSnapshot>;
-  events?: WorldEvent[];
-  error?: string;
-  entityId?: string;
-}
-
-// ============================================================================
-// BROADCAST
-// ============================================================================
-
-function broadcast(message: ServerMessage, exclude?: string) {
-  const data = JSON.stringify(message);
-  for (const [id, client] of clients) {
-    if (id !== exclude && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(data);
-    }
-  }
-}
-
-function send(ws: WebSocket, message: ServerMessage) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(message));
-  }
-}
-
-// ============================================================================
-// WEBSOCKET SERVER
-// ============================================================================
-
-const wss = new WebSocketServer({ port: PORT });
-
-console.log(`Realtime server running on ws://localhost:${PORT}`);
-
-wss.on('connection', (ws) => {
-  const entityId = `player-${nextClientId++}`;
-  console.log(`Client connected: ${entityId}`);
-
-  // Store client reference (not yet in world until JOIN)
-  const client: Client = { ws, entityId };
-  clients.set(entityId, client);
-
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const msg: ClientMessage = JSON.parse(data.toString());
-      handleMessage(client, msg);
+      
+      if (msg.type === 'JOIN') {
+        client = await handleJoin(ws, oderId, msg);
+      } else if (msg.type === 'SET_DIRECTION' && client) {
+        await handleSetDirection(client, msg.dx ?? 0, msg.dy ?? 0);
+      } else if (msg.type === 'REQUEST_CONVERSATION' && client && msg.targetEntityId) {
+        await handleRequestConversation(client, msg.targetEntityId);
+      } else if (msg.type === 'ACCEPT_CONVERSATION' && client && msg.requestId) {
+        await handleAcceptConversation(client, msg.requestId);
+      } else if (msg.type === 'REJECT_CONVERSATION' && client && msg.requestId) {
+        await handleRejectConversation(client, msg.requestId);
+      } else if (msg.type === 'END_CONVERSATION' && client) {
+        await handleEndConversation(client);
+      }
     } catch (e) {
       send(ws, { type: 'ERROR', error: 'Invalid message format' });
     }
   });
 
-  ws.on('close', () => {
-    console.log(`Client disconnected: ${entityId}`);
-    
-    // Remove from world
-    const result = world.removeEntity(entityId);
-    if (result.ok) {
-      broadcast({ type: 'EVENTS', events: result.value });
+  ws.on('close', async () => {
+    if (client) {
+      await handleDisconnect(client, oderId);
+    } else {
+        // Just a clean up if join never succeeded
     }
-    
-    clients.delete(entityId);
   });
 });
 
 // ============================================================================
-// MESSAGE HANDLING
+// WATCH WEBSOCKET SERVER (port 3002)
 // ============================================================================
 
-function handleMessage(client: Client, msg: ClientMessage) {
-  switch (msg.type) {
-    case 'JOIN':
-      handleJoin(client, msg.displayName || 'Anonymous');
-      break;
-    case 'MOVE':
-      handleMove(client, msg.x ?? 0, msg.y ?? 0);
-      break;
-    default:
-      send(client.ws, { type: 'ERROR', error: 'Unknown message type' });
-  }
+const watchWss = new WebSocketServer({ port: WATCH_PORT });
+
+console.log(`Watch server running on ws://localhost:${WATCH_PORT}`);
+
+watchWss.on('connection', (ws) => {
+  const watcherId = generateWatcherId();
+  spectators.add(ws);
+  console.log(`Spectator connected: ${watcherId}`);
+  
+  // Send current world state
+  send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+  
+  ws.on('close', () => {
+    spectators.delete(ws);
+    console.log(`Spectator disconnected: ${watcherId}`);
+  });
+});
+
+// ============================================================================
+// GRACEFUL SHUTDOWN
+// ============================================================================
+
+function shutdown() {
+  console.log('Shutting down servers...');
+  
+  playWss.close(() => {
+    console.log('Play server closed');
+  });
+  
+  watchWss.close(() => {
+    console.log('Watch server closed');
+  });
+
+  // Force exit if it takes too long
+  setTimeout(() => {
+    console.error('Forcing shutdown...');
+    process.exit(1);
+  }, 1000).unref();
 }
 
-function handleJoin(client: Client, displayName: string) {
-  // Spawn at random position
-  const x = Math.floor(Math.random() * MAP_WIDTH);
-  const y = Math.floor(Math.random() * MAP_HEIGHT);
-  
-  const avatar = createAvatar(client.entityId, displayName, x, y);
-  const result = world.addEntity(avatar);
-  
-  if (!result.ok) {
-    send(client.ws, { type: 'ERROR', error: result.error.message });
-    return;
-  }
-  
-  // Send welcome with entityId
-  send(client.ws, { type: 'WELCOME', entityId: client.entityId });
-  
-  // Send current snapshot to new client
-  send(client.ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
-  
-  // Broadcast join event to others
-  broadcast({ type: 'EVENTS', events: result.value }, client.entityId);
-}
-
-function handleMove(client: Client, x: number, y: number) {
-  const action: MoveAction = { type: 'MOVE', x, y };
-  const result = world.submitAction(client.entityId, action);
-  
-  if (!result.ok) {
-    send(client.ws, { type: 'ERROR', error: result.error.message });
-    return;
-  }
-  
-  // Broadcast move event to all clients (including sender for confirmation)
-  broadcast({ type: 'EVENTS', events: result.value });
-}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

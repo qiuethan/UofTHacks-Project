@@ -2,13 +2,13 @@
 // WORLD STATE - The single source of truth for the simulation
 // ============================================================================
 
-import type { Avatar } from '../entities/avatar';
+import type { Entity } from '../entities/entity';
 import type { MapDef } from '../map/mapDef';
 
 export interface WorldState {
   readonly map: MapDef;
-  /** Map of entityId -> Avatar for O(1) lookups */
-  readonly entities: Map<string, Avatar>;
+  /** Map of entityId -> Entity for O(1) lookups */
+  readonly entities: Map<string, Entity>;
 }
 
 /** Create initial world state */
@@ -20,7 +20,7 @@ export function createWorldState(map: MapDef): WorldState {
 }
 
 /** Get entity by ID (returns undefined if not found) */
-export function getEntity(state: WorldState, entityId: string): Avatar | undefined {
+export function getEntity(state: WorldState, entityId: string): Entity | undefined {
   return state.entities.get(entityId);
 }
 
@@ -30,6 +30,6 @@ export function hasEntity(state: WorldState, entityId: string): boolean {
 }
 
 /** Get all entities as array */
-export function getAllEntities(state: WorldState): Avatar[] {
+export function getAllEntities(state: WorldState): Entity[] {
   return Array.from(state.entities.values());
 }
