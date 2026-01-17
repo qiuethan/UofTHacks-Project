@@ -44,3 +44,8 @@ Thumbs.db
 
 # Output folders
 output/
+
+.gemini/
+gha-creds-*.json
+GEMINI.md 
+plans/

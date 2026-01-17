@@ -1,17 +1,28 @@
-import { Routes, Route, Link, Navigate } from 'react-router-dom'
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
 import WatchView from './pages/WatchView'
 import CreateAvatar from './pages/CreateAvatar'
+import Onboarding from './pages/Onboarding'
 import Profile from './pages/Profile'
 import Login from './pages/Login'
 
-function ProtectedRoute({ children, requireAvatar = false }: { children: React.ReactNode, requireAvatar?: boolean }) {
-  const { user, loading, hasAvatar, checkingAvatar } = useAuth()
+import Header from './components/Header'
+
+function ProtectedRoute({
+  children,
+  requireAvatar = false,
+  requireOnboarding = false
+}: {
+  children: React.ReactNode,
+  requireAvatar?: boolean,
+  requireOnboarding?: boolean
+}) {
+  const { user, loading, hasAvatar, checkingAvatar, onboardingCompleted } = useAuth()
   
   if (loading || checkingAvatar) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
       </div>
     )
@@ -25,64 +36,38 @@ function ProtectedRoute({ children, requireAvatar = false }: { children: React.R
   if (requireAvatar && hasAvatar === false) {
     return <Navigate to="/create" replace />
   }
+
+  // If route requires onboarding and user hasn't finished, redirect to onboarding
+  if (requireOnboarding && !onboardingCompleted) {
+    return <Navigate to="/onboarding" replace />
+  }
   
   return <>{children}</>
 }
 
-export default function App() {
+function AppContent() {
   const { user, signOut, loading, hasAvatar } = useAuth()
+  const location = useLocation()
+  const hideHeader = location.pathname === '/onboarding' || location.pathname === '/create'
 
   return (
-    <div className="min-h-screen">
-      <nav className="bg-gray-800 p-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex gap-6">
-            <Link to="/play" className="text-white hover:text-green-400 font-medium">
-              Play
-            </Link>
-            <Link to="/watch" className="text-white hover:text-green-400 font-medium">
-              Watch
-            </Link>
-            {user && hasAvatar && (
-              <Link to="/profile" className="text-white hover:text-green-400 font-medium">
-                Profile
-              </Link>
-            )}
-            {user && !hasAvatar && (
-              <Link to="/create" className="text-yellow-400 hover:text-yellow-300 font-medium">
-                Create Avatar
-              </Link>
-            )}
-          </div>
-          <div className="flex items-center gap-4">
-            {!loading && user ? (
-              <>
-                <span className="text-gray-400 text-sm">{user.email}</span>
-                <button
-                  onClick={() => signOut()}
-                  className="text-sm text-red-400 hover:text-red-300"
-                >
-                  Sign Out
-                </button>
-              </>
-            ) : !loading ? (
-              <Link to="/login" className="text-green-400 hover:text-green-300 text-sm">
-                Sign In
-              </Link>
-            ) : null}
-          </div>
-        </div>
-      </nav>
-      <main>
+    <div className="h-screen flex flex-col overflow-hidden bg-[#1a1a2e]">
+      {!hideHeader && <Header />}
+      <main className="flex-1 overflow-auto relative">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/watch" replace />} />
-          <Route path="/play" element={<ProtectedRoute requireAvatar><GameView /></ProtectedRoute>} />
+          <Route path="/play" element={<ProtectedRoute requireAvatar requireOnboarding><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
           <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />
+          <Route path="/onboarding" element={<ProtectedRoute requireAvatar><Onboarding /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute requireAvatar><Profile /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
   )
+}
+
+export default function App() {
+  return <AppContent />
 }
