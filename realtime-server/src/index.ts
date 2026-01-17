@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createClient } from '@supabase/supabase-js';
-import { World, createMapDef, createAvatar } from '../../world/index.ts';
-import type { WorldEvent, MoveAction } from '../../world/index.ts';
+import { World, createMapDef, createAvatar, createWall, createRobot } from '../../world/index.ts';
+import type { WorldEvent, MoveAction, SetDirectionAction } from '../../world/index.ts';
 
 // ============================================================================
 // CONFIG
@@ -12,6 +12,9 @@ const PLAY_PORT = 3001;
 const WATCH_PORT = 3002;
 const MAP_WIDTH = 20;
 const MAP_HEIGHT = 15;
+const TICK_RATE = 200; // ms
+const AI_TICK_RATE = 1000; // ms
+const API_URL = 'http://localhost:3003/agent/decision';
 
 // Supabase config
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -57,6 +60,56 @@ async function updatePosition(userId: string, x: number, y: number): Promise<voi
 
 const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
 
+// Add some walls
+world.addEntity(createWall('wall-1', 5, 5));
+world.addEntity(createWall('wall-2', 5, 6));
+world.addEntity(createWall('wall-3', 5, 7));
+world.addEntity(createWall('wall-4', 6, 5));
+
+// Add a robot
+world.addEntity(createRobot('robot-1', 10, 10));
+
+// Game Loop
+setInterval(() => {
+  const events = world.tick();
+  if (events.length > 0) {
+    broadcast({ type: 'EVENTS', events });
+  }
+}, TICK_RATE);
+
+// AI Loop
+setInterval(async () => {
+  const snapshot = world.getSnapshot();
+  const robots = snapshot.entities.filter(e => e.kind === 'ROBOT');
+  
+  for (const robot of robots) {
+    // If robot has no target (or we want to re-evaluate), ask API
+    if (!robot.targetPosition) {
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            robot_id: robot.entityId,
+            x: robot.x,
+            y: robot.y,
+            map_width: MAP_WIDTH,
+            map_height: MAP_HEIGHT
+          })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          // console.log(`AI Decision for ${robot.entityId}: Go to (${data.target_x}, ${data.target_y})`);
+          world.setEntityTarget(robot.entityId, { x: data.target_x, y: data.target_y });
+        }
+      } catch (e) {
+        // console.error('Failed to get AI decision:', e);
+      }
+    }
+  }
+}, AI_TICK_RATE);
+
 // ============================================================================
 // CLIENT TRACKING
 // ============================================================================
@@ -80,12 +133,14 @@ let nextOrderId = 1;
 // ============================================================================
 
 interface ClientMessage {
-  type: 'JOIN' | 'MOVE' | 'WATCH';
+  type: 'JOIN' | 'MOVE' | 'WATCH' | 'SET_DIRECTION';
   token?: string;
   userId?: string;
   displayName?: string;
   x?: number;
   y?: number;
+  dx?: 0 | 1 | -1;
+  dy?: 0 | 1 | -1;
 }
 
 interface ServerMessage {
@@ -143,8 +198,11 @@ playWss.on('connection', (ws) => {
       
       if (msg.type === 'JOIN') {
         client = await handleJoin(ws, oderId, msg);
+      } else if (msg.type === 'SET_DIRECTION' && client) {
+        await handleSetDirection(client, msg.dx ?? 0, msg.dy ?? 0);
       } else if (msg.type === 'MOVE' && client) {
-        await handleMove(client, msg.x ?? 0, msg.y ?? 0);
+        // Deprecated: explicit move (teleport)
+        // await handleMove(client, msg.x ?? 0, msg.y ?? 0);
       }
     } catch (e) {
       send(ws, { type: 'ERROR', error: 'Invalid message format' });
@@ -251,6 +309,20 @@ async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessage): Pr
   broadcast({ type: 'EVENTS', events: result.value }, oderId);
   
   return client;
+}
+
+async function handleSetDirection(client: Client, dx: 0|1|-1, dy: 0|1|-1): Promise<void> {
+  const action: SetDirectionAction = { type: 'SET_DIRECTION', dx, dy };
+  const result = world.submitAction(client.userId, action);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // We don't broadcast direction changes, only movement results (handled by tick)
+  // But wait, user needs to know their direction changed? 
+  // Not strictly necessary if movement is the visible outcome.
 }
 
 async function handleMove(client: Client, x: number, y: number): Promise<void> {

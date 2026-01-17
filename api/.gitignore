@@ -5,3 +5,4 @@ venv/
 /uploads
 *.db
 .env
+venv

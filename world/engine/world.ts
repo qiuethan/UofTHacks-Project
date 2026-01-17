@@ -2,15 +2,16 @@
 // WORLD ENGINE - The main API for interacting with the simulation
 // ============================================================================
 
-import type { Avatar } from '../entities/avatar';
+import type { Entity } from '../entities/entity';
 import type { MapDef } from '../map/mapDef';
 import type { WorldState } from '../state/worldState';
 import type { WorldAction, WorldEvent, Result } from '../actions/types';
 import { ok, err } from '../actions/types';
 import { createWorldState, getAllEntities } from '../state/worldState';
-import { createAvatar } from '../entities/avatar';
+import { createEntity } from '../entities/entity';
 import { clampToBounds } from '../map/mapDef';
 import { processAction } from '../actions/pipeline';
+import { findPath } from '../utils/pathfinding';
 
 // ============================================================================
 // SNAPSHOT TYPE
@@ -18,7 +19,7 @@ import { processAction } from '../actions/pipeline';
 
 export interface WorldSnapshot {
   readonly map: MapDef;
-  readonly entities: readonly Avatar[];
+  readonly entities: readonly Entity[];
 }
 
 // ============================================================================
@@ -46,36 +47,33 @@ export class World {
    * Entity position is clamped to map bounds.
    * Returns ENTITY_JOINED event on success.
    */
-  addEntity(avatar: Avatar): Result<WorldEvent[]> {
+  addEntity(entity: Entity): Result<WorldEvent[]> {
     // Check for duplicate
-    if (this.state.entities.has(avatar.entityId)) {
+    if (this.state.entities.has(entity.entityId)) {
       return err(
         'ENTITY_EXISTS',
-        `Entity ${avatar.entityId} already exists in the world`
+        `Entity ${entity.entityId} already exists in the world`
       );
     }
 
     // Clamp position to map bounds
-    const clamped = clampToBounds(this.state.map, avatar.x, avatar.y);
-    const clampedAvatar = createAvatar(
-      avatar.entityId,
-      avatar.displayName,
+    const clamped = clampToBounds(this.state.map, entity.x, entity.y);
+    const clampedEntity = createEntity(
+      entity.entityId,
+      entity.kind,
+      entity.displayName,
       clamped.x,
-      clamped.y
+      clamped.y,
+      entity.color
     );
 
     // Add to state
-    this.state.entities.set(clampedAvatar.entityId, clampedAvatar);
+    this.state.entities.set(clampedEntity.entityId, clampedEntity);
 
     // Return event
     const event: WorldEvent = {
       type: 'ENTITY_JOINED',
-      entity: {
-        entityId: clampedAvatar.entityId,
-        displayName: clampedAvatar.displayName,
-        x: clampedAvatar.x,
-        y: clampedAvatar.y,
-      },
+      entity: clampedEntity,
     };
 
     return ok([event]);
@@ -116,6 +114,96 @@ export class World {
   }
 
   /**
+   * Set the AI target for an entity.
+   * This is used by external AI controllers (like the Python API bridge).
+   */
+  setEntityTarget(entityId: string, target: { x: number; y: number } | undefined): void {
+    const entity = this.state.entities.get(entityId);
+    if (entity) {
+      const updated = { ...entity, targetPosition: target };
+      this.state.entities.set(entityId, updated);
+    }
+  }
+
+  /**
+   * Advance the world by one tick.
+   * Moves entities based on their current direction.
+   * Updates AI logic.
+   */
+  tick(): WorldEvent[] {
+    const events: WorldEvent[] = [];
+    const entities = getAllEntities(this.state);
+    
+    // Build obstacle map for pathfinding
+    const obstacles = new Set<string>();
+    for (const e of entities) {
+      if (e.kind === 'WALL') {
+        obstacles.add(`${e.x},${e.y}`);
+      }
+    }
+
+    for (const entity of entities) {
+      if (entity.kind === 'WALL') continue;
+
+      // Robot AI: Pathfinding
+      if (entity.kind === 'ROBOT') {
+        let target = entity.targetPosition;
+        
+        // AI Logic would go here to set 'target'
+        // For now, robots only move if targetPosition is explicitly set externally
+
+        // Calculate path
+        let nextDir = { x: 0 as 0|1|-1, y: 0 as 0|1|-1 };
+        if (target) {
+          const path = findPath(this.state.map, { x: entity.x, y: entity.y }, target, obstacles);
+          if (path && path.length > 0) {
+            const nextStep = path[0];
+            const dx = nextStep.x - entity.x;
+            const dy = nextStep.y - entity.y;
+            // Ensure valid direction (should be, as BFS moves 1 step)
+            if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+              nextDir = { x: dx as 0|1|-1, y: dy as 0|1|-1 };
+            }
+          } else {
+             // No path found (trapped?), clear target to try again next tick
+             target = undefined;
+          }
+        }
+
+        // Update state directly for AI "thinking"
+        const updatedRobot = { ...entity, targetPosition: target, direction: nextDir };
+        this.state.entities.set(entity.entityId, updatedRobot);
+      }
+
+      // Movement Processing (for both Players and Robots)
+      // Re-fetch entity in case it was updated by AI block above
+      const currentEntity = this.state.entities.get(entity.entityId)!;
+      
+      if (currentEntity.direction && (currentEntity.direction.x !== 0 || currentEntity.direction.y !== 0)) {
+        const targetX = currentEntity.x + currentEntity.direction.x;
+        const targetY = currentEntity.y + currentEntity.direction.y;
+        
+        const result = this.submitAction(currentEntity.entityId, {
+          type: 'MOVE',
+          x: targetX,
+          y: targetY
+        });
+
+        if (result.ok) {
+          events.push(...result.value);
+        } else {
+          // If blocked, stop.
+          // For robot, this will trigger "pick new target" logic next tick implicitly (if we clear target?)
+          // But "targetPosition" is still set. The pathfinder will try to find a path around it next tick.
+          // Unless the obstacle is the target itself (unlikely for walls).
+        }
+      }
+    }
+
+    return events;
+  }
+
+  /**
    * Get a snapshot of the current world state.
    * This is a read-only view suitable for serialization.
    */
@@ -130,7 +218,7 @@ export class World {
    * Get a specific entity by ID.
    * Returns undefined if not found.
    */
-  getEntity(entityId: string): Avatar | undefined {
+  getEntity(entityId: string): Entity | undefined {
     return this.state.entities.get(entityId);
   }
 }

@@ -7,8 +7,11 @@ export { World } from './engine';
 export type { WorldSnapshot } from './engine/world';
 
 // Entities
-export { createAvatar } from './entities';
-export type { Avatar } from './entities';
+export { createAvatar, createRobot } from './entities/avatar';
+export { createWall } from './entities/wall';
+export { createEntity } from './entities/entity';
+export type { Avatar } from './entities/avatar';
+export type { Entity } from './entities/entity';
 
 // Map
 export { createMapDef, isInBounds, clampToBounds } from './map';
@@ -18,6 +21,7 @@ export type { MapDef } from './map';
 export type {
   WorldAction,
   MoveAction,
+  SetDirectionAction,
   WorldEvent,
   EntityJoinedEvent,
   EntityLeftEvent,

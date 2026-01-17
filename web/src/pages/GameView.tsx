@@ -4,9 +4,11 @@ import { useAuth } from '../contexts/AuthContext'
 
 interface Entity {
   entityId: string
+  kind: 'PLAYER' | 'WALL' | 'ROBOT'
   displayName: string
   x: number
   y: number
+  color?: string
 }
 
 interface WorldSnapshot {
@@ -31,11 +33,16 @@ export default function GameView() {
   const [mapSize, setMapSize] = useState({ width: 20, height: 15 })
   const [entities, setEntities] = useState<Map<string, Entity>>(new Map())
   const [error, setError] = useState<string | null>(null)
+  
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
   const joinedRef = useRef(false)
   const shouldReconnectRef = useRef(true)
+
+  // Input tracking
+  const pressedKeys = useRef(new Set<string>())
+  const lastSentDirection = useRef({ x: 0, y: 0 })
 
   const handleEvent = useCallback((event: WorldEvent) => {
     setEntities(prev => {
@@ -171,49 +178,55 @@ export default function GameView() {
     }
   }, [connect, session])
 
-  const move = useCallback((dx: number, dy: number) => {
+  const updateDirection = useCallback(() => {
     const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN || !myEntityId) return
-    
-    const entity = entities.get(myEntityId)
-    if (!entity) return
-    
-    ws.send(JSON.stringify({
-      type: 'MOVE',
-      x: entity.x + dx,
-      y: entity.y + dy
-    }))
-  }, [myEntityId, entities])
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+    let dx = 0
+    let dy = 0
+
+    if (pressedKeys.current.has('ArrowUp') || pressedKeys.current.has('w') || pressedKeys.current.has('W')) dy -= 1
+    if (pressedKeys.current.has('ArrowDown') || pressedKeys.current.has('s') || pressedKeys.current.has('S')) dy += 1
+    if (pressedKeys.current.has('ArrowLeft') || pressedKeys.current.has('a') || pressedKeys.current.has('A')) dx -= 1
+    if (pressedKeys.current.has('ArrowRight') || pressedKeys.current.has('d') || pressedKeys.current.has('D')) dx += 1
+
+    // Clamp to -1, 0, 1
+    dx = Math.sign(dx)
+    dy = Math.sign(dy)
+
+    // Only send if changed
+    if (dx !== lastSentDirection.current.x || dy !== lastSentDirection.current.y) {
+      lastSentDirection.current = { x: dx, y: dy }
+      ws.send(JSON.stringify({
+        type: 'SET_DIRECTION',
+        dx,
+        dy
+      }))
+    }
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          move(0, -1)
-          break
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          move(0, 1)
-          break
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          move(-1, 0)
-          break
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          move(1, 0)
-          break
+      if (!pressedKeys.current.has(e.key)) {
+        pressedKeys.current.add(e.key)
+        updateDirection()
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (pressedKeys.current.has(e.key)) {
+        pressedKeys.current.delete(e.key)
+        updateDirection()
       }
     }
     
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [move])
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [updateDirection])
 
   // Build grid cells using components
   const cells = []
@@ -224,7 +237,7 @@ export default function GameView() {
       
       cells.push(
         <Cell key={`${x}-${y}`}>
-          {entityHere && <EntityDot isPlayer={isMe} />}
+          {entityHere && <EntityDot isPlayer={isMe} color={entityHere.color} />}
         </Cell>
       )
     }
@@ -247,7 +260,7 @@ export default function GameView() {
       </Grid>
       
       <p className="mt-4 text-gray-500 text-sm">
-        Use arrow keys or WASD to move
+        Use arrow keys or WASD to move (Server Tick Rate: 5Hz)
       </p>
     </div>
   )

@@ -1,16 +1,6 @@
-// ============================================================================
-// AVATAR - Represents a person or agent in the world
-// Both humans and AI are treated identically as Avatars
-// ============================================================================
+import { Entity, createEntity } from './entity';
 
-export interface Avatar {
-  readonly entityId: string;
-  readonly displayName: string;
-  /** Tile/grid X coordinate (integer) */
-  readonly x: number;
-  /** Tile/grid Y coordinate (integer) */
-  readonly y: number;
-}
+export type Avatar = Entity;
 
 /** Create a new Avatar with validated fields */
 export function createAvatar(
@@ -19,10 +9,13 @@ export function createAvatar(
   x: number,
   y: number
 ): Avatar {
-  return {
-    entityId,
-    displayName,
-    x: Math.floor(x),
-    y: Math.floor(y),
-  };
+  return createEntity(entityId, 'PLAYER', displayName, x, y);
+}
+
+export function createRobot(
+  entityId: string,
+  x: number,
+  y: number
+): Avatar {
+  return createEntity(entityId, 'ROBOT', 'Bot', x, y, '#f56565'); // Red color
 }

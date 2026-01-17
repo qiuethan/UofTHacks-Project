@@ -1,16 +1,25 @@
+import type { Entity } from '../entities/entity';
+
 // ============================================================================
 // WORLD ACTIONS - The ONLY way to mutate world state
 // ============================================================================
 
 /** Move action - relocate entity to grid coordinates */
+// DEPRECATED: Use SET_DIRECTION for gameplay
 export interface MoveAction {
   readonly type: 'MOVE';
   readonly x: number;
   readonly y: number;
 }
 
+export interface SetDirectionAction {
+  readonly type: 'SET_DIRECTION';
+  readonly dx: 0 | 1 | -1;
+  readonly dy: 0 | 1 | -1;
+}
+
 /** Discriminated union of all possible actions */
-export type WorldAction = MoveAction;
+export type WorldAction = MoveAction | SetDirectionAction;
 
 // ============================================================================
 // WORLD EVENTS - Outputs returned by the world (never mutate external systems)
@@ -19,12 +28,7 @@ export type WorldAction = MoveAction;
 /** Emitted when an entity joins the world */
 export interface EntityJoinedEvent {
   readonly type: 'ENTITY_JOINED';
-  readonly entity: {
-    readonly entityId: string;
-    readonly displayName: string;
-    readonly x: number;
-    readonly y: number;
-  };
+  readonly entity: Entity;
 }
 
 /** Emitted when an entity leaves the world */
@@ -39,6 +43,7 @@ export interface EntityMovedEvent {
   readonly entityId: string;
   readonly x: number;
   readonly y: number;
+  readonly direction?: { x: number; y: number }; // Echo back the direction
 }
 
 /** Discriminated union of all world events */

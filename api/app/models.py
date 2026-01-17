@@ -38,3 +38,17 @@ class ApiResponse(BaseModel):
     data: Optional[Avatar | list[Avatar]] = None
     error: Optional[str] = None
     message: Optional[str] = None
+
+
+class AgentRequest(BaseModel):
+    robot_id: str
+    x: int
+    y: int
+    map_width: int
+    map_height: int
+
+
+class AgentResponse(BaseModel):
+    target_x: int
+    target_y: int
+    action: str = "MOVE"  # MOVE, WAIT, etc.

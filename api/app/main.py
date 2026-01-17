@@ -8,11 +8,24 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 
-from .models import AvatarCreate, AvatarUpdate, ApiResponse
+from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse
 from . import database as db
+import random
 
-app = FastAPI(title="Avatar API", version="1.0.0")
+# Ensure upload directories exist before mounting StaticFiles
+Path("./uploads/sprites").mkdir(parents=True, exist_ok=True)
+
+# Lifespan context manager for startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    db.init_db()
+    yield
+    # Shutdown logic (if any) would go here
+
+app = FastAPI(title="Avatar API", version="1.0.0", lifespan=lifespan)
 
 # CORS
 app.add_middleware(
@@ -22,12 +35,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize database on startup
-@app.on_event("startup")
-def startup():
-    db.init_db()
-    Path("./uploads/sprites").mkdir(parents=True, exist_ok=True)
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -40,6 +47,24 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.get("/health")
 def health_check():
     return {"ok": True, "service": "api"}
+
+
+@app.post("/agent/decision", response_model=AgentResponse)
+def get_agent_decision(req: AgentRequest):
+    """
+    Get a decision for a robot agent.
+    Currently implements a simple random walk target selector.
+    """
+    # Simple logic: pick a random point on the map
+    # In a real scenario, this would involve LLM or RL inference
+    target_x = random.randint(0, req.map_width - 1)
+    target_y = random.randint(0, req.map_height - 1)
+    
+    return {
+        "target_x": target_x,
+        "target_y": target_y,
+        "action": "MOVE"
+    }
 
 
 @app.get("/avatars", response_model=ApiResponse)
@@ -133,4 +158,4 @@ def delete_avatar(avatar_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3002)
+    uvicorn.run(app, host="0.0.0.0", port=3003)

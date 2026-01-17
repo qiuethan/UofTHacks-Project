@@ -3,9 +3,11 @@ import { Grid, Cell, EntityDot, ConnectionStatus } from '../components'
 
 interface Entity {
   entityId: string
+  kind: 'PLAYER' | 'WALL' | 'ROBOT'
   displayName: string
   x: number
   y: number
+  color?: string
 }
 
 interface WorldSnapshot {
@@ -158,7 +160,7 @@ export default function WatchView() {
       
       cells.push(
         <Cell key={`${x}-${y}`}>
-          {entityHere && <EntityDot />}
+          {entityHere && <EntityDot color={entityHere.color} />}
         </Cell>
       )
     }
