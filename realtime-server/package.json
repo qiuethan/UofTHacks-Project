@@ -7,6 +7,8 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "dotenv": "^17.2.3",
     "ws": "^8.16.0"
   },
   "devDependencies": {
