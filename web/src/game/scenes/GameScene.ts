@@ -14,7 +14,6 @@ interface EntitySprite {
   container: Phaser.GameObjects.Container
   sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image
   hoverBanner?: Phaser.GameObjects.Container
-  nameText: Phaser.GameObjects.Text
   loadingIndicator?: Phaser.GameObjects.Graphics
   lastFacing?: { x: number; y: number }
   loadAttempts: number
@@ -187,14 +186,12 @@ export class GameScene extends Phaser.Scene {
       const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
       
       if (!this.textures.exists(textureKey)) {
-        // Placeholder while loading - offset upward so bottom aligns with hitbox
-        const placeholder = this.add.rectangle(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT, isMe ? 0x4ade80 : 0xf87171)
         // Create pixelated loading placeholder with transparent background
         loadingIndicator = this.add.graphics()
         
         // Draw pixelated dotted border (transparent center)
         const borderColor = isMe ? 0x4ade80 : 0x8b5cf6
-        const halfSize = SPRITE_SIZE / 2
+        const halfSize = SPRITE_WIDTH / 2
         const pixelSize = 4
         
         // Draw pixelated corners and edges
@@ -224,7 +221,7 @@ export class GameScene extends Phaser.Scene {
         container.add(loadingIndicator)
         
         // Create invisible placeholder for hitbox
-        const placeholder = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0x000000, 0)
+        const placeholder = this.add.rectangle(0, 0, SPRITE_WIDTH, SPRITE_HEIGHT, 0x000000, 0)
         container.add(placeholder)
         
         // Start loading with retry
@@ -242,11 +239,11 @@ export class GameScene extends Phaser.Scene {
       rect.setStrokeStyle(2, 0xffffff)
       container.add(rect)
       
-      const arrow = this.add.text(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, this.getFacingArrow(entity.facing), {
+      const arrowText = this.add.text(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, this.getFacingArrow(entity.facing), {
         fontSize: '24px',
         color: '#ffffff'
       }).setOrigin(0.5)
-      container.add(text)
+      container.add(arrowText)
       
       sprite = rect as unknown as Phaser.GameObjects.Sprite
     }
@@ -296,8 +293,6 @@ export class GameScene extends Phaser.Scene {
       container,
       sprite,
       hoverBanner,
-      lastFacing: entity.facing
-      nameText,
       loadingIndicator,
       lastFacing: entity.facing,
       loadAttempts: 0,
@@ -399,7 +394,7 @@ export class GameScene extends Phaser.Scene {
     
     // Create fallback colored square with initial
     const color = isMe ? 0x4ade80 : 0x6366f1
-    const rect = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, color)
+    const rect = this.add.rectangle(0, 0, SPRITE_WIDTH, SPRITE_HEIGHT, color)
     rect.setStrokeStyle(2, 0xffffff)
     container.addAt(rect, 0)
     
@@ -617,6 +612,15 @@ export class GameScene extends Phaser.Scene {
     if (facing.x === 0 && facing.y === 1) return 'front'
     if (facing.x === -1 && facing.y === 0) return 'left'
     return 'front'
+  }
+
+  private getFacingArrow(facing?: { x: number; y: number }): string {
+    if (!facing) return '↓'
+    if (facing.x === 0 && facing.y === -1) return '↑'
+    if (facing.x === 1 && facing.y === 0) return '→'
+    if (facing.x === 0 && facing.y === 1) return '↓'
+    if (facing.x === -1 && facing.y === 0) return '←'
+    return '↓'
   }
 
   update(time: number) {

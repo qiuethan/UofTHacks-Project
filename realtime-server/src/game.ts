@@ -17,6 +17,8 @@ for (let x = 0; x < MAP_WIDTH; x++) {
 for (let y = 1; y < MAP_HEIGHT - 1; y++) {
   world.addEntity(createWall(`wall-left-${y}`, 0, y));
   world.addEntity(createWall(`wall-right-${y}`, MAP_WIDTH - 1, y));
+}
+
 // Add all walls from configuration (perimeter + custom walls from walls.ts)
 const wallPositions = generateWallPositions();
 for (const wall of wallPositions) {
