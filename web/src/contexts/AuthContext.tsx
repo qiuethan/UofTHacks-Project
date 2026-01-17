@@ -7,6 +7,7 @@ interface AuthContextType {
   session: Session | null
   loading: boolean
   hasAvatar: boolean | null
+  onboardingCompleted: boolean
   checkingAvatar: boolean
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string) => Promise<{ error: Error | null; isNewUser?: boolean }>
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [hasAvatar, setHasAvatar] = useState<boolean | null>(null)
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false)
   const [checkingAvatar, setCheckingAvatar] = useState(false)
 
   const checkAvatarStatus = async (userId: string) => {
@@ -65,6 +67,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshAvatarStatus = async () => {
     if (user) {
+      // Refresh user metadata
+      const { data: { user: refreshedUser } } = await supabase.auth.getUser()
+      if (refreshedUser) {
+        setUser(refreshedUser)
+        setOnboardingCompleted(refreshedUser.user_metadata?.onboarding_completed === true)
+      }
       await checkAvatarStatus(user.id)
     }
   }
@@ -75,6 +83,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
+        setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
         checkAvatarStatus(session.user.id)
       }
       setLoading(false)
@@ -85,9 +94,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
+        setOnboardingCompleted(session.user.user_metadata?.onboarding_completed === true)
         checkAvatarStatus(session.user.id)
       } else {
         setHasAvatar(null)
+        setOnboardingCompleted(false)
       }
       setLoading(false)
     })
@@ -108,6 +119,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async () => {
     await supabase.auth.signOut()
     setHasAvatar(null)
+    setOnboardingCompleted(false)
   }
 
   return (
@@ -115,7 +127,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user, 
       session, 
       loading, 
-      hasAvatar, 
+      hasAvatar,
+      onboardingCompleted, 
       checkingAvatar,
       signIn, 
       signUp, 

@@ -19,6 +19,7 @@ from supabase import create_client, Client
 
 from .models import AvatarCreate, AvatarUpdate, ApiResponse, AgentRequest, AgentResponse, GenerateAvatarResponse
 from . import database as db
+from . import onboarding
 
 # Add image_gen to path for importing pipeline
 IMAGE_GEN_PATH = Path(__file__).parent.parent.parent / "image_gen"
@@ -57,6 +58,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(onboarding.router)
 
 # ============================================================================
 # ROUTES

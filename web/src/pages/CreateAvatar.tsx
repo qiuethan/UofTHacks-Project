@@ -14,15 +14,19 @@ interface GeneratedSprites {
 }
 
 export default function CreateAvatar() {
-  const { user, hasAvatar, refreshAvatarStatus } = useAuth()
+  const { user, hasAvatar, onboardingCompleted, refreshAvatarStatus } = useAuth()
   const navigate = useNavigate()
   
-  // If user already has avatar, redirect to play
+  // If user already has avatar, redirect to appropriate next step
   useEffect(() => {
     if (hasAvatar) {
-      navigate('/play')
+      if (onboardingCompleted) {
+        navigate('/play')
+      } else {
+        navigate('/onboarding')
+      }
     }
-  }, [hasAvatar, navigate])
+  }, [hasAvatar, onboardingCompleted, navigate])
   
   // Form state
   const [displayName, setDisplayName] = useState('')
@@ -110,9 +114,9 @@ export default function CreateAvatar() {
       
       setStep('complete')
       
-      // Redirect to play after a short delay
+      // Redirect to onboarding after a short delay
       setTimeout(() => {
-        navigate('/play')
+        navigate('/onboarding')
       }, 1500)
     } catch (err) {
       console.error('Save avatar error:', err)
