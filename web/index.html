@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>World Simulation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #1a1a2e;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #eee;
+    }
+    
+    h1 {
+      margin-bottom: 1rem;
+      font-size: 1.5rem;
+      color: #888;
+    }
+    
+    #status {
+      margin-bottom: 1rem;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+    
+    #status.connected {
+      background: #0f3d0f;
+      color: #4ade80;
+    }
+    
+    #status.disconnected {
+      background: #3d0f0f;
+      color: #f87171;
+    }
+    
+    #grid {
+      display: grid;
+      gap: 1px;
+      background: #333;
+      border: 2px solid #444;
+      border-radius: 4px;
+      padding: 1px;
+    }
+    
+    .cell {
+      width: 32px;
+      height: 32px;
+      background: #2a2a3e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .entity {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #000;
+    }
+    
+    .entity.self {
+      background: #4ade80;
+    }
+    
+    #controls {
+      margin-top: 1rem;
+      color: #666;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>World Simulation</h1>
+  <div id="status" class="disconnected">Disconnected</div>
+  <div id="grid"></div>
+  <div id="controls">Use arrow keys or WASD to move</div>
+  
+  <script>
+    // ========================================================================
+    // STATE
+    // ========================================================================
+    
+    let ws = null;
+    let myEntityId = null;
+    let mapWidth = 20;
+    let mapHeight = 15;
+    let entities = new Map(); // entityId -> { x, y, displayName }
+    
+    // ========================================================================
+    // GRID RENDERING
+    // ========================================================================
+    
+    function createGrid() {
+      const grid = document.getElementById('grid');
+      grid.style.gridTemplateColumns = `repeat(${mapWidth}, 32px)`;
+      grid.innerHTML = '';
+      
+      for (let y = 0; y < mapHeight; y++) {
+        for (let x = 0; x < mapWidth; x++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.x = x;
+          cell.dataset.y = y;
+          grid.appendChild(cell);
+        }
+      }
+    }
+    
+    function render() {
+      // Clear all entities
+      document.querySelectorAll('.entity').forEach(el => el.remove());
+      
+      // Render entities
+      for (const [entityId, entity] of entities) {
+        const cell = document.querySelector(`.cell[data-x="${entity.x}"][data-y="${entity.y}"]`);
+        if (cell) {
+          const dot = document.createElement('div');
+          dot.className = 'entity' + (entityId === myEntityId ? ' self' : '');
+          cell.appendChild(dot);
+        }
+      }
+    }
+    
+    // ========================================================================
+    // WEBSOCKET
+    // ========================================================================
+    
+    function connect() {
+      const statusEl = document.getElementById('status');
+      
+      ws = new WebSocket('ws://localhost:3001');
+      
+      ws.onopen = () => {
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'connected';
+        
+        // Join the world
+        ws.send(JSON.stringify({ type: 'JOIN', displayName: 'Player' }));
+      };
+      
+      ws.onclose = () => {
+        statusEl.textContent = 'Disconnected - Reconnecting...';
+        statusEl.className = 'disconnected';
+        myEntityId = null;
+        entities.clear();
+        render();
+        
+        // Reconnect after delay
+        setTimeout(connect, 2000);
+      };
+      
+      ws.onerror = () => {
+        ws.close();
+      };
+      
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      };
+    }
+    
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'WELCOME':
+          myEntityId = msg.entityId;
+          break;
+          
+        case 'SNAPSHOT':
+          // Update map dimensions
+          mapWidth = msg.snapshot.map.width;
+          mapHeight = msg.snapshot.map.height;
+          createGrid();
+          
+          // Load all entities
+          entities.clear();
+          for (const entity of msg.snapshot.entities) {
+            entities.set(entity.entityId, {
+              x: entity.x,
+              y: entity.y,
+              displayName: entity.displayName
+            });
+          }
+          render();
+          break;
+          
+        case 'EVENTS':
+          for (const event of msg.events) {
+            handleEvent(event);
+          }
+          render();
+          break;
+          
+        case 'ERROR':
+          console.error('Server error:', msg.error);
+          break;
+      }
+    }
+    
+    function handleEvent(event) {
+      switch (event.type) {
+        case 'ENTITY_JOINED':
+          entities.set(event.entity.entityId, {
+            x: event.entity.x,
+            y: event.entity.y,
+            displayName: event.entity.displayName
+          });
+          break;
+          
+        case 'ENTITY_LEFT':
+          entities.delete(event.entityId);
+          break;
+          
+        case 'ENTITY_MOVED':
+          const entity = entities.get(event.entityId);
+          if (entity) {
+            entity.x = event.x;
+            entity.y = event.y;
+          }
+          break;
+      }
+    }
+    
+    // ========================================================================
+    // CONTROLS
+    // ========================================================================
+    
+    function move(dx, dy) {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !myEntityId) return;
+      
+      const entity = entities.get(myEntityId);
+      if (!entity) return;
+      
+      const newX = entity.x + dx;
+      const newY = entity.y + dy;
+      
+      ws.send(JSON.stringify({ type: 'MOVE', x: newX, y: newY }));
+    }
+    
+    document.addEventListener('keydown', (e) => {
+      switch (e.key) {
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          move(0, -1);
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          move(0, 1);
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          move(-1, 0);
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          move(1, 0);
+          break;
+      }
+    });
+    
+    // ========================================================================
+    // INIT
+    // ========================================================================
+    
+    createGrid();
+    connect();
+  </script>
+</body>
+</html>
