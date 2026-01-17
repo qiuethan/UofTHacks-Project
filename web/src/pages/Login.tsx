@@ -10,6 +10,14 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const { signIn, signUp, user, hasAvatar, checkingAvatar } = useAuth()
   const navigate = useNavigate()
+  
+  // Check for mode=signup query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('mode') === 'signup') {
+      setIsSignUp(true)
+    }
+  }, [])
 
   // Redirect if user is already logged in
   useEffect(() => {
