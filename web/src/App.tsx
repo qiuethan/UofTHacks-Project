@@ -1,6 +1,7 @@
 import { Routes, Route, Link, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
+import WatchView from './pages/WatchView'
 import CreateAvatar from './pages/CreateAvatar'
 import Login from './pages/Login'
 
@@ -30,8 +31,11 @@ export default function App() {
       <nav className="bg-gray-800 p-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex gap-6">
-            <Link to="/" className="text-white hover:text-green-400 font-medium">
-              Game
+            <Link to="/play" className="text-white hover:text-green-400 font-medium">
+              Play
+            </Link>
+            <Link to="/watch" className="text-white hover:text-green-400 font-medium">
+              Watch
             </Link>
             <Link to="/create" className="text-white hover:text-green-400 font-medium">
               Create Avatar
@@ -59,7 +63,9 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<ProtectedRoute><GameView /></ProtectedRoute>} />
+          <Route path="/" element={<Navigate to="/watch" replace />} />
+          <Route path="/play" element={<ProtectedRoute><GameView /></ProtectedRoute>} />
+          <Route path="/watch" element={<WatchView />} />
           <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />
         </Routes>
       </main>

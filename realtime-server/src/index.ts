@@ -8,7 +8,8 @@ import type { WorldEvent, MoveAction } from '../../world/index.ts';
 // CONFIG
 // ============================================================================
 
-const PORT = 3001;
+const PLAY_PORT = 3001;
+const WATCH_PORT = 3002;
 const MAP_WIDTH = 20;
 const MAP_HEIGHT = 15;
 
@@ -65,6 +66,7 @@ interface Client {
   oderId: string;
   userId: string;
   displayName: string;
+  isReplaced?: boolean;
 }
 
 // Map oderId -> Client (oderId = one-time connection ID)
@@ -78,7 +80,7 @@ let nextOrderId = 1;
 // ============================================================================
 
 interface ClientMessage {
-  type: 'JOIN' | 'MOVE';
+  type: 'JOIN' | 'MOVE' | 'WATCH';
   token?: string;
   userId?: string;
   displayName?: string;
@@ -98,11 +100,21 @@ interface ServerMessage {
 // BROADCAST
 // ============================================================================
 
+// Spectators (watch-only connections)
+const spectators = new Set<WebSocket>();
+
 function broadcast(message: ServerMessage, exclude?: string) {
   const data = JSON.stringify(message);
+  // Send to players
   for (const [id, client] of clients) {
     if (id !== exclude && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(data);
+    }
+  }
+  // Send to spectators
+  for (const ws of spectators) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
     }
   }
 }
@@ -114,14 +126,14 @@ function send(ws: WebSocket, message: ServerMessage) {
 }
 
 // ============================================================================
-// WEBSOCKET SERVER
+// PLAY WEBSOCKET SERVER (port 3001)
 // ============================================================================
 
-const wss = new WebSocketServer({ port: PORT });
+const playWss = new WebSocketServer({ port: PLAY_PORT });
 
-console.log(`Realtime server running on ws://localhost:${PORT}`);
+console.log(`Play server running on ws://localhost:${PLAY_PORT}`);
 
-wss.on('connection', (ws) => {
+playWss.on('connection', (ws) => {
   const oderId = `conn-${nextOrderId++}`;
   let client: Client | null = null;
 
@@ -143,26 +155,32 @@ wss.on('connection', (ws) => {
     if (!client) {
       return;
     }
+
+    // If this client was replaced by a new connection, don't remove the entity
+    if (client.isReplaced) {
+      console.log(`Client replaced: ${client.userId}`);
+      clients.delete(oderId);
+      return;
+    }
     
     console.log(`Client disconnected: ${client.userId}`);
     
-    // Only clean up if this is still the active connection for this user
-    if (userConnections.get(client.userId) === oderId) {
-      // Save final position to DB
-      const entity = world.getSnapshot().entities.find(e => e.entityId === client!.userId);
-      if (entity) {
-        await updatePosition(client.userId, entity.x, entity.y);
-      }
-      
-      // Remove from world
-      const result = world.removeEntity(client.userId);
-      if (result.ok) {
-        broadcast({ type: 'EVENTS', events: result.value });
-      }
-      
-      userConnections.delete(client.userId);
+    // Save final position to DB
+    const entity = world.getSnapshot().entities.find(e => e.entityId === client!.userId);
+    if (entity) {
+      await updatePosition(client.userId, entity.x, entity.y);
     }
     
+    // Remove from world
+    const result = world.removeEntity(client.userId);
+    if (result.ok) {
+      broadcast({ type: 'EVENTS', events: result.value });
+    }
+    
+    // Clean up tracking
+    if (userConnections.get(client.userId) === oderId) {
+      userConnections.delete(client.userId);
+    }
     clients.delete(oderId);
   });
 });
@@ -188,15 +206,15 @@ async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessage): Pr
     return null;
   }
   
-  // Block second login - reject if already connected
+  // Handle existing connection - Kick old one seamlessly
   const existingOrderId = userConnections.get(userId);
   if (existingOrderId && clients.has(existingOrderId)) {
     const existingClient = clients.get(existingOrderId);
-    if (existingClient && existingClient.ws.readyState === WebSocket.OPEN) {
-      console.log(`Rejected duplicate login for ${userId}`);
-      send(ws, { type: 'ERROR', error: 'ALREADY_CONNECTED' });
-      ws.close();
-      return null;
+    if (existingClient) {
+      console.log(`Duplicate login for ${userId}. Kicking old connection.`);
+      existingClient.isReplaced = true; // Prevent "close" handler from removing entity
+      send(existingClient.ws, { type: 'ERROR', error: 'New login detected from another location' });
+      existingClient.ws.close();
     }
   }
   
@@ -213,9 +231,17 @@ async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessage): Pr
   const result = world.addEntity(avatar);
   
   if (!result.ok) {
-    send(ws, { type: 'ERROR', error: result.error.message });
-    ws.close();
-    return null;
+    if (result.error.code === 'ENTITY_EXISTS') {
+      // This is fine, entity is already there (seamless handover)
+      console.log(`Player rejoined: ${displayName} (${userId})`);
+      send(ws, { type: 'WELCOME', entityId: userId });
+      send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+      return client;
+    } else {
+      send(ws, { type: 'ERROR', error: result.error.message });
+      ws.close();
+      return null;
+    }
   }
   
   console.log(`Player joined: ${displayName} (${userId}) at (${pos.x}, ${pos.y})`);
@@ -242,3 +268,25 @@ async function handleMove(client: Client, x: number, y: number): Promise<void> {
   
   broadcast({ type: 'EVENTS', events: result.value });
 }
+
+// ============================================================================
+// WATCH WEBSOCKET SERVER (port 3002)
+// ============================================================================
+
+const watchWss = new WebSocketServer({ port: WATCH_PORT });
+
+console.log(`Watch server running on ws://localhost:${WATCH_PORT}`);
+
+watchWss.on('connection', (ws) => {
+  const watcherId = `watcher-${nextOrderId++}`;
+  spectators.add(ws);
+  console.log(`Spectator connected: ${watcherId}`);
+  
+  // Send current world state
+  send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+  
+  ws.on('close', () => {
+    spectators.delete(ws);
+    console.log(`Spectator disconnected: ${watcherId}`);
+  });
+});

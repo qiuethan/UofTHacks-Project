@@ -153,8 +153,21 @@ export default function GameView() {
     return () => {
       mountedRef.current = false
       shouldReconnectRef.current = false
-      wsRef.current?.close()
-      wsRef.current = null
+      joinedRef.current = false
+      connectingRef.current = false
+      
+      // Properly close WebSocket
+      const ws = wsRef.current
+      if (ws) {
+        ws.onclose = null  // Prevent reconnect logic from firing
+        ws.onerror = null
+        ws.onmessage = null
+        ws.onopen = null
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1000, 'Component unmounted')
+        }
+        wsRef.current = null
+      }
     }
   }, [connect, session])
 
