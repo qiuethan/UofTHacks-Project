@@ -6,11 +6,19 @@ const SPRITE_WIDTH = 80
 const SPRITE_HEIGHT = 120  // Taller characters
 const GRID_SIZE = 32
 
+// Sprite loading configuration
+const SPRITE_LOAD_MAX_RETRIES = 3
+const SPRITE_LOAD_RETRY_DELAY = 1000
+
 interface EntitySprite {
   container: Phaser.GameObjects.Container
   sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image
   hoverBanner?: Phaser.GameObjects.Container
+  nameText: Phaser.GameObjects.Text
+  loadingIndicator?: Phaser.GameObjects.Graphics
   lastFacing?: { x: number; y: number }
+  loadAttempts: number
+  isLoading: boolean
 }
 
 export class GameScene extends Phaser.Scene {
@@ -169,19 +177,58 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(10 + entity.y)
 
     let sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image
+    let loadingIndicator: Phaser.GameObjects.Graphics | undefined
 
     const spriteUrl = this.getSpriteUrl(entity)
+    const hasValidSprite = spriteUrl && spriteUrl.startsWith('http')
     
-    if (spriteUrl && spriteUrl.startsWith('http')) {
-      // Load external sprite
+    if (hasValidSprite) {
+      // Load external sprite with loading indicator
       const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
       
       if (!this.textures.exists(textureKey)) {
         // Placeholder while loading - offset upward so bottom aligns with hitbox
         const placeholder = this.add.rectangle(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT, isMe ? 0x4ade80 : 0xf87171)
+        // Create pixelated loading placeholder with transparent background
+        loadingIndicator = this.add.graphics()
+        
+        // Draw pixelated dotted border (transparent center)
+        const borderColor = isMe ? 0x4ade80 : 0x8b5cf6
+        const halfSize = SPRITE_SIZE / 2
+        const pixelSize = 4
+        
+        // Draw pixelated corners and edges
+        loadingIndicator.fillStyle(borderColor, 0.8)
+        
+        // Top-left corner pixels
+        loadingIndicator.fillRect(-halfSize, -halfSize, pixelSize * 2, pixelSize)
+        loadingIndicator.fillRect(-halfSize, -halfSize + pixelSize, pixelSize, pixelSize)
+        
+        // Top-right corner pixels
+        loadingIndicator.fillRect(halfSize - pixelSize * 2, -halfSize, pixelSize * 2, pixelSize)
+        loadingIndicator.fillRect(halfSize - pixelSize, -halfSize + pixelSize, pixelSize, pixelSize)
+        
+        // Bottom-left corner pixels
+        loadingIndicator.fillRect(-halfSize, halfSize - pixelSize, pixelSize * 2, pixelSize)
+        loadingIndicator.fillRect(-halfSize, halfSize - pixelSize * 2, pixelSize, pixelSize)
+        
+        // Bottom-right corner pixels
+        loadingIndicator.fillRect(halfSize - pixelSize * 2, halfSize - pixelSize, pixelSize * 2, pixelSize)
+        loadingIndicator.fillRect(halfSize - pixelSize, halfSize - pixelSize * 2, pixelSize, pixelSize)
+        
+        // Center loading dots (will animate)
+        loadingIndicator.fillStyle(borderColor, 1)
+        loadingIndicator.fillRect(-pixelSize * 1.5, 0, pixelSize, pixelSize)
+        loadingIndicator.fillRect(pixelSize * 0.5, 0, pixelSize, pixelSize)
+        
+        container.add(loadingIndicator)
+        
+        // Create invisible placeholder for hitbox
+        const placeholder = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0x000000, 0)
         container.add(placeholder)
         
-        this.loadExternalTexture(textureKey, spriteUrl, container, entity)
+        // Start loading with retry
+        this.loadExternalTextureWithRetry(textureKey, spriteUrl, container, entity, isMe)
         sprite = placeholder as unknown as Phaser.GameObjects.Sprite
       } else {
         sprite = this.add.sprite(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, textureKey)
@@ -199,7 +246,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '24px',
         color: '#ffffff'
       }).setOrigin(0.5)
-      container.add(arrow)
+      container.add(text)
       
       sprite = rect as unknown as Phaser.GameObjects.Sprite
     }
@@ -244,26 +291,79 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
     this.entitySprites.set(entity.entityId, {
       container,
       sprite,
       hoverBanner,
       lastFacing: entity.facing
+      nameText,
+      loadingIndicator,
+      lastFacing: entity.facing,
+      loadAttempts: 0,
+      isLoading: Boolean(hasValidSprite) && !this.textures.exists(textureKey)
     })
   }
 
-  private loadExternalTexture(
+  private loadExternalTextureWithRetry(
     textureKey: string,
     url: string,
     container: Phaser.GameObjects.Container,
-    entity: GameEntity
+    entity: GameEntity,
+    isMe: boolean,
+    attempt: number = 1
   ) {
-    this.load.image(textureKey, url)
-    this.load.once('complete', () => {
+    const entitySprite = this.entitySprites.get(entity.entityId)
+    if (entitySprite) {
+      entitySprite.loadAttempts = attempt
+      entitySprite.isLoading = true
+    }
+    
+    console.log(`[GameScene] Loading texture for ${entity.displayName} (attempt ${attempt}/${SPRITE_LOAD_MAX_RETRIES})`)
+    
+    // Add cache-busting parameter for retries
+    const urlWithCacheBust = attempt > 1 ? `${url}${url.includes('?') ? '&' : '?'}_retry=${attempt}` : url
+    
+    this.load.image(textureKey, urlWithCacheBust)
+    
+    const onError = (file: Phaser.Loader.File) => {
+      if (file.key !== textureKey) return
+      
+      console.warn(`[GameScene] Failed to load texture for ${entity.displayName} (attempt ${attempt})`)
+      
+      this.load.off('loaderror', onError)
+      this.load.off('complete', onComplete)
+      
+      if (attempt < SPRITE_LOAD_MAX_RETRIES) {
+        // Retry after delay
+        this.time.delayedCall(SPRITE_LOAD_RETRY_DELAY, () => {
+          // Remove failed texture key so we can retry
+          if (this.textures.exists(textureKey)) {
+            this.textures.remove(textureKey)
+          }
+          this.loadExternalTextureWithRetry(textureKey, url, container, entity, isMe, attempt + 1)
+        })
+      } else {
+        // Max retries reached - show fallback
+        console.error(`[GameScene] Failed to load sprite for ${entity.displayName} after ${SPRITE_LOAD_MAX_RETRIES} attempts`)
+        this.showFallbackSprite(container, entity, isMe)
+        
+        if (entitySprite) {
+          entitySprite.isLoading = false
+        }
+      }
+    }
+    
+    const onComplete = () => {
+      this.load.off('loaderror', onError)
+      this.load.off('complete', onComplete)
+      
       if (this.textures.exists(textureKey)) {
-        // Remove placeholder rectangles
+        console.log(`[GameScene] Texture loaded successfully for ${entity.displayName}`)
+        
+        // Remove placeholder and loading indicator
         container.getAll().forEach(child => {
-          if (child instanceof Phaser.GameObjects.Rectangle) {
+          if (child instanceof Phaser.GameObjects.Rectangle || child instanceof Phaser.GameObjects.Graphics) {
             child.destroy()
           }
         })
@@ -275,10 +375,47 @@ export class GameScene extends Phaser.Scene {
         const entitySprite = this.entitySprites.get(entity.entityId)
         if (entitySprite) {
           entitySprite.sprite = sprite
+          entitySprite.loadingIndicator = undefined
+          entitySprite.isLoading = false
         }
+      } else {
+        // Treat as error
+        onError({ key: textureKey } as Phaser.Loader.File)
+      }
+    }
+    
+    this.load.on('loaderror', onError)
+    this.load.on('complete', onComplete)
+    this.load.start()
+  }
+
+  private showFallbackSprite(container: Phaser.GameObjects.Container, entity: GameEntity, isMe: boolean) {
+    // Remove loading elements
+    container.getAll().forEach(child => {
+      if (child instanceof Phaser.GameObjects.Rectangle || child instanceof Phaser.GameObjects.Graphics) {
+        child.destroy()
       }
     })
-    this.load.start()
+    
+    // Create fallback colored square with initial
+    const color = isMe ? 0x4ade80 : 0x6366f1
+    const rect = this.add.rectangle(0, 0, SPRITE_SIZE, SPRITE_SIZE, color)
+    rect.setStrokeStyle(2, 0xffffff)
+    container.addAt(rect, 0)
+    
+    const initial = (entity.displayName || '?')[0].toUpperCase()
+    const text = this.add.text(0, 0, initial, {
+      fontSize: '28px',
+      fontStyle: 'bold',
+      color: '#ffffff'
+    }).setOrigin(0.5)
+    container.addAt(text, 1)
+    
+    const entitySprite = this.entitySprites.get(entity.entityId)
+    if (entitySprite) {
+      entitySprite.sprite = rect as unknown as Phaser.GameObjects.Sprite
+      entitySprite.loadingIndicator = undefined
+    }
   }
 
   private scaleSprite(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image) {
@@ -482,17 +619,17 @@ export class GameScene extends Phaser.Scene {
     return 'front'
   }
 
-  private getFacingArrow(facing?: { x: number; y: number }): string {
-    if (!facing) return '↓'
-    if (facing.x === 0 && facing.y === -1) return '↑'
-    if (facing.x === 1 && facing.y === 0) return '→'
-    if (facing.x === 0 && facing.y === 1) return '↓'
-    if (facing.x === -1 && facing.y === 0) return '←'
-    return '↓'
-  }
-
-  update() {
+  update(time: number) {
     const { mode, inputEnabled, onDirectionChange } = this.sceneDataRef.current
+    
+    // Animate loading indicators with pulsing effect
+    for (const [, entitySprite] of this.entitySprites) {
+      if (entitySprite.isLoading && entitySprite.loadingIndicator) {
+        // Pulsing alpha effect
+        const pulse = Math.sin(time * 0.005) * 0.3 + 0.7
+        entitySprite.loadingIndicator.setAlpha(pulse)
+      }
+    }
     
     if (mode !== 'play' || !inputEnabled || !onDirectionChange) return
     if (!this.cursors && !this.wasd) return

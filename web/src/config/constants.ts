@@ -13,7 +13,7 @@ export const API_CONFIG = {
   BASE_URL: 'http://localhost:3003',
 }
 
-// Map defaults
+// Map defaults (should match server config and background.png)
 export const MAP_DEFAULTS = {
   WIDTH: 60,
   HEIGHT: 46,

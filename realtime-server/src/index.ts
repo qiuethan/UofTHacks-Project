@@ -1,14 +1,28 @@
 import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
-import { startGameLoop, startAiLoop, world } from './game';
+import { startGameLoop, startAiLoop, loadExistingUsers, world } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
 import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation } from './handlers';
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
-// Start loops
-startGameLoop();
-startAiLoop();
+// Initialize the world with existing users, then start loops
+async function initialize() {
+  // Load all existing users from the database as ROBOTs
+  await loadExistingUsers();
+  
+  // Start game loops
+  startGameLoop();
+  startAiLoop();
+  
+  console.log('Game world initialized with existing users');
+}
+
+// Run initialization
+initialize().catch(err => {
+  console.error('Failed to initialize game world:', err);
+  process.exit(1);
+});
 
 // ============================================================================
 // PLAY WEBSOCKET SERVER (port 3001)
@@ -67,7 +81,17 @@ watchWss.on('connection', (ws) => {
   console.log(`Spectator connected: ${watcherId}`);
   
   // Send current world state
-  send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+  const snapshot = world.getSnapshot();
+  
+  // Debug: Log entity sprite info
+  console.log(`[Watch] Sending snapshot with ${snapshot.entities.length} entities:`);
+  snapshot.entities.forEach(e => {
+    if (e.kind !== 'WALL') {
+      console.log(`  - ${e.displayName} (${e.kind}): sprites=${e.sprites ? 'yes' : 'NO'}`);
+    }
+  });
+  
+  send(ws, { type: 'SNAPSHOT', snapshot });
   
   ws.on('close', () => {
     spectators.delete(ws);

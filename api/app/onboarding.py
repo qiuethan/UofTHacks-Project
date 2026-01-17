@@ -34,7 +34,7 @@ if OPENROUTER_API_KEY:
     except Exception as e:
         print(f"Failed to init OpenAI/OpenRouter client: {e}")
 
-MODEL_NAME = "xiaomi/mimo-v2-flash:free"
+MODEL_NAME = "x-ai/grok-4.1-fast"
 
 async def get_current_user(request: Request):
     auth_header = request.headers.get("Authorization")
@@ -224,23 +224,63 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
     conversation = res.data
     transcript = conversation.get("transcript", [])
     
-    # 2. Generate Memory Summary
+    # 2. Generate Memory Summary with detailed analysis
+    # In the transcript, "user" role = the owner (the person being onboarded)
+    # "assistant" role = the AI interviewer (partner)
     summary_prompt = f"""
-    Analyze the following onboarding transcript for user '{user.id}'.
+    Analyze the following onboarding conversation transcript in detail.
+    
+    IMPORTANT: In this transcript:
+    - Messages with role "user" are from the OWNER (the person being interviewed/onboarded) - user ID: '{user.id}'
+    - Messages with role "assistant" are from the AI interviewer (the partner/system)
     
     Transcript:
     {json.dumps(transcript)}
     
-    Task:
-    1. Extract key facts (Name, Job, Hobbies, etc.).
-    2. Analyze their speaking style (Formal/Casual, Emoji usage, Length).
-    3. Create a concise summary paragraph.
+    Perform a comprehensive analysis:
+    
+    1. CONVERSATION SUMMARY (conversation_summary):
+       - What topics were discussed?
+       - What questions were asked and answered?
+       - Key information exchanged during the conversation
+       - Keep it factual and comprehensive (2-4 sentences)
+    
+    2. PERSON ANALYSIS (person_summary):
+       Analyze the OWNER's (user role) texting patterns and personality in detail:
+       - Communication style: Are they formal or casual? Do they use complete sentences or fragments?
+       - Emoji/punctuation usage: Do they use emojis, exclamation marks, abbreviations?
+       - Response length: Are they brief and concise or elaborate and detailed?
+       - Personality traits: Are they enthusiastic, reserved, humorous, sarcastic, friendly?
+       - Vocabulary: Simple or sophisticated? Any unique phrases or expressions?
+       - Topics they seem passionate about based on their responses
+       - Any notable quirks or patterns in how they communicate
+       Write this as a detailed paragraph about who this person is based on how they text (3-5 sentences)
+    
+    3. OWNER QUOTES (owner_quotes):
+       Extract exactly 3 important or representative quotes from the OWNER (messages with role "user" only).
+       Choose quotes that:
+       - Reveal something about their personality or interests
+       - Are memorable or characteristic of how they communicate
+       - Provide insight into who they are
+       Only include the exact text they wrote, nothing from the assistant.
     
     Output JSON:
     {{
-      "facts": {{ ... }},
-      "style": "...",
-      "summary": "..."
+      "conversation_summary": "Factual summary of what was discussed...",
+      "person_summary": "Detailed analysis of the owner's personality and communication style...",
+      "owner_quotes": ["quote1", "quote2", "quote3"],
+      "facts": {{
+        "name": "...",
+        "occupation": "...",
+        "hobbies": ["..."],
+        "other_details": {{}}
+      }},
+      "communication_style": {{
+        "formality": "casual/formal/mixed",
+        "emoji_usage": "none/light/heavy",
+        "response_length": "brief/moderate/detailed",
+        "tone": "..."
+      }}
     }}
     """
     
@@ -248,24 +288,39 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                {"role": "system", "content": "You are an expert at analyzing conversations and understanding people through their communication patterns. You output detailed, insightful JSON analysis."},
                 {"role": "user", "content": summary_prompt}
             ],
             response_format={"type": "json_object"}
         )
         content = completion.choices[0].message.content
         summary_data = json.loads(content)
-        summary_text = summary_data.get("summary", "New user joined the world.")
+        
+        conversation_summary = summary_data.get("conversation_summary", "New user joined the world.")
+        person_summary = summary_data.get("person_summary", "User completed onboarding.")
+        owner_quotes = summary_data.get("owner_quotes", [])
+        
+        # Ensure we have exactly 3 quotes (or pad with empty if not enough)
+        if len(owner_quotes) < 3:
+            owner_quotes.extend([""] * (3 - len(owner_quotes)))
+        elif len(owner_quotes) > 3:
+            owner_quotes = owner_quotes[:3]
+            
     except Exception as e:
         print(f"Summary generation failed: {e}")
-        summary_text = "User completed onboarding."
+        conversation_summary = "User completed onboarding conversation."
+        person_summary = "User completed onboarding."
+        owner_quotes = []
 
-    # 3. Save Memory
+    # 3. Save Memory with enhanced fields
     supabase.table("memories").insert({
         "conversation_id": req.conversation_id,
         "owner_id": user.id,
         "partner_id": None, 
-        "summary": summary_text,
+        "summary": conversation_summary,  # Keep for backwards compatibility
+        "conversation_summary": conversation_summary,
+        "person_summary": person_summary,
+        "owner_quotes": owner_quotes,
         "conversation_score": 10
     }).execute()
 

@@ -1,6 +1,8 @@
-import { World, createMapDef, createWall, CONVERSATION_CONFIG } from '../../world/index.ts';
+import { World, createMapDef, createWall, createAvatar, CONVERSATION_CONFIG } from '../../world/index.ts';
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL } from './config';
 import { broadcast } from './network';
+import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
+import { getAllUsers } from './db';
 
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
 
@@ -15,6 +17,63 @@ for (let x = 0; x < MAP_WIDTH; x++) {
 for (let y = 1; y < MAP_HEIGHT - 1; y++) {
   world.addEntity(createWall(`wall-left-${y}`, 0, y));
   world.addEntity(createWall(`wall-right-${y}`, MAP_WIDTH - 1, y));
+// Add all walls from configuration (perimeter + custom walls from walls.ts)
+const wallPositions = generateWallPositions();
+for (const wall of wallPositions) {
+  world.addEntity(createWall(wall.id, wall.x, wall.y));
+}
+
+// Add individual walls
+for (const pos of INDIVIDUAL_WALLS) {
+  world.addEntity(createWall(`wall-individual-${pos.x}-${pos.y}`, pos.x, pos.y));
+}
+
+/**
+ * Load all existing users from the database and add them to the world as ROBOTs.
+ * This ensures that all registered users are visible in the game world,
+ * even if they're not currently online.
+ */
+export async function loadExistingUsers(): Promise<void> {
+  console.log('Loading existing users from database...');
+  
+  const users = await getAllUsers();
+  let loadedCount = 0;
+  
+  for (const user of users) {
+    // Skip if entity already exists (shouldn't happen on fresh start, but safety check)
+    if (world.getEntity(user.userId)) {
+      continue;
+    }
+    
+    // Log user data for debugging
+    console.log(`  Loading user: ${user.displayName || 'Anonymous'} (${user.userId.substring(0, 8)}...)`, {
+      hasSprites: !!user.sprites,
+      sprites: user.sprites ? {
+        front: user.sprites.front ? 'yes' : 'no',
+        back: user.sprites.back ? 'yes' : 'no',
+        left: user.sprites.left ? 'yes' : 'no',
+        right: user.sprites.right ? 'yes' : 'no'
+      } : 'none'
+    });
+    
+    // Create as ROBOT (AI-controlled) so they can move around
+    const facing = user.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
+    const robot: any = {
+      ...createAvatar(user.userId, user.displayName || 'Anonymous', user.x, user.y, facing),
+      kind: 'ROBOT', // Override to ROBOT so AI can control them
+      sprites: user.sprites,
+      direction: { x: 0, y: 0 },
+      targetPosition: undefined,
+      plannedPath: undefined
+    };
+    
+    const result = world.addEntity(robot);
+    if (result.ok) {
+      loadedCount++;
+    }
+  }
+  
+  console.log(`Loaded ${loadedCount} existing users as ROBOTs`);
 }
 
 

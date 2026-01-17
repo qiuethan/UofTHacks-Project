@@ -1,7 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_SERVICE_KEY, MAP_WIDTH, MAP_HEIGHT } from './config';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+// Create Supabase client with optimized settings
+export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  db: {
+    schema: 'public'
+  },
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false
+  }
+});
 
 export interface UserPositionData {
   x: number;
@@ -21,18 +30,72 @@ export interface UserPositionData {
   pendingConversationRequestId?: string;
 }
 
+// Helper to parse a row into UserPositionData
+function parseUserRow(row: any): { userId: string } & UserPositionData {
+  return {
+    userId: row.user_id,
+    x: row.x ?? 10,
+    y: row.y ?? 10,
+    facing: { x: row.facing_x ?? 0, y: row.facing_y ?? 1 },
+    displayName: row.display_name || undefined,
+    hasAvatar: row.has_avatar || false,
+    sprites: (row.sprite_front || row.sprite_back || row.sprite_left || row.sprite_right) ? {
+      front: row.sprite_front || undefined,
+      back: row.sprite_back || undefined,
+      left: row.sprite_left || undefined,
+      right: row.sprite_right || undefined,
+    } : undefined,
+    conversationState: row.conversation_state || undefined,
+    conversationTargetId: row.conversation_target_id || undefined,
+    conversationPartnerId: row.conversation_partner_id || undefined,
+    pendingConversationRequestId: row.pending_conversation_request_id || undefined
+  };
+}
+
+// Retry wrapper for Supabase queries
+async function withRetry<T>(
+  operation: () => Promise<{ data: T | null; error: any }>,
+  maxRetries: number = 3,
+  delayMs: number = 1000
+): Promise<{ data: T | null; error: any }> {
+  let lastError: any = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const result = await operation();
+    
+    if (!result.error) {
+      return result;
+    }
+    
+    lastError = result.error;
+    console.warn(`[DB] Query attempt ${attempt}/${maxRetries} failed:`, result.error.message);
+    
+    if (attempt < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  
+  return { data: null, error: lastError };
+}
+
 export async function getPosition(userId: string): Promise<UserPositionData> {
-  const { data } = await supabase
-    .from('user_positions')
-    .select('x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id')
-    .eq('user_id', userId)
-    .single();
+  const { data, error } = await withRetry(() => 
+    supabase
+      .from('user_positions')
+      .select('x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id')
+      .eq('user_id', userId)
+      .single()
+  );
+  
+  if (error) {
+    console.error('[DB] getPosition error:', error);
+  }
   
   if (data) {
     return { 
       x: data.x, 
       y: data.y, 
-      facing: { x: data.facing_x, y: data.facing_y },
+      facing: { x: data.facing_x ?? 0, y: data.facing_y ?? 1 },
       displayName: data.display_name || undefined,
       hasAvatar: data.has_avatar || false,
       sprites: (data.sprite_front || data.sprite_back || data.sprite_left || data.sprite_right) ? {
@@ -48,16 +111,22 @@ export async function getPosition(userId: string): Promise<UserPositionData> {
     };
   }
   
-  // First time user - create random position
-  const x = Math.floor(Math.random() * MAP_WIDTH);
-  const y = Math.floor(Math.random() * MAP_HEIGHT);
-  await supabase.from('user_positions').insert({ 
+  // First time user - create random position (avoid walls near edges)
+  const x = Math.floor(Math.random() * (MAP_WIDTH - 10)) + 5;
+  const y = Math.floor(Math.random() * (MAP_HEIGHT - 10)) + 5;
+  
+  const { error: insertError } = await supabase.from('user_positions').insert({ 
     user_id: userId, 
     x, 
     y,
     facing_x: 0,
     facing_y: 1
   });
+  
+  if (insertError) {
+    console.error('[DB] Failed to insert new user position:', insertError);
+  }
+  
   return { x, y, facing: { x: 0, y: 1 } };
 }
 
@@ -69,6 +138,92 @@ export async function checkUserHasAvatar(userId: string): Promise<boolean> {
     .single();
   
   return data?.has_avatar || false;
+}
+
+/**
+ * Load all users from the database with their positions.
+ * Only loads users who have completed avatar creation (has_avatar = true).
+ * Uses optimized query with retry logic.
+ */
+export async function getAllUsers(): Promise<Array<{ userId: string } & UserPositionData>> {
+  console.log('[DB] Loading users with avatars from user_positions table...');
+  
+  // Only load users who have completed avatar setup and have a display name
+  // This filters out incomplete signups and test accounts
+  const { data, error } = await withRetry(() =>
+    supabase
+      .from('user_positions')
+      .select('user_id, x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id')
+      .eq('has_avatar', true)
+      .not('display_name', 'is', null)
+      .not('display_name', 'eq', '')
+      .not('display_name', 'eq', 'Anonymous')
+      .order('updated_at', { ascending: false })
+  );
+  
+  if (error) {
+    console.error('[DB] Failed to load users:', error);
+    return [];
+  }
+  
+  if (!data || data.length === 0) {
+    console.log('[DB] No users with avatars found in database');
+    return [];
+  }
+  
+  console.log(`[DB] Found ${data.length} users with avatars`);
+  
+  // Log user data for debugging
+  data.forEach(row => {
+    const hasSprites = !!(row.sprite_front || row.sprite_back || row.sprite_left || row.sprite_right);
+    console.log(`  - ${row.display_name}: sprites=${hasSprites ? 'YES' : 'NO'}`);
+  });
+  
+  return data.map(parseUserRow);
+}
+
+/**
+ * Delete a user by display name from all tables.
+ * Use with caution - this permanently removes user data.
+ */
+export async function deleteUserByDisplayName(displayName: string): Promise<{ success: boolean; error?: string }> {
+  console.log(`[DB] Deleting user with display_name: ${displayName}`);
+  
+  // First, find the user_id
+  const { data: user, error: findError } = await supabase
+    .from('user_positions')
+    .select('user_id')
+    .eq('display_name', displayName)
+    .single();
+  
+  if (findError || !user) {
+    return { success: false, error: `User "${displayName}" not found` };
+  }
+  
+  const userId = user.user_id;
+  console.log(`[DB] Found user_id: ${userId}`);
+  
+  // Delete from all related tables
+  const tables = [
+    'user_positions',
+    'conversations',
+    'memories'
+  ];
+  
+  for (const table of tables) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.warn(`[DB] Failed to delete from ${table}:`, error.message);
+    } else {
+      console.log(`[DB] Deleted from ${table}`);
+    }
+  }
+  
+  return { success: true };
 }
 
 export async function updatePosition(
