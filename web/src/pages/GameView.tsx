@@ -126,9 +126,29 @@ export default function GameView() {
       )}
 
       {notification && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-blue-900/30 text-blue-100 animate-pulse border border-blue-900/50 flex justify-between items-center min-w-[300px]">
-          <span>{notification}</span>
-          <button onClick={clearNotification} className="ml-4 text-xs underline opacity-50 hover:opacity-100">Dismiss</button>
+        <div className={`
+          fixed top-20 left-1/2 -translate-x-1/2 z-50 
+          px-5 py-3 rounded-xl text-sm font-medium
+          shadow-2xl backdrop-blur-md
+          flex items-center gap-3 min-w-[320px]
+          animate-in slide-in-from-top-4 fade-in duration-300
+          ${notification.includes('declined') || notification.includes('ended') 
+            ? 'bg-amber-900/80 text-amber-100 border border-amber-600/50' 
+            : 'bg-blue-900/80 text-blue-100 border border-blue-600/50'
+          }
+        `}>
+          <span className="text-lg">
+            {notification.includes('declined') ? '🚫' : 
+             notification.includes('ended') ? '👋' : 
+             notification.includes('rejected') ? '❌' : 'ℹ️'}
+          </span>
+          <span className="flex-1">{notification}</span>
+          <button 
+            onClick={clearNotification} 
+            className="ml-2 text-xs opacity-60 hover:opacity-100 transition-opacity bg-white/10 px-2 py-1 rounded"
+          >
+            ✕
+          </button>
         </div>
       )}
       

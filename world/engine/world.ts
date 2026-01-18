@@ -669,7 +669,7 @@ export class World {
     );
     
     if (!request) {
-      return err('REQUEST_FAILED', 'Waiting on other user...');
+      return err('REQUEST_FAILED', 'Please wait 30 seconds before requesting another conversation.');
     }
     
     // Update initiator state

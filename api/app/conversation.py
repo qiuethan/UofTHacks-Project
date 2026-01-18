@@ -1391,3 +1391,277 @@ def get_conversation_transcript(conversation_id: str) -> List[Dict]:
     except Exception as e:
         print(f"Error getting transcript: {e}")
         return []
+
+
+# ============================================================================
+# AGENT CONVERSATION DECISION MAKING
+# ============================================================================
+
+class AcceptConversationRequest(BaseModel):
+    """Request for agent to decide whether to accept a conversation."""
+    agent_id: str
+    agent_name: str
+    requester_id: str
+    requester_name: str
+
+
+class AcceptConversationResponse(BaseModel):
+    """Response with agent's decision on accepting conversation."""
+    ok: bool
+    should_accept: bool = True
+    reason: Optional[str] = None
+
+
+class ShouldEndConversationRequest(BaseModel):
+    """Request for agent to decide whether to end a conversation."""
+    agent_id: str
+    agent_name: str
+    partner_id: str
+    partner_name: str
+    conversation_history: List[Dict[str, Any]]
+    last_message: str
+
+
+class ShouldEndConversationResponse(BaseModel):
+    """Response with agent's decision on ending conversation."""
+    ok: bool
+    should_end: bool = False
+    farewell_message: Optional[str] = None
+    reason: Optional[str] = None
+
+
+def decide_accept_conversation(
+    agent_id: str,
+    agent_name: str,
+    requester_id: str,
+    requester_name: str
+) -> Dict[str, Any]:
+    """
+    Decide whether an agent should accept a conversation request.
+    
+    Decision is based on:
+    - Social memory sentiment (negative = reject)
+    - Agent's current mood and energy
+    - Familiarity with the requester
+    
+    If no prior relationship (no sentiment), defaults to accepting.
+    """
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return {"should_accept": True, "reason": "No database, accepting by default"}
+    
+    # Get social memory with the requester
+    social_memory = agent_db.get_social_memory(db_client, agent_id, requester_id)
+    
+    # Get agent's current state
+    state = agent_db.get_state(db_client, agent_id)
+    
+    # Get agent's personality
+    personality = agent_db.get_personality(db_client, agent_id)
+    
+    # Decision logic
+    print(f"[AcceptDecision] {agent_name} considering request from {requester_name}")
+    
+    # No prior relationship - always accept (chance to meet someone new)
+    if not social_memory:
+        print(f"[AcceptDecision] No prior relationship, accepting")
+        return {"should_accept": True, "reason": "New person, curious to meet them"}
+    
+    sentiment = social_memory.sentiment
+    familiarity = social_memory.familiarity
+    interaction_count = social_memory.interaction_count
+    
+    print(f"[AcceptDecision] Sentiment: {sentiment:.2f}, Familiarity: {familiarity:.2f}, Interactions: {interaction_count}")
+    
+    # Very negative sentiment - reject
+    if sentiment < -0.5:
+        print(f"[AcceptDecision] Rejecting due to very negative sentiment")
+        return {
+            "should_accept": False, 
+            "reason": f"Has negative feelings toward {requester_name}"
+        }
+    
+    # Somewhat negative sentiment - consider mood and energy
+    if sentiment < -0.2:
+        # If agent is in a bad mood or low energy, more likely to reject
+        if state and (state.mood < 0 or state.energy < 0.3):
+            print(f"[AcceptDecision] Rejecting - negative sentiment + bad mood/low energy")
+            return {
+                "should_accept": False,
+                "reason": f"Not in the mood to talk to {requester_name}"
+            }
+    
+    # Low energy - might decline even with neutral sentiment
+    if state and state.energy < 0.15:
+        # But high familiarity/positive sentiment can override
+        if sentiment < 0.3 and familiarity < 0.5:
+            print(f"[AcceptDecision] Rejecting - too tired and not close enough")
+            return {
+                "should_accept": False,
+                "reason": "Too tired to chat right now"
+            }
+    
+    # Check personality - low sociability might decline more often
+    if personality and personality.sociability < 0.3:
+        # Introverts are more selective
+        if sentiment < 0.2 and familiarity < 0.3:
+            # Random chance to decline based on sociability
+            import random
+            if random.random() > personality.sociability + 0.3:
+                print(f"[AcceptDecision] Rejecting - introverted and not close with requester")
+                return {
+                    "should_accept": False,
+                    "reason": "Prefers solitude right now"
+                }
+    
+    # Default: accept
+    print(f"[AcceptDecision] Accepting conversation request")
+    return {"should_accept": True, "reason": "Happy to chat"}
+
+
+def decide_end_conversation(
+    agent_id: str,
+    agent_name: str,
+    partner_id: str,
+    partner_name: str,
+    conversation_history: List[Dict[str, Any]],
+    last_message: str
+) -> Dict[str, Any]:
+    """
+    Decide whether an agent should end a conversation.
+    
+    Uses LLM to analyze:
+    - Conversation flow (natural ending point?)
+    - Sentiment of recent messages (getting hostile?)
+    - Agent's personality and mood
+    - Length of conversation
+    
+    Returns decision and optional farewell message.
+    """
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return {"should_end": False}
+    
+    # Get context
+    social_memory = agent_db.get_social_memory(db_client, agent_id, partner_id)
+    state = agent_db.get_state(db_client, agent_id)
+    personality = agent_db.get_personality(db_client, agent_id)
+    
+    message_count = len(conversation_history)
+    
+    print(f"[EndDecision] {agent_name} considering ending conversation with {partner_name} ({message_count} messages)")
+    
+    # Very short conversations - don't end unless hostile
+    if message_count < 4:
+        # Only end if last message was very negative
+        analysis = analyze_message_sentiment(last_message, partner_name, agent_name)
+        if analysis.get("is_rude"):
+            return {
+                "should_end": True,
+                "farewell_message": "I don't appreciate being spoken to like that. Bye.",
+                "reason": "Received rude message"
+            }
+        return {"should_end": False}
+    
+    # Build recent conversation context
+    recent_messages = conversation_history[-6:] if len(conversation_history) > 6 else conversation_history
+    recent_text = "\n".join([f"{m.get('senderName', '?')}: {m.get('content', '')}" for m in recent_messages])
+    
+    # Get personality description
+    personality_desc = ""
+    if personality:
+        if personality.profile_summary:
+            personality_desc = personality.profile_summary[:300]
+        if personality.communication_style:
+            personality_desc += f"\nCommunication style: {personality.communication_style}"
+    
+    # Get relationship context
+    relationship_context = ""
+    if social_memory:
+        relationship_context = f"Sentiment toward {partner_name}: {social_memory.sentiment:.2f}"
+        if social_memory.relationship_notes:
+            relationship_context += f"\nRelationship: {social_memory.relationship_notes[:200]}"
+    
+    # Get state context
+    state_context = ""
+    if state:
+        state_context = f"Energy: {state.energy:.0%}, Mood: {state.mood:.2f}"
+    
+    # Use LLM to decide
+    if not client:
+        # Fallback: end if very long conversation or detected rudeness
+        if message_count > 20:
+            return {
+                "should_end": True,
+                "farewell_message": "Hey, I should get going. Talk later!",
+                "reason": "Conversation getting long"
+            }
+        return {"should_end": False}
+    
+    prompt = f"""You are {agent_name} in a conversation with {partner_name}.
+
+YOUR PERSONALITY:
+{personality_desc or "Friendly and casual"}
+
+YOUR CURRENT STATE:
+{state_context or "Normal"}
+
+YOUR RELATIONSHIP:
+{relationship_context or "New acquaintance"}
+
+RECENT CONVERSATION:
+{recent_text}
+
+LAST MESSAGE FROM {partner_name.upper()}:
+"{last_message}"
+
+MESSAGE COUNT: {message_count}
+
+Should you END this conversation now? Consider:
+1. Is this a natural stopping point? (topic exhausted, goodbye said, etc.)
+2. Is the conversation becoming hostile or uncomfortable?
+3. Have you been talking long enough? (20+ messages is quite long)
+4. Are you tired/low energy and want to leave?
+5. Is {partner_name} being rude or making you uncomfortable?
+
+Return JSON:
+{{
+  "should_end": (bool) true if you want to end the conversation,
+  "farewell_message": (string or null) If ending, what do you say? Match your communication style. null if not ending.,
+  "reason": (string) Brief reason for your decision
+}}
+
+IMPORTANT:
+- If {partner_name} said something rude, you can end with an appropriate response
+- If conversation naturally wound down, a casual goodbye is fine
+- If you're just chatting and it's going well, don't end it
+- Keep farewell messages in character with your personality
+"""
+    
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You decide whether to continue or end a conversation. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=200
+        )
+        
+        result = json.loads(completion.choices[0].message.content)
+        
+        should_end = bool(result.get("should_end", False))
+        farewell = result.get("farewell_message")
+        reason = result.get("reason", "")
+        
+        print(f"[EndDecision] Decision: {'END' if should_end else 'CONTINUE'} - {reason}")
+        
+        return {
+            "should_end": should_end,
+            "farewell_message": farewell if should_end else None,
+            "reason": reason
+        }
+    except Exception as e:
+        print(f"[EndDecision] Error: {e}")
+        return {"should_end": False, "reason": "Error in decision"}

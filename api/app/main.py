@@ -960,6 +960,68 @@ def get_transcript(conversation_id: str):
     return {"ok": True, "transcript": transcript}
 
 
+@app.post("/conversation/should-accept")
+def should_accept_conversation(request: conv.AcceptConversationRequest):
+    """
+    Decide whether an agent should accept a conversation request.
+    
+    Based on:
+    - Social memory sentiment (negative = reject)
+    - Agent's current mood and energy
+    - Familiarity with the requester
+    
+    If no prior relationship, defaults to accepting.
+    """
+    try:
+        result = conv.decide_accept_conversation(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            requester_id=request.requester_id,
+            requester_name=request.requester_name
+        )
+        return conv.AcceptConversationResponse(
+            ok=True,
+            should_accept=result.get("should_accept", True),
+            reason=result.get("reason")
+        )
+    except Exception as e:
+        print(f"Error in should-accept: {e}")
+        return conv.AcceptConversationResponse(ok=False, should_accept=True)
+
+
+@app.post("/conversation/should-end")
+def should_end_conversation(request: conv.ShouldEndConversationRequest):
+    """
+    Decide whether an agent should end a conversation.
+    
+    LLM analyzes:
+    - Conversation flow (natural ending point?)
+    - Sentiment of recent messages
+    - Agent's personality and mood
+    - Length of conversation
+    
+    Returns decision and optional farewell message.
+    """
+    try:
+        result = conv.decide_end_conversation(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            partner_id=request.partner_id,
+            partner_name=request.partner_name,
+            conversation_history=request.conversation_history,
+            last_message=request.last_message
+        )
+        return conv.ShouldEndConversationResponse(
+            ok=True,
+            should_end=result.get("should_end", False),
+            farewell_message=result.get("farewell_message"),
+            reason=result.get("reason")
+        )
+    except Exception as e:
+        print(f"Error in should-end: {e}")
+        return conv.ShouldEndConversationResponse(ok=False, should_end=False)
+
+
 # ============================================================================
 # AGENT MONITORING ENDPOINTS
 # ============================================================================

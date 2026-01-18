@@ -364,6 +364,56 @@ export async function handleChatMessage(client: Client, content: string): Promis
         
         // Only send to the player, not broadcast (agent is offline, no need to send to them)
         send(client.ws, agentChatEvent);
+        
+        // Check if the agent wants to end the conversation
+        const shouldEndResult = await checkAgentWantsToEnd(
+          partnerId,
+          partnerEntity.displayName || 'Agent',
+          client.userId,
+          client.displayName,
+          convData.messages,
+          agentResponse
+        );
+        
+        if (shouldEndResult.should_end) {
+          console.log(`[Agent→Player] Agent ${partnerEntity.displayName} chose to END conversation: ${shouldEndResult.reason}`);
+          
+          // Send farewell message if provided
+          if (shouldEndResult.farewell_message && shouldEndResult.farewell_message !== agentResponse) {
+            const farewellMsg: ChatMessage = {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              senderId: partnerId,
+              senderName: partnerEntity.displayName || 'Agent',
+              content: shouldEndResult.farewell_message,
+              timestamp: Date.now(),
+              conversationId: convData.conversationId,
+              isPlayerControlled: false
+            };
+            convData.messages.push(farewellMsg);
+            
+            send(client.ws, {
+              type: 'CHAT_MESSAGE' as const,
+              messageId: farewellMsg.id,
+              senderId: farewellMsg.senderId,
+              senderName: farewellMsg.senderName,
+              content: farewellMsg.content,
+              timestamp: farewellMsg.timestamp,
+              conversationId: convData.conversationId
+            });
+          }
+          
+          // End the conversation
+          const endResult = world.endConversation(partnerId);
+          if (endResult.ok) {
+            broadcast({ type: 'EVENTS', events: endResult.value });
+          }
+          
+          // Process conversation end
+          const { processConversationEndAsync } = await import('./game');
+          await processConversationEndAsync(convData);
+          activeConversations.delete(client.userId);
+          activeConversations.delete(partnerId);
+        }
       }
     } catch (e) {
       console.error('Error generating agent response:', e);
@@ -494,6 +544,54 @@ async function analyzeMessageSentiment(
   } catch (e) {
     console.error('Error analyzing message sentiment:', e);
     return null;
+  }
+}
+
+interface ShouldEndResult {
+  should_end: boolean;
+  farewell_message?: string;
+  reason?: string;
+}
+
+/**
+ * Check if an agent wants to end a conversation with a player.
+ * Based on conversation flow, sentiment, rudeness, and agent state.
+ */
+async function checkAgentWantsToEnd(
+  agentId: string,
+  agentName: string,
+  partnerId: string,
+  partnerName: string,
+  conversationHistory: ChatMessage[],
+  lastMessage: string
+): Promise<ShouldEndResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/should-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_id: agentId,
+        agent_name: agentName,
+        partner_id: partnerId,
+        partner_name: partnerName,
+        conversation_history: conversationHistory.map(m => ({
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp
+        })),
+        last_message: lastMessage
+      })
+    });
+    const data = await response.json();
+    return {
+      should_end: data.should_end || false,
+      farewell_message: data.farewell_message,
+      reason: data.reason
+    };
+  } catch (e) {
+    console.error('Error checking if agent wants to end:', e);
+    return { should_end: false }; // Default to continue on error
   }
 }
 
