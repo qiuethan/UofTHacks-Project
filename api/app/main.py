@@ -1181,8 +1181,17 @@ def get_relationship(from_id: str, to_id: str):
             "sentiment": 0.5,  # Neutral default
             "familiarity": 0.0,
             "interaction_count": 0,
-            "is_new": True
+            "is_new": True,
+            "last_interaction": None
         }
+    
+    # Convert last_interaction to ISO string if it exists
+    last_interaction_str = None
+    if social_memory.last_interaction:
+        if hasattr(social_memory.last_interaction, 'isoformat'):
+            last_interaction_str = social_memory.last_interaction.isoformat()
+        else:
+            last_interaction_str = str(social_memory.last_interaction)
     
     return {
         "ok": True,
@@ -1190,7 +1199,8 @@ def get_relationship(from_id: str, to_id: str):
         "familiarity": social_memory.familiarity,
         "interaction_count": social_memory.interaction_count,
         "last_topic": social_memory.last_conversation_topic,
-        "is_new": False
+        "is_new": False,
+        "last_interaction": last_interaction_str
     }
 
 

@@ -1,6 +1,39 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { Entity, WorldEvent, WorldSnapshot, ConversationRequest, ChatMessage } from '../types/game'
-import { WS_CONFIG, MAP_DEFAULTS } from '../config'
+import { WS_CONFIG, MAP_DEFAULTS, API_CONFIG } from '../config'
+
+// Helper to format time since last interaction
+function formatTimeSince(lastInteraction: string | null): string | null {
+  if (!lastInteraction) return null
+  
+  const lastDate = new Date(lastInteraction)
+  const now = new Date()
+  const diffMs = now.getTime() - lastDate.getTime()
+  
+  const seconds = Math.floor(diffMs / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  const weeks = Math.floor(days / 7)
+  const months = Math.floor(days / 30)
+  
+  if (months > 0) {
+    return months === 1 ? '1 month' : `${months} months`
+  }
+  if (weeks > 0) {
+    return weeks === 1 ? '1 week' : `${weeks} weeks`
+  }
+  if (days > 0) {
+    return days === 1 ? '1 day' : `${days} days`
+  }
+  if (hours > 0) {
+    return hours === 1 ? '1 hour' : `${hours} hours`
+  }
+  if (minutes > 0) {
+    return minutes === 1 ? '1 minute' : `${minutes} minutes`
+  }
+  return null // Don't show "just now" - too recent
+}
 
 interface UseGameSocketOptions {
   token: string | undefined
@@ -206,7 +239,40 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         }
         break
       case 'CONVERSATION_STARTED':
-        // No manual sync needed, useEffect handles it from entity state
+        // Show welcome back notification if this is us
+        // Delay by 4.5 seconds to let the "accepted" notification finish first
+        if ((event.participant1Id === myEntityId || event.participant2Id === myEntityId) && myEntityId) {
+          const partnerId = event.participant1Id === myEntityId ? event.participant2Id : event.participant1Id
+          if (partnerId) {
+            // Delay to not conflict with "accepted" notification
+            setTimeout(() => {
+              // Fetch relationship data to get last_interaction
+              fetch(`${API_CONFIG.BASE_URL}/relationship/${myEntityId}/${partnerId}`)
+                .then(res => res.json())
+                .then(data => {
+                  if (data.ok) {
+                    setEntities(current => {
+                      const partner = current.get(partnerId)
+                      const partnerName = partner?.displayName || 'them'
+                      
+                      if (data.is_new) {
+                        setNotification(`👋 First time meeting ${partnerName}! Say hello!`)
+                        setTimeout(() => setNotification(null), 5000)
+                      } else if (data.last_interaction) {
+                        const timeSince = formatTimeSince(data.last_interaction)
+                        if (timeSince) {
+                          setNotification(`👋 Welcome back! It's been ${timeSince} since you last chatted with ${partnerName}.`)
+                          setTimeout(() => setNotification(null), 6000)
+                        }
+                      }
+                      return current
+                    })
+                  }
+                })
+                .catch(err => console.error('Error fetching relationship for welcome:', err))
+            }, 4500) // Wait for accept notification to clear (4s + 0.5s buffer)
+          }
+        }
         break
       case 'CONVERSATION_REJECTED':
         // Remove from pending requests
@@ -368,7 +434,14 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
               conversationId: msg.conversationId
             }
             // Add to conversation-specific messages (for the chat UI)
-            setChatMessages(prev => [...prev, chatMessage])
+            // Check for duplicates by message ID to prevent double-adding
+            setChatMessages(prev => {
+              // Don't add if we already have this message
+              if (prev.some(m => m.id === msg.messageId)) {
+                return prev
+              }
+              return [...prev, chatMessage]
+            })
             
             // Also track globally for all entity chat bubbles
             setAllEntityMessages(prev => {

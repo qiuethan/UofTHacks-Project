@@ -63,6 +63,26 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
     
     send(ws, { type: 'WELCOME', entityId: userId });
     send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+    
+    // If the agent was in a conversation, send the conversation history to the player
+    const convData = activeConversations.get(userId);
+    if (convData && convData.messages.length > 0) {
+      console.log(`[handleJoin] Sending ${convData.messages.length} existing messages to player taking over`);
+      
+      // Send each message in the conversation history
+      for (const msg of convData.messages) {
+        send(ws, {
+          type: 'CHAT_MESSAGE' as const,
+          messageId: msg.id,
+          senderId: msg.senderId,
+          senderName: msg.senderName,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          conversationId: convData.conversationId
+        });
+      }
+    }
+    
     return client;
   }
   
@@ -71,6 +91,25 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
     console.log(`Player rejoined: ${actualDisplayName} (${userId})`);
     send(ws, { type: 'WELCOME', entityId: userId });
     send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
+    
+    // If the player was in a conversation, send the conversation history
+    const convData = activeConversations.get(userId);
+    if (convData && convData.messages.length > 0) {
+      console.log(`[handleJoin] Sending ${convData.messages.length} existing messages to rejoining player`);
+      
+      for (const msg of convData.messages) {
+        send(ws, {
+          type: 'CHAT_MESSAGE' as const,
+          messageId: msg.id,
+          senderId: msg.senderId,
+          senderName: msg.senderName,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          conversationId: convData.conversationId
+        });
+      }
+    }
+    
     return client;
   }
   

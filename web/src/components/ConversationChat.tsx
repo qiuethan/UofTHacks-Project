@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ChatMessage } from '../types/game'
+import { API_CONFIG } from '../config'
 
 interface RelationshipStats {
   sentiment: number
   familiarity: number
   interaction_count: number
   is_new: boolean
+  last_interaction: string | null
 }
+
 
 interface ConversationChatProps {
   messages: ChatMessage[]
@@ -37,7 +40,7 @@ export function ConversationChat({
   // Fetch relationship stats when conversation starts or after each message
   useEffect(() => {
     if (myEntityId && partnerId) {
-      fetch(`http://localhost:8000/relationship/${myEntityId}/${partnerId}`)
+      fetch(`${API_CONFIG.BASE_URL}/relationship/${myEntityId}/${partnerId}`)
         .then(res => res.json())
         .then(data => {
           if (data.ok) {
@@ -45,7 +48,8 @@ export function ConversationChat({
               sentiment: data.sentiment,
               familiarity: data.familiarity,
               interaction_count: data.interaction_count,
-              is_new: data.is_new
+              is_new: data.is_new,
+              last_interaction: data.last_interaction
             })
           }
         })

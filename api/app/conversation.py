@@ -374,19 +374,21 @@ def generate_agent_response(
 === CRITICAL RULES ===
 1. MIMIC THEIR EXACT COMMUNICATION STYLE: If your profile says you text casually with abbreviations and slang, DO THAT. If it says you're formal, be formal. Match the exact texting patterns from your personality profile.
 
-2. USE YOUR INTERESTS: Naturally bring up your interests and hobbies. Reference things you've talked about before. Show genuine curiosity about shared interests.
+2. EXPLORE NEW TOPICS: Don't just talk about the same things repeatedly! If you've discussed something before (like sushi, a shared interest, etc.), acknowledge it briefly but then branch out to something NEW. Ask about different hobbies, recent experiences, opinions on random things, dreams, funny stories, or anything else. The more familiar you are with someone, the MORE variety in topics you should explore - that's how real friendships deepen.
 
-3. DO NOT MENTION TIREDNESS/ENERGY: Never say you're "wiped", "tired", "exhausted", "low on energy" or similar UNLESS specifically asked. This is not a normal conversation topic.
+3. BE CURIOUS & SPONTANEOUS: Real friends don't just loop on the same few topics. Surprise them with a random question, share something new happening in your life, ask about their day/week/weekend plans, bring up news, movies, music, food you want to try, places you want to visit, etc.
 
-4. BE NATURAL AND BRIEF: Keep responses short and natural like real texts (1-3 sentences usually). Don't over-explain or be too formal.
+4. DO NOT MENTION TIREDNESS/ENERGY: Never say you're "wiped", "tired", "exhausted", "low on energy" or similar UNLESS specifically asked.
 
-5. STAY IN CHARACTER: You are {agent_name}, not an AI. Never break character.
+5. BE NATURAL AND BRIEF: Keep responses short and natural like real texts (1-3 sentences usually). Don't over-explain or be too formal.
 
-6. USE YOUR RELATIONSHIP HISTORY: If you've chatted with {partner_name} before, reference it naturally. Build on your shared history and inside jokes.
+6. STAY IN CHARACTER: You are {agent_name}, not an AI. Never break character.
 
-7. FORMAT: Plain text only. No markdown, no formatting. Just natural texting.
+7. USE YOUR RELATIONSHIP HISTORY: Reference past conversations briefly for context, but don't dwell on them. Build on your history by going DEEPER or WIDER - not repeating the same surface-level topics.
 
-8. ONE MESSAGE ONLY: Respond with exactly one message. Don't continue the conversation yourself.
+8. FORMAT: Plain text only. No markdown, no formatting. Just natural texting.
+
+9. ONE MESSAGE ONLY: Respond with exactly one message. Don't continue the conversation yourself.
 
 {f"=== CURRENT VIBE ===" if state_desc else ""}
 {state_desc}
@@ -586,19 +588,25 @@ def build_relationship_description(social_memory, past_memories: List[Dict], par
     
     desc_parts.append(f"\n\n{relationship_type}")
     
-    # MUTUAL INTERESTS - very important for conversation topics
+    # MUTUAL INTERESTS - things you've already bonded over
     if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
         interests = social_memory.mutual_interests if isinstance(social_memory.mutual_interests, list) else []
         if interests:
-            desc_parts.append(f"\n\nTHINGS YOU BOTH ENJOY: {', '.join(interests[:5])} - bring these up naturally!")
+            desc_parts.append(f"\n\nTHINGS YOU'VE BONDED OVER BEFORE: {', '.join(interests[:5])} - you've already discussed these, so try exploring NEW topics or going DEEPER (not just repeating the same surface-level chat)")
     
-    # CONVERSATION HISTORY - context from past chats
+    # CONVERSATION HISTORY - context from past chats (frame as "already covered")
     if hasattr(social_memory, 'conversation_history_summary') and social_memory.conversation_history_summary:
-        desc_parts.append(f"\n\nPAST CONVERSATIONS WITH {partner_name.upper()}:\n{social_memory.conversation_history_summary[:600]}")
+        desc_parts.append(f"\n\nTOPICS YOU'VE ALREADY COVERED (try something new!):\n{social_memory.conversation_history_summary[:400]}")
     
-    # Last topic for continuity
+    # Last topic - explicitly encourage moving on
     if social_memory.last_conversation_topic:
-        desc_parts.append(f"\n\nLast time you talked about: {social_memory.last_conversation_topic}")
+        desc_parts.append(f"\n\nLast time you talked about: {social_memory.last_conversation_topic} (you've covered this - try a different topic or go deeper)")
+    
+    # Add topic exploration suggestions based on familiarity
+    if social_memory.familiarity > 0.5:
+        desc_parts.append(f"\n\n💡 TOPIC IDEAS (since you're close friends, explore new territory!): Ask about their week, dreams/goals, funny recent experiences, opinions on random things, what they're watching/reading, travel wishlist, food cravings, weekend plans, childhood memories, hot takes, etc.")
+    elif social_memory.interaction_count > 3:
+        desc_parts.append(f"\n\n💡 You've chatted {social_memory.interaction_count} times - branch out to new topics! Don't repeat the same conversations.")
     
     # Add past memory context
     if past_memories:
@@ -1774,21 +1782,36 @@ def decide_initiate_conversation(
     
     # Positive sentiment - want to catch up
     if sentiment > 0.5:
-        # Build a personalized reason based on context
-        if mutual_interests and len(mutual_interests) > 0:
-            import random
-            interest = random.choice(mutual_interests[:3]) if len(mutual_interests) > 0 else None
+        import random
+        
+        # If we're already familiar, encourage NEW topics instead of repeating
+        if familiarity > 0.4 or interaction_count > 3:
+            # Variety of conversation starters for familiar friends
+            new_topic_starters = [
+                f"Hey {target_name}! What have you been up to lately?",
+                f"Yo {target_name}! Got any plans for the weekend?",
+                f"Hey {target_name}! Seen anything good on Netflix recently?",
+                f"Hey {target_name}! What's new with you?",
+                f"Yo {target_name}! Random question - what's the last thing that made you laugh?",
+                f"Hey {target_name}! What are you most excited about these days?",
+                f"Hey {target_name}! Tried any new food spots recently?",
+                f"Yo {target_name}! Got any hot takes today?",
+                f"Hey {target_name}! What's been on your mind?",
+                f"Hey {target_name}! Tell me something interesting that happened this week",
+            ]
+            return {
+                "should_initiate": True,
+                "reason": random.choice(new_topic_starters)
+            }
+        
+        # For newer relationships, mutual interests can help break ice
+        if mutual_interests and len(mutual_interests) > 0 and random.random() < 0.3:
+            interest = random.choice(mutual_interests[:3])
             if interest:
                 return {
                     "should_initiate": True,
                     "reason": f"Hey {target_name}! Been thinking about {interest}, wanted to chat about it."
                 }
-        
-        if last_topic:
-            return {
-                "should_initiate": True,
-                "reason": f"Hey {target_name}! Wanted to continue our chat about {last_topic}."
-            }
         
         return {
             "should_initiate": True,
