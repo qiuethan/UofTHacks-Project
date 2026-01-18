@@ -2,7 +2,7 @@ import { World, createMapDef, createWall, createAvatar, CONVERSATION_CONFIG } fr
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL, CONVERSATION_TIMEOUT_MS, API_BASE_URL } from './config';
 import { broadcast } from './network';
 import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
-import { getAllUsers } from './db';
+import { getAllUsers, getAllAgentStats } from './db';
 import type { ChatMessage } from './types';
 
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
@@ -100,6 +100,47 @@ export function startGameLoop() {
       broadcast({ type: 'EVENTS', events });
     }
   }, TICK_RATE);
+}
+
+// Track previous stats to only send updates when changed
+const previousStats = new Map<string, { energy: number; hunger: number; loneliness: number; mood: number }>();
+
+/**
+ * Sync agent stats from database and broadcast any changes to clients.
+ * This runs periodically to keep clients updated with stats from the AI engine.
+ */
+export async function syncAgentStats() {
+  const currentStats = await getAllAgentStats();
+  const events: any[] = [];
+  
+  for (const [avatarId, stats] of currentStats) {
+    const prev = previousStats.get(avatarId);
+    
+    // Check if stats changed (with some tolerance for floating point)
+    const changed = !prev || 
+      Math.abs(prev.energy - stats.energy) > 0.001 ||
+      Math.abs(prev.hunger - stats.hunger) > 0.001 ||
+      Math.abs(prev.loneliness - stats.loneliness) > 0.001 ||
+      Math.abs(prev.mood - stats.mood) > 0.001;
+    
+    if (changed) {
+      previousStats.set(avatarId, stats);
+      events.push({
+        type: 'ENTITY_STATS_UPDATED',
+        entityId: avatarId,
+        stats
+      });
+    }
+  }
+  
+  if (events.length > 0) {
+    broadcast({ type: 'EVENTS', events });
+  }
+}
+
+export function startStatsSyncLoop() {
+  // Sync stats every 2 seconds
+  setInterval(syncAgentStats, 2000);
 }
 
 /**

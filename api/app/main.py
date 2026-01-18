@@ -919,6 +919,81 @@ def get_transcript(conversation_id: str):
     return {"ok": True, "transcript": transcript}
 
 
+# ============================================================================
+# AGENT MONITORING ENDPOINTS
+# ============================================================================
+
+@app.get("/agents/all")
+def get_all_agents():
+    """
+    Get all agents with their current state and last action.
+    Used for the agent monitoring sidebar.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        # Get all agent states
+        states_resp = client.table("agent_state").select("*").execute()
+        states = {s["avatar_id"]: s for s in (states_resp.data or [])}
+        
+        # Get all agent personalities
+        personalities_resp = client.table("agent_personality").select("*").execute()
+        personalities = {p["avatar_id"]: p for p in (personalities_resp.data or [])}
+        
+        # Get user positions to get display names and current positions
+        positions_resp = client.table("user_positions").select(
+            "user_id, display_name, x, y, is_online, conversation_state"
+        ).execute()
+        positions = {p["user_id"]: p for p in (positions_resp.data or [])}
+        
+        # Get latest decision for each agent
+        decisions_resp = client.table("agent_decisions").select(
+            "avatar_id, selected_action, action_result, tick_timestamp"
+        ).order("tick_timestamp", desc=True).execute()
+        
+        # Group by avatar_id and take first (most recent)
+        latest_decisions = {}
+        for d in (decisions_resp.data or []):
+            if d["avatar_id"] not in latest_decisions:
+                latest_decisions[d["avatar_id"]] = d
+        
+        # Combine all data
+        agents = []
+        for avatar_id, state in states.items():
+            position = positions.get(avatar_id, {})
+            personality = personalities.get(avatar_id, {})
+            decision = latest_decisions.get(avatar_id, {})
+            
+            agents.append({
+                "avatar_id": avatar_id,
+                "display_name": position.get("display_name", "Unknown"),
+                "position": {"x": position.get("x", 0), "y": position.get("y", 0)},
+                "is_online": position.get("is_online", False),
+                "conversation_state": position.get("conversation_state"),
+                "state": {
+                    "energy": state.get("energy", 0.5),
+                    "hunger": state.get("hunger", 0.5),
+                    "loneliness": state.get("loneliness", 0.5),
+                    "mood": state.get("mood", 0.5),
+                },
+                "personality": {
+                    "sociability": personality.get("sociability", 0.5),
+                    "curiosity": personality.get("curiosity", 0.5),
+                    "agreeableness": personality.get("agreeableness", 0.5),
+                },
+                "current_action": decision.get("selected_action", "idle"),
+                "last_action_time": decision.get("tick_timestamp"),
+            })
+        
+        return {"ok": True, "data": agents}
+        
+    except Exception as e:
+        print(f"Error fetching all agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3003)

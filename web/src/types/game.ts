@@ -19,6 +19,12 @@ export interface Entity {
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 export type ConversationState = 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION'

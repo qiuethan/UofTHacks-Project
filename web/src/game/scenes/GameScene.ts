@@ -49,6 +49,7 @@ export class GameScene extends Phaser.Scene {
   private watchModeInputSetup = false // Prevent duplicate event listeners
   private lastWheelTime = 0 // Track last wheel event to debounce
   private wheelDebounceMs = 50 // Minimum time between wheel events
+  private followingEntityId: string | null = null
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -235,6 +236,48 @@ export class GameScene extends Phaser.Scene {
     if (multiplier <= 1.05) {
       camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
     }
+  }
+
+  // Follow a specific entity by ID (for agent monitor)
+  followEntity(entityId: string | null) {
+    this.followingEntityId = entityId
+    
+    if (!entityId) {
+      // Stop following the selected agent
+      this.cameras.main.stopFollow()
+      
+      if (this.sceneDataRef.current.mode === 'play') {
+        // In play mode, return to following the player
+        const myEntityId = this.sceneDataRef.current.myEntityId
+        if (myEntityId) {
+          const mySprite = this.entitySprites.get(myEntityId)
+          if (mySprite) {
+            this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+            this.cameras.main.startFollow(mySprite.container, true, 0.1, 0.1)
+            this.cameras.main.setZoom(0.75)
+            this.cameras.main.setDeadzone(0, 0)
+          }
+        }
+      } else {
+        // In watch mode, return to overview
+        this.setupWatchModeCamera()
+      }
+      return
+    }
+    
+    const entitySprite = this.entitySprites.get(entityId)
+    if (entitySprite) {
+      // Match exact play mode camera settings
+      this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+      this.cameras.main.startFollow(entitySprite.container, true, 0.1, 0.1)
+      this.cameras.main.setZoom(0.75)
+      this.cameras.main.setDeadzone(0, 0)
+    }
+  }
+  
+  // Get the currently followed entity ID
+  getFollowingEntityId(): string | null {
+    return this.followingEntityId
   }
 
   updateEntities(entities: Map<string, GameEntity>, myEntityId: string | null) {

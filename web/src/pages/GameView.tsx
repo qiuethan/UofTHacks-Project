@@ -4,6 +4,7 @@ import {
   IncomingRequests,
   ConversationChat
 } from '../components'
+import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
@@ -16,6 +17,13 @@ export default function GameView() {
   const { user, session } = useAuth()
   console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
+
+  // Handle follow agent toggle
+  const handleFollowAgent = (agentId: string) => {
+    setFollowingAgentId(prev => prev === agentId ? null : agentId)
+  }
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -68,7 +76,8 @@ export default function GameView() {
       facing: entity.facing,
       sprites: entity.sprites,
       conversationState: entity.conversationState,
-      conversationPartnerId: entity.conversationPartnerId
+      conversationPartnerId: entity.conversationPartnerId,
+      stats: entity.stats
     })
   }
 
@@ -123,6 +132,15 @@ export default function GameView() {
         </div>
       )}
       
+      {/* Agent Monitoring Sidebar */}
+      <AgentSidebar 
+        isOpen={sidebarOpen} 
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onFollowAgent={handleFollowAgent}
+        followingAgentId={followingAgentId}
+        entities={gameEntities}
+      />
+
       {/* Phaser Game Canvas */}
       <PhaserGame
         entities={gameEntities}
@@ -135,6 +153,7 @@ export default function GameView() {
         inConversationWith={inConversationWith}
         chatMessages={chatMessages}
         allEntityMessages={allEntityMessages}
+        followEntityId={followingAgentId}
       />
 
       {/* Incoming Conversation Requests */}

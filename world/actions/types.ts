@@ -141,6 +141,18 @@ export interface EntityStateChangedEvent {
   readonly conversationPartnerId?: string;
 }
 
+/** Emitted when entity stats change (energy, hunger, etc.) */
+export interface EntityStatsUpdatedEvent {
+  readonly type: 'ENTITY_STATS_UPDATED';
+  readonly entityId: string;
+  readonly stats: {
+    energy?: number;
+    hunger?: number;
+    loneliness?: number;
+    mood?: number;
+  };
+}
+
 /** Discriminated union of all world events */
 export type WorldEvent =
   | EntityJoinedEvent
@@ -152,7 +164,8 @@ export type WorldEvent =
   | ConversationRejectedEvent
   | ConversationStartedEvent
   | ConversationEndedEvent
-  | EntityStateChangedEvent;
+  | EntityStateChangedEvent
+  | EntityStatsUpdatedEvent;
 
 // ============================================================================
 // RESULT TYPE - World never throws, returns Result instead
