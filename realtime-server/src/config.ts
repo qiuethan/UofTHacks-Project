@@ -8,7 +8,7 @@ export const WATCH_PORT = 3002;
 
 export const MAP_WIDTH = 60;
 export const MAP_HEIGHT = 40;
-export const TICK_RATE = 100; // ms (150ms = 2/3 speed of original 100ms)
+export const TICK_RATE = 150; // ms (50% slower movement speed)
 export const AI_TICK_RATE = 1000; // ms
 export const API_BASE_URL = 'http://localhost:3003';
 export const CONVERSATION_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes

@@ -862,7 +862,7 @@ export class GameScene extends Phaser.Scene {
           targets: existing.container,
           x: targetX,
           y: targetY,
-          duration: 100,
+          duration: 150,
           ease: 'Linear'
         })
         
