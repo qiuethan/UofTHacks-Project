@@ -7,8 +7,8 @@ export const WATCH_PORT = 3002;
 // Should match your background.png dimensions: width_in_pixels / 32, height_in_pixels / 32
 // Background: 2400x1792 pixels = 75x56 tiles
 
-export const MAP_WIDTH = 75;
-export const MAP_HEIGHT = 56;
+export const MAP_WIDTH = 60;
+export const MAP_HEIGHT = 40;
 export const TICK_RATE = 100; // ms
 export const AI_TICK_RATE = 1000; // ms
 export const API_BASE_URL = 'http://localhost:3003';
