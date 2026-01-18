@@ -164,11 +164,12 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     ? entities.get(agent.conversation_partner_id)?.displayName || 'Someone'
     : null
   
-  // Determine icon and status
+  // Determine icon and status based on conversation state and action
   let statusIcon: React.ReactNode = ACTION_ICONS[actionName] || <User size={16} />
   let statusText = formatAction(actionName)
   let statusColor = 'text-black/60'
   
+  // Conversation states take priority
   if (isInConversation && partnerName) {
     statusIcon = <MessageCircle size={16} className="text-[#007a28]" />
     statusText = `Chatting with ${partnerName}`
@@ -181,6 +182,37 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
     statusColor = 'text-[#7a5224]'
+  } else {
+    // Show action-specific status when not in conversation
+    if (actionName === 'wander') {
+      statusIcon = <Footprints size={16} className="text-black/60" />
+      statusText = 'Walking'
+      statusColor = 'text-black/60'
+    } else if (actionName === 'walk_to_location') {
+      statusIcon = <MapPin size={16} className="text-black/60" />
+      statusText = 'Walking to location'
+      statusColor = 'text-black/60'
+    } else if (actionName === 'interact_food') {
+      statusIcon = <Utensils size={16} className="text-[#7a5224]" />
+      statusText = 'Eating'
+      statusColor = 'text-[#7a5224]'
+    } else if (actionName === 'interact_rest') {
+      statusIcon = <Sofa size={16} className="text-[#7a5224]" />
+      statusText = 'Resting'
+      statusColor = 'text-[#7a5224]'
+    } else if (actionName === 'interact_karaoke') {
+      statusIcon = <Mic size={16} className="text-[#00a938]" />
+      statusText = 'Singing'
+      statusColor = 'text-[#00a938]'
+    } else if (actionName === 'initiate_conversation') {
+      statusIcon = <MessageCircle size={16} className="text-black/60" />
+      statusText = 'Looking to chat'
+      statusColor = 'text-black/60'
+    } else if (actionName === 'stand_still') {
+      statusIcon = <User size={16} className="text-black/40" />
+      statusText = 'Standing'
+      statusColor = 'text-black/40'
+    }
   }
   
   return (
@@ -482,8 +514,8 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       
       {/* Sidebar panel - slides in from left */}
       <div 
-        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] border-r-2 border-black transform transition-transform duration-300 z-40 shadow-[4px_0_0_#000] ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] transform transition-transform duration-300 z-40 ${
+          isOpen ? 'translate-x-0 border-r-2 border-black shadow-[4px_0_0_#000]' : '-translate-x-full'
         }`}
       >
         <div className="h-full flex flex-col">

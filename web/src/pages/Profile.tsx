@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { API_CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
+import { Users, MessageCircle, User, Heart, Meh, Frown, Star, ThumbsUp, X } from 'lucide-react'
 
 interface UserProfile {
   display_name: string | null
@@ -458,9 +459,9 @@ export default function Profile() {
                         setNewPhoto(null)
                         setPhotoPreview(null)
                       }}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-[#7a5224] flex items-center justify-center text-white text-sm hover:bg-[#7b6c00]"
+                      className="absolute -top-2 -right-2 w-6 h-6 bg-[#7a5224] flex items-center justify-center text-white hover:bg-[#7b6c00]"
                     >
-                      ✕
+                      <X size={14} />
                     </button>
                   </div>
                 ) : (
@@ -537,23 +538,23 @@ export default function Profile() {
           <div className="flex gap-2 mb-4">
             <button
               onClick={() => setActiveTab('relationships')}
-              className={`px-4 py-2 font-medium transition border-2 border-black ${
+              className={`px-4 py-2 font-medium transition border-2 border-black flex items-center gap-2 ${
                 activeTab === 'relationships' 
                   ? 'btn-primary text-white' 
                   : 'bg-white text-black hover:bg-gray-100'
               }`}
             >
-              👥 People ({relationships.length})
+              <Users size={18} /> People ({relationships.length})
             </button>
             <button
               onClick={() => setActiveTab('conversations')}
-              className={`px-4 py-2 font-medium transition border-2 border-black ${
+              className={`px-4 py-2 font-medium transition border-2 border-black flex items-center gap-2 ${
                 activeTab === 'conversations' 
                   ? 'btn-primary text-white' 
                   : 'bg-white text-black hover:bg-gray-100'
               }`}
             >
-              💬 Conversations ({conversations.length})
+              <MessageCircle size={18} /> Conversations ({conversations.length})
             </button>
           </div>
           
@@ -589,7 +590,9 @@ export default function Profile() {
                             style={{ imageRendering: 'pixelated' }}
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-2xl">👤</div>
+                          <div className="w-full h-full flex items-center justify-center text-black">
+                            <User size={32} />
+                          </div>
                         )}
                       </div>
                       
@@ -603,8 +606,14 @@ export default function Profile() {
                       
                       {/* Sentiment Indicator */}
                       <div className="flex flex-col items-center gap-1">
-                        <span className="text-2xl">
-                          {rel.sentiment > 0.7 ? '💚' : rel.sentiment > 0.3 ? '😊' : rel.sentiment > -0.3 ? '😐' : '😠'}
+                        <span className={`${
+                          rel.sentiment > 0.7 ? 'text-[#007a28]' : 
+                          rel.sentiment > 0.3 ? 'text-[#00a938]' : 
+                          rel.sentiment > -0.3 ? 'text-black/60' : 'text-red-600'
+                        }`}>
+                          {rel.sentiment > 0.7 ? <Heart size={24} fill="currentColor" /> : 
+                           rel.sentiment > 0.3 ? <Heart size={24} /> : 
+                           rel.sentiment > -0.3 ? <Meh size={24} /> : <Frown size={24} />}
                         </span>
                         <span className={`text-xs font-medium ${
                           rel.sentiment > 0.5 ? 'text-[#007a28]' : 
@@ -717,7 +726,9 @@ export default function Profile() {
                             style={{ imageRendering: 'pixelated' }}
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xl">👤</div>
+                          <div className="w-full h-full flex items-center justify-center text-black">
+                            <User size={24} />
+                          </div>
                         )}
                       </div>
                       
@@ -737,8 +748,12 @@ export default function Profile() {
                       {/* Score */}
                       {conv.score && (
                         <div className="flex flex-col items-center">
-                          <span className="text-lg">
-                            {conv.score >= 8 ? '⭐' : conv.score >= 5 ? '👍' : '😐'}
+                          <span className={`${
+                            conv.score >= 8 ? 'text-[#bae854]' : 
+                            conv.score >= 5 ? 'text-[#007a28]' : 'text-black/60'
+                          }`}>
+                            {conv.score >= 8 ? <Star size={20} fill="currentColor" /> : 
+                             conv.score >= 5 ? <ThumbsUp size={20} /> : <Meh size={20} />}
                           </span>
                           <span className="text-xs text-black/60 font-medium">{conv.score}/10</span>
                         </div>

@@ -65,7 +65,6 @@ export default function WatchView() {
   const [pan, setPan] = useState<{ x: number; y: number } | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
   
   // Track chat messages for all entities (for speech bubbles)
   const [allEntityMessages, setAllEntityMessages] = useState<Map<string, ChatMessage>>(new Map())
@@ -74,11 +73,6 @@ export default function WatchView() {
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
   const shouldReconnectRef = useRef(true)
-
-  // Handle follow agent toggle
-  const handleFollowAgent = (agentId: string) => {
-    setFollowingAgentId(prev => prev === agentId ? null : agentId)
-  }
 
   const connect = useCallback(() => {
     if (connectingRef.current || wsRef.current?.readyState === WebSocket.OPEN) {
@@ -397,8 +391,6 @@ export default function WatchView() {
       <AgentSidebar 
         isOpen={sidebarOpen} 
         onToggle={() => setSidebarOpen(!sidebarOpen)}
-        onFollowAgent={handleFollowAgent}
-        followingAgentId={followingAgentId}
         entities={gameEntities}
       />
       
@@ -410,7 +402,6 @@ export default function WatchView() {
         inputEnabled={false}
         watchZoom={zoom}
         watchPan={pan}
-        followEntityId={followingAgentId}
         allEntityMessages={allEntityMessages}
       />
     </div>
