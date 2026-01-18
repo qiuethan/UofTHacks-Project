@@ -1057,6 +1057,60 @@ def get_transcript(conversation_id: str):
     return {"ok": True, "transcript": transcript}
 
 
+@app.get("/conversation/active/{user_id}")
+def get_active_conversation(user_id: str):
+    """
+    Get the active (not ended) conversation for a user.
+    
+    Returns the conversation details including transcript if found.
+    Used when a player takes over their agent to load conversation history.
+    """
+    try:
+        client = agent_db.get_supabase_client()
+        if not client:
+            return {"ok": False, "error": "Database unavailable"}
+        
+        # Find active conversation where user is a participant and not ended
+        result = client.table("conversations").select(
+            "id, participant_a, participant_b, active_transcript, created_at"
+        ).or_(
+            f"participant_a.eq.{user_id},participant_b.eq.{user_id}"
+        ).is_("ended_at", "null").order("created_at", desc=True).limit(1).execute()
+        
+        if result.data and len(result.data) > 0:
+            conv_data = result.data[0]
+            transcript = conv_data.get("active_transcript", []) or []
+            partner_id = conv_data["participant_b"] if conv_data["participant_a"] == user_id else conv_data["participant_a"]
+            
+            # Get partner display name
+            partner_result = client.table("avatars").select("display_name").eq("id", partner_id).limit(1).execute()
+            partner_name = partner_result.data[0]["display_name"] if partner_result.data else "Unknown"
+            
+            return {
+                "ok": True,
+                "conversation_id": conv_data["id"],
+                "partner_id": partner_id,
+                "partner_name": partner_name,
+                "messages": [
+                    {
+                        "id": f"db-{i}-{msg.get('timestamp', 0)}",
+                        "senderId": msg.get("senderId", msg.get("sender_id", "")),
+                        "senderName": msg.get("senderName", msg.get("sender_name", "Unknown")),
+                        "content": msg.get("content", ""),
+                        "timestamp": msg.get("timestamp", 0)
+                    }
+                    for i, msg in enumerate(transcript)
+                ],
+                "message_count": len(transcript)
+            }
+        
+        return {"ok": False, "not_found": True}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
+
+
 @app.post("/conversation/should-accept")
 def should_accept_conversation(request: conv.AcceptConversationRequest):
     """
