@@ -294,9 +294,9 @@ def get_random_move_target(req: AgentRequest) -> dict:
     
     MARGIN = 2
     min_x = MARGIN
-    max_x = max(min_x + 1, req.map_width - MARGIN - 2)
+    max_x = max(min_x + 1, req.map_width - MARGIN - 1)
     min_y = MARGIN
-    max_y = max(min_y + 1, req.map_height - MARGIN - 2)
+    max_y = max(min_y + 1, req.map_height - MARGIN - 1)
     
     current_x = req.x if req.x else (max_x // 2)
     current_y = req.y if req.y else (max_y // 2)

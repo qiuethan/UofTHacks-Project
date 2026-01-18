@@ -57,31 +57,22 @@ function isOscillating(positionHistory: string[]): boolean {
 
 /**
  * Builds obstacle set from entity positions
- * Walls are 1x1, Players and Robots are 2x1 (width 2, height 1)
+ * All entities are 1x1
  */
 export function buildObstacleMap(entities: Entity[]): Set<string> {
   const obstacles = new Set<string>();
   for (const e of entities) {
-    if (e.kind === 'WALL') {
-      // Walls are 1x1
-      obstacles.add(`${e.x},${e.y}`);
-    } else {
-      // Players and Robots are 2x1 (width 2, height 1)
-      obstacles.add(`${e.x},${e.y}`);
-      obstacles.add(`${e.x + 1},${e.y}`);
-    }
+    // All entities are 1x1
+    obstacles.add(`${e.x},${e.y}`);
   }
   return obstacles;
 }
 
 /**
- * Gets cells occupied by a 2x1 entity (width 2, height 1)
+ * Gets cells occupied by a 1x1 entity
  */
 function getEntityCells(x: number, y: number): string[] {
-  return [
-    `${x},${y}`,
-    `${x + 1},${y}`
-  ];
+  return [`${x},${y}`];
 }
 
 /**

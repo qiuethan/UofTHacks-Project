@@ -48,6 +48,9 @@ output/
 .gemini/
 gha-creds-*.json
 GEMINI.md 
-plans/
 
 /node_modules
+new-phaser/
+plans/
+File to send/
+TO_BE_MERGED/

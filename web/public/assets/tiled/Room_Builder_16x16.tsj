@@ -1,0 +1,14 @@
+{ "columns":76,
+ "image":"moderninteriors-win\/1_Interiors\/16x16\/Room_Builder_16x16.png",
+ "imageheight":1808,
+ "imagewidth":1216,
+ "margin":0,
+ "name":"Room_Builder_16x16",
+ "spacing":0,
+ "tilecount":8588,
+ "tiledversion":"1.11.2",
+ "tileheight":16,
+ "tilewidth":16,
+ "type":"tileset",
+ "version":"1.10"
+}

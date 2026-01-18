@@ -10,10 +10,10 @@ interface ConversationRequestDialogProps {
 }
 
 function getDistance(e1: Entity, e2: Entity): number {
-  const centerX1 = e1.x + 1
-  const centerY1 = e1.y + 1
-  const centerX2 = e2.x + 1
-  const centerY2 = e2.y + 1
+  const centerX1 = e1.x + 0.5
+  const centerY1 = e1.y + 0.5
+  const centerX2 = e2.x + 0.5
+  const centerY2 = e2.y + 0.5
   
   return Math.sqrt(
     Math.pow(centerX2 - centerX1, 2) + 

@@ -1,0 +1,14 @@
+{ "columns":19,
+ "image":"moderninteriors-win\/6_Home_Designs\/Gym_Designs\/16x16\/Gym_preview.png",
+ "imageheight":240,
+ "imagewidth":304,
+ "margin":0,
+ "name":"Gym_preview",
+ "spacing":0,
+ "tilecount":285,
+ "tiledversion":"1.11.2",
+ "tileheight":16,
+ "tilewidth":16,
+ "type":"tileset",
+ "version":"1.10"
+}

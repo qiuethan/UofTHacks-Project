@@ -6,7 +6,7 @@ import type { WorldState } from '../state/worldState';
 import type { Entity } from '../entities/entity';
 import type { WorldAction, WorldEvent, Result } from './types';
 import { ok, err } from './types';
-import { clampToBounds } from '../map/mapDef';
+import { clampToBounds, isTileBlocked } from '../map/mapDef';
 
 // ============================================================================
 // VALIDATION
@@ -166,9 +166,9 @@ function applyMoveAction(
   targetY: number
 ): WorldEvent[] {
   // Determine entity hitbox dimensions based on type
-  // Walls are 1x1, Players and Robots are 2x1 (width 2, height 1)
-  const actorWidth = actor.kind === 'WALL' ? 1 : 2;
-  const actorHeight = 1;  // All entities have height 1 for collision
+  // All entities are 1x1
+  const actorWidth = 1;
+  const actorHeight = 1;
   
   // Clamp to map bounds based on entity size
   const maxX = state.map.width - actorWidth;
@@ -177,7 +177,16 @@ function applyMoveAction(
   const safeX = Math.max(0, Math.min(targetX, maxX));
   const safeY = Math.max(0, Math.min(targetY, maxY));
   
-  // Collision Detection - handle different entity sizes
+  // Static map collision - check all tiles the entity would occupy
+  for (let dx = 0; dx < actorWidth; dx++) {
+    for (let dy = 0; dy < actorHeight; dy++) {
+      if (isTileBlocked(state.map, safeX + dx, safeY + dy)) {
+        return []; // Blocked by static obstacle
+      }
+    }
+  }
+  
+  // Dynamic entity collision - handle different entity sizes
   for (const other of state.entities.values()) {
     if (other.entityId !== actor.entityId) {
        const otherWidth = other.kind === 'WALL' ? 1 : 2;

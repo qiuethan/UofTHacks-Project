@@ -1,4 +1,4 @@
-import { MapDef, isInBounds } from '../map/mapDef';
+import { MapDef, isInBounds, isTileBlocked } from '../map/mapDef';
 
 interface Point {
   x: number;
@@ -31,12 +31,13 @@ export function findPath(
     ];
 
     for (const neighbor of neighbors) {
-      // For a 2x1 entity (width 2, height 1), check if the entire hitbox is valid
+      // For a 1x1 entity, check if the tile is valid
+      // Check bounds, dynamic obstacles, and static map collision
       const isNeighborValid =
-        neighbor.x >= 0 && neighbor.x + 1 < map.width &&
+        neighbor.x >= 0 && neighbor.x < map.width &&
         neighbor.y >= 0 && neighbor.y < map.height &&
         !obstacles.has(`${neighbor.x},${neighbor.y}`) &&
-        !obstacles.has(`${neighbor.x + 1},${neighbor.y}`);
+        !isTileBlocked(map, neighbor.x, neighbor.y);
 
       const key = `${neighbor.x},${neighbor.y}`; // Use top-left for visited key
       if (

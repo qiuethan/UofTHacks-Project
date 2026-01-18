@@ -1,11 +1,12 @@
-import { World, createMapDef, createWall, createAvatar, CONVERSATION_CONFIG } from '../../world/index.ts';
+import { World, createWall, createAvatar, CONVERSATION_CONFIG, MAIN_MAP, findPath } from '../../world/index.ts';
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL, CONVERSATION_TIMEOUT_MS, API_BASE_URL } from './config';
 import { broadcast, broadcastToSpectators } from './network';
 import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
 import { getAllUsers, getAllAgentStats } from './db';
 import type { ChatMessage } from './types';
 
-export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
+// Use the main map with collision data from the Tiled map
+export const world = new World(MAIN_MAP);
 
 // Track active conversations for chat messages
 export interface ActiveConversation {
@@ -625,6 +626,25 @@ export function startAiLoop() {
       
       // If robot has no target and is not in a conversation flow, ask API
       if (!robot.targetPosition && robot.conversationState !== 'WALKING_TO_CONVERSATION') {
+        // ============================================================
+        // 🧪 PATHFINDING TEST - Uncomment to test automatic walking
+        // ============================================================
+        // const TEST_TARGET = { x: 30, y: 20 };  // Change to your desired coordinate
+        // const obstacles = new Set<string>();
+        // for (const e of snapshot.entities) {
+        //   if (e.entityId !== robot.entityId) {
+        //     obstacles.add(`${e.x},${e.y}`);
+        //     obstacles.add(`${e.x + 1},${e.y}`);
+        //   }
+        // }
+        // const path = findPath(MAIN_MAP, { x: robot.x, y: robot.y }, TEST_TARGET, obstacles);
+        // if (path) {
+        //   console.log(`🤖 [PATHFINDING TEST] ${robot.displayName} walking to (${TEST_TARGET.x}, ${TEST_TARGET.y}) - ${path.length} steps`);
+        //   world.setTarget(robot.entityId, TEST_TARGET.x, TEST_TARGET.y);
+        //   continue;
+        // }
+        // ============================================================
+        
         try {
           const res = await fetch(API_URL, {
             method: 'POST',

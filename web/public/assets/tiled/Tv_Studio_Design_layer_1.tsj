@@ -1,0 +1,14 @@
+{ "columns":11,
+ "image":"moderninteriors-win\/6_Home_Designs\/TV_Studio_Designs\/16x16\/Tv_Studio_Design_layer_1.png",
+ "imageheight":160,
+ "imagewidth":176,
+ "margin":0,
+ "name":"Tv_Studio_Design_layer_1",
+ "spacing":0,
+ "tilecount":110,
+ "tiledversion":"1.11.2",
+ "tileheight":16,
+ "tilewidth":16,
+ "type":"tileset",
+ "version":"1.10"
+}

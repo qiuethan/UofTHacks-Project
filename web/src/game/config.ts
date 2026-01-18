@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 
-// Tile size in pixels
-export const TILE_SIZE = 32
+// Tile size in pixels (matches Tiled map: 16px tiles)
+export const TILE_SIZE = 16
 
 // Game configuration
 export const createGameConfig = (
@@ -18,8 +18,7 @@ export const createGameConfig = (
   transparent: true, // Transparent background - only show the game world
   scene: scenes,
   scale: {
-    mode: Phaser.Scale.FIT, // Keep canvas at fixed size, fit within container
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.NONE, // Don't scale - we handle sizing ourselves
     width,
     height
   },
