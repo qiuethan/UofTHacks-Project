@@ -215,19 +215,11 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusColor = 'text-[#007a28]'
   } 
   // Movement states - walking or wandering
-  else if (actionName === 'walk_to_location') {
-    statusIcon = <MapPin size={16} className="text-[#7a5224]" />
-    statusText = 'Walking to activity...'
-    statusColor = 'text-[#7a5224]'
-  } else if (actionName === 'wander') {
+  else if (actionName === 'walk_to_location' || actionName === 'wander' || agent.is_moving) {
+    // Any movement is just "Walking"
     statusIcon = <Footprints size={16} className="text-black/60" />
-    statusText = 'Wandering...'
-    statusColor = 'text-black/60'
-  } else if (agent.is_moving) {
-    // Detected from real-time position changes
-    statusIcon = <Footprints size={16} className="text-[#007a28]" />
     statusText = 'Walking...'
-    statusColor = 'text-[#007a28]'
+    statusColor = 'text-black/60'
   } 
   // Idle states - not doing anything specific
   else {

@@ -41,6 +41,7 @@ TODO LIST:
 """
 
 import logging
+import random
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -108,7 +109,7 @@ def execute_action(
         if action.target and action.target.target_id:
             # Find the location
             location = next(
-                (l for l in context.world_locations if l.id == action.target.target_id),
+                (loc for loc in context.world_locations if loc.id == action.target.target_id),
                 None
             )
             if location:
@@ -118,32 +119,97 @@ def execute_action(
                 distance = (dx**2 + dy**2) ** 0.5
                 
                 if distance <= 2:
-                    # Arrived - execute interaction
-                    state = apply_interaction_effects(state, location.effects)
+                    # Arrived at location! Now switch to the INTERACT action
+                    # This locks the agent at the location for the activity duration
+                    interact_action_map = {
+                        'food': ActionType.INTERACT_FOOD,
+                        'karaoke': ActionType.INTERACT_KARAOKE,
+                        'rest_area': ActionType.INTERACT_REST,
+                        'social_hub': ActionType.INTERACT_SOCIAL_HUB,
+                        'wander_point': ActionType.INTERACT_WANDER_POINT,
+                    }
+                    interact_action = interact_action_map.get(location.location_type.value, ActionType.IDLE)
+                    
+                    # Calculate personalized duration based on personality affinity
+                    # Agents with high affinity stay longer, low affinity leave sooner
+                    base_duration = location.duration_seconds
+                    affinity = context.personality.world_affinities.get(location.location_type.value, 0.5)
+                    
+                    # Duration multiplier: 0.5x to 2x based on affinity (0.0 to 1.0)
+                    # affinity 0.0 -> 0.5x duration (leave early)
+                    # affinity 0.5 -> 1.0x duration (normal)
+                    # affinity 1.0 -> 2.0x duration (stay longer)
+                    duration_multiplier = 0.5 + (affinity * 1.5)
+                    
+                    # Add some randomness (+/- 20%)
+                    randomness = random.uniform(0.8, 1.2)
+                    
+                    chosen_duration = int(base_duration * duration_multiplier * randomness)
+                    # Minimum 10 seconds, maximum 3x base
+                    chosen_duration = max(10, min(chosen_duration, base_duration * 3))
+                    
+                    # Set the action to interact with the location
+                    state.current_action = interact_action.value
+                    state.current_action_target = {
+                        **(action.target.model_dump() if action.target else {}),
+                        "name": location.name
+                    }
+                    state.action_started_at = datetime.utcnow()
+                    state.action_expires_at = datetime.utcnow() + timedelta(seconds=chosen_duration)
+                    
+                    # Record the interaction (creates cooldown)
                     agent_db.record_world_interaction(client, context.avatar_id, location)
-                    logger.info(f"Avatar {context.avatar_id} interacted with {location.name}")
+                    
+                    # Log in the same format as player activities for consistency
+                    short_id = context.avatar_id[:8]
+                    print(f"[Activity] {short_id} started {interact_action.value} at {location.name}")
+                    logger.info(f"Avatar {context.avatar_id} ARRIVED at '{location.name}' - starting {interact_action.value} for {chosen_duration}s (affinity: {affinity:.0%})")
+                    result = "arrived_started_activity"
                 else:
                     # Move towards location (up to 3 units per tick)
                     move_factor = min(1.0, 3.0 / distance)
                     new_x = context.x + int(dx * move_factor)
                     new_y = context.y + int(dy * move_factor)
                     agent_db.update_avatar_position(client, context.avatar_id, new_x, new_y)
-                    logger.info(f"Avatar {context.avatar_id} walking to '{location.name}' [{location.location_type}] at ({location.x}, {location.y}) - now at ({new_x}, {new_y})")
                     state = apply_interaction_effects(state, {"energy": -0.02})
-                    logger.info(f"Avatar {context.avatar_id} walking to {location.name} ({new_x}, {new_y})")
+                    logger.info(f"Avatar {context.avatar_id} walking to '{location.name}' [{location.location_type.value}] - distance: {distance:.1f}")
     
     elif action.action_type in [ActionType.INTERACT_FOOD, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST, ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
+        # Agent is already at a location doing an activity
+        # Check if the activity should continue or complete
         if action.target and action.target.target_id:
             location = next(
-                (l for l in context.world_locations if l.id == action.target.target_id),
+                (loc for loc in context.world_locations if loc.id == action.target.target_id),
                 None
             )
             if location:
-                state = apply_interaction_effects(state, location.effects)
-                agent_db.record_world_interaction(client, context.avatar_id, location)
-                # Set action duration based on location's duration_seconds
-                action.duration_seconds = location.duration_seconds
-                logger.info(f"Avatar {context.avatar_id} performing {action.action_type.value} at {location.name} for {location.duration_seconds}s")
+                # Check if we're continuing an existing activity or starting fresh
+                if context.state.action_expires_at:
+                    expires_at = context.state.action_expires_at
+                    if isinstance(expires_at, str):
+                        expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    if expires_at.tzinfo:
+                        expires_at = expires_at.replace(tzinfo=None)
+                    
+                    if datetime.utcnow() >= expires_at:
+                        # Activity completed! Apply full effects
+                        state = apply_interaction_effects(state, location.effects)
+                        state.current_action = 'idle'
+                        state.current_action_target = None
+                        state.action_started_at = None
+                        state.action_expires_at = None
+                        logger.info(f"Avatar {context.avatar_id} COMPLETED {action.action_type.value} at {location.name} - effects applied!")
+                        result = "activity_completed"
+                    else:
+                        # Still doing the activity - just stand there
+                        remaining = (expires_at - datetime.utcnow()).total_seconds()
+                        logger.info(f"Avatar {context.avatar_id} doing {action.action_type.value} at {location.name} - {remaining:.0f}s remaining")
+                        result = "activity_in_progress"
+                else:
+                    # Starting the activity fresh
+                    action.duration_seconds = location.duration_seconds
+                    agent_db.record_world_interaction(client, context.avatar_id, location)
+                    logger.info(f"Avatar {context.avatar_id} starting {action.action_type.value} at {location.name} for {location.duration_seconds}s")
     
     elif action.action_type == ActionType.INITIATE_CONVERSATION:
         if action.target and action.target.target_id:
@@ -182,12 +248,27 @@ def execute_action(
             target_name = action.target.target_id[:8] if action.target.target_id else "unknown"
             logger.info(f"Avatar {context.avatar_id} avoiding avatar {target_name} - moving to ({new_x}, {new_y})")
     
-    # Update the current action in state
-    state.current_action = action.action_type.value
-    state.current_action_target = action.target.model_dump() if action.target else None
-    state.action_started_at = datetime.utcnow()
-    if action.duration_seconds:
-        state.action_expires_at = datetime.utcnow() + timedelta(seconds=action.duration_seconds)
+    # Update the current action in state - but DON'T overwrite if we already set it
+    # (e.g., when WALK_TO_LOCATION transitions to INTERACT_*)
+    if result not in ["arrived_started_activity", "activity_in_progress", "activity_completed"]:
+        # Only update action metadata if it's a NEW action (not continuing an existing one)
+        # For walk_to_location: we want to track the action but NOT lock with expires_at
+        # Locking is only for activities where the agent should stand still
+        is_new_action = state.current_action != action.action_type.value
+        is_activity = action.action_type.value.startswith('interact_')
+        
+        state.current_action = action.action_type.value
+        state.current_action_target = action.target.model_dump() if action.target else None
+        
+        # Only set timestamps for NEW actions, and only set expires_at for activities
+        if is_new_action:
+            state.action_started_at = datetime.utcnow()
+            if is_activity and action.duration_seconds:
+                state.action_expires_at = datetime.utcnow() + timedelta(seconds=action.duration_seconds)
+            elif not is_activity:
+                # For non-activities (walking, wandering), don't set expires - they complete on arrival
+                state.action_expires_at = None
+    # else: result was "arrived_started_activity" etc. - state was already updated by execute_action
     
     return state, result
 
@@ -243,8 +324,47 @@ def process_agent_tick(
         # Apply state decay
         context.state = apply_state_decay(context.state, elapsed)
         
-        # Make decision
-        action = make_decision(context)
+        # Check if agent is mid-walk and should continue to destination
+        # Don't make a new decision if we're already walking somewhere!
+        action = None
+        if context.state.current_action == 'walk_to_location' and context.state.current_action_target:
+            target = context.state.current_action_target
+            target_id = target.get('target_id')
+            if target_id:
+                # Find the destination location
+                location = next(
+                    (loc for loc in context.world_locations if loc.id == target_id),
+                    None
+                )
+                if location:
+                    # Check if we've arrived
+                    dx = location.x - context.x
+                    dy = location.y - context.y
+                    distance = (dx**2 + dy**2) ** 0.5
+                    
+                    # ALWAYS create the walk action - execute_action handles arrival transition
+                    action = SelectedAction(
+                        action_type=ActionType.WALK_TO_LOCATION,
+                        target=ActionTarget(
+                            target_type="location",
+                            target_id=location.id,
+                            name=location.name,
+                            x=location.x,
+                            y=location.y
+                        ),
+                        utility_score=5.0,  # High score - we're committed to this
+                        duration_seconds=None  # No duration lock for walking
+                    )
+                    
+                    if distance > 2:
+                        logger.info(f"Avatar {avatar_id} continuing walk to '{location.name}' - {distance:.1f} away")
+                    else:
+                        # We've arrived! execute_action will handle starting the activity
+                        logger.info(f"Avatar {avatar_id} ARRIVED at '{location.name}' - will start activity")
+        
+        # Make a new decision if we're not mid-walk
+        if action is None:
+            action = make_decision(context)
         
         # Execute action
         new_state, result = execute_action(client, context, action)
@@ -291,13 +411,30 @@ def process_agent_tick(
         # Release lock
         agent_db.release_tick_lock(client, avatar_id)
         
-        logger.info(f"Processed tick for {avatar_id}: {action.action_type.value}")
+        # Return the ACTUAL current action after execution (may differ from decision)
+        # e.g., walk_to_location -> interact_food when agent arrives
+        actual_action = new_state.current_action or action.action_type.value
+        
+        logger.info(f"Processed tick for {avatar_id}: decision={action.action_type.value}, actual={actual_action}")
+        
+        # Get duration if agent is now doing an activity
+        duration_seconds = None
+        if new_state.action_expires_at and new_state.action_started_at:
+            expires = new_state.action_expires_at
+            if isinstance(expires, str):
+                expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+            if hasattr(expires, 'tzinfo') and expires.tzinfo:
+                expires = expires.replace(tzinfo=None)
+            duration_seconds = (expires - datetime.utcnow()).total_seconds()
+            if duration_seconds < 0:
+                duration_seconds = None
         
         return {
             "avatar_id": avatar_id,
-            "action": action.action_type.value,
-            "target": action.target.model_dump() if action.target else None,
+            "action": actual_action,  # Use the state's current action, not the decision
+            "target": new_state.current_action_target or (action.target.model_dump() if action.target else None),
             "score": action.utility_score,
+            "duration_seconds": duration_seconds,  # Include remaining duration
             "state": {
                 "energy": new_state.energy,
                 "hunger": new_state.hunger,

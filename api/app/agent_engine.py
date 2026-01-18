@@ -34,13 +34,17 @@ class DecisionConfig:
     # Scoring weights
     NEED_WEIGHT = 1.0
     PERSONALITY_WEIGHT = 0.8  # Increased from 0.6 - personality matters more
-    SOCIAL_WEIGHT = 0.4
+    SOCIAL_WEIGHT = 0.6  # Increased from 0.4 - social interactions more valuable
     AFFINITY_WEIGHT = 1.2  # Increased from 0.5 - activities they enjoy are much more appealing
     RECENCY_WEIGHT = 0.3
     RANDOMNESS_WEIGHT = 0.15  # Reduced from 0.2 - less random behavior
     
     # Activity base bonus - agents are generally attracted to activities
     ACTIVITY_BASE_BONUS = 0.4  # Base attractiveness for any activity
+    
+    # Conversation base bonus - agents WANT to talk to each other!
+    # This makes conversation the PREFERRED action unless needs are critical
+    CONVERSATION_BASE_BONUS = 0.8  # High base appeal for conversations
     
     # Softmax temperature (lower = more deterministic)
     SOFTMAX_TEMPERATURE = 0.4  # Reduced from 0.5 - more likely to pick best action
@@ -52,8 +56,8 @@ class DecisionConfig:
     LOW_MOOD = 0.3  # New - when mood is low, prefer fun activities
     
     # Social parameters
-    CONVERSATION_RADIUS = 8
-    RECENT_INTERACTION_HOURS = 2
+    CONVERSATION_RADIUS = 10  # Increased from 8 - agents can initiate from further away
+    RECENT_INTERACTION_HOURS = 1  # Reduced from 2 - can talk again sooner
     
     # Time decay rates (per tick)
     ENERGY_DECAY = 0.02
@@ -106,11 +110,16 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
             if state.energy < DecisionConfig.CRITICAL_ENERGY:
                 score += 0.8  # Increased from 0.5
     
-    # Social actions address loneliness
+    # Social actions - conversations are ALWAYS appealing (with base bonus)
+    # Agents are social creatures and WANT to talk, not just when lonely
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += state.loneliness * 1.5  # Increased from 1.2
+        # High base appeal - agents enjoy conversations even when not lonely!
+        score += DecisionConfig.CONVERSATION_BASE_BONUS
+        # Additional appeal based on loneliness
+        score += state.loneliness * 1.0
+        # Bonus when very lonely
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.5  # Increased from 0.4
+            score += 0.5
     
     # Karaoke addresses loneliness and boosts mood - fun activity!
     if action == ActionType.INTERACT_KARAOKE:
@@ -130,13 +139,13 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         score += 0.4  # Increased base exploration appeal
         score += (1.0 - state.mood) * 0.4  # Increased - more appealing when mood is low
     
-    # Wander has low base appeal - agents should prefer activities
+    # Wander has low base appeal - agents should prefer activities or conversations
     if action == ActionType.WANDER:
-        score += 0.1  # Reduced from 0.2 - wandering is less appealing than activities
+        score += 0.05  # Very low - almost never choose to just wander
     
-    # Idle has very low appeal - only when really tired
+    # Idle has very low appeal - only when really tired or no other options
     if action == ActionType.IDLE:
-        score += 0.05  # Minimal base appeal
+        score += 0.02  # Minimal base appeal - agents should DO things, not idle!
     
     return score
 
@@ -151,9 +160,11 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     """
     score = 0.0
     
-    # Sociable personalities prefer social actions
+    # Sociable personalities STRONGLY prefer social actions
+    # Even introverts will occasionally chat (0.3 * 1.2 = 0.36 bonus)
+    # Extroverts love to talk (0.9 * 1.2 = 1.08 bonus)
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += personality.sociability * 0.8
+        score += personality.sociability * 1.2  # Increased from 0.8
     
     # Curious personalities prefer exploration
     if action == ActionType.WANDER:
@@ -210,21 +221,22 @@ def calculate_social_bias(
     if social_memory:
         # Positive sentiment increases desire to interact
         if action == ActionType.INITIATE_CONVERSATION:
-            score += social_memory.sentiment * 0.5
-            # Familiarity makes interaction more comfortable
-            score += social_memory.familiarity * 0.3
+            # Positive relationships strongly encourage conversation
+            score += social_memory.sentiment * 0.8  # Increased from 0.5
+            # Familiarity makes interaction much more comfortable
+            score += social_memory.familiarity * 0.5  # Increased from 0.3
             
             # More interactions = stronger desire to continue relationship
             if social_memory.interaction_count > 3:
-                score += 0.1
+                score += 0.2  # Increased from 0.1
             if social_memory.interaction_count > 10:
-                score += 0.1  # Extra bonus for established relationships
+                score += 0.2  # Extra bonus for established relationships
             
             # Mutual interests give a bonus (more to talk about)
             if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
                 interests = social_memory.mutual_interests
                 if isinstance(interests, list) and len(interests) > 0:
-                    score += min(len(interests) * 0.05, 0.2)  # Cap at 0.2 bonus
+                    score += min(len(interests) * 0.1, 0.4)  # Increased cap
         
         # Very negative sentiment discourages interaction
         if social_memory.sentiment < -0.5:
@@ -239,8 +251,10 @@ def calculate_social_bias(
             if target_avatar.distance <= 3:
                 score += 0.5
     else:
-        # Unknown avatars get curiosity bonus (want to meet new people)
-        score += 0.15
+        # Unknown avatars get curiosity bonus (want to meet new people!)
+        # Meeting strangers is exciting - high bonus for new connections
+        if action == ActionType.INITIATE_CONVERSATION:
+            score += 0.4  # Increased from 0.15 - agents want to meet new people!
     
     # Prefer online players for social interactions
     if target_avatar.is_online and action == ActionType.INITIATE_CONVERSATION:

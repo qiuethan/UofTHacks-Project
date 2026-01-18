@@ -16,6 +16,14 @@ export interface GameEntity {
     hunger?: number
     loneliness?: number
     mood?: number
+    current_action?: string
+    current_action_target?: {
+      target_type?: string
+      target_id?: string
+      name?: string
+      x?: number
+      y?: number
+    }
   }
 }
 

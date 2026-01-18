@@ -144,6 +144,49 @@ def get_agent_decision(req: AgentRequest):
             return response
         
         # =====================================================================
+        # PRIORITY 2.5: Check if agent is busy with a location activity
+        # =====================================================================
+        client = agent_db.get_supabase_client()
+        if client:
+            state = agent_db.get_state(client, req.robot_id)
+            if state and state.action_expires_at:
+                expires_at = state.action_expires_at
+                if isinstance(expires_at, str):
+                    from datetime import datetime
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if expires_at.tzinfo:
+                    expires_at = expires_at.replace(tzinfo=None)
+                
+                from datetime import datetime
+                now = datetime.utcnow()
+                current_action = state.current_action or 'idle'
+                
+                # Walking actions should NOT block - agent needs to keep moving!
+                # Only actual activities (interact_*) should lock the agent in place
+                is_activity = current_action.startswith('interact_')
+                
+                if now < expires_at and is_activity:
+                    # Agent is busy with an activity - keep standing still
+                    remaining = (expires_at - now).total_seconds()
+                    duration = min(remaining, 5.0)  # Check again in 5s or when done
+                    target_name = ""
+                    if state.current_action_target:
+                        target_name = state.current_action_target.get("name", "")
+                    short_id = req.robot_id[:8]
+                    
+                    # Format activity name nicely for logging
+                    activity_display = {
+                        'interact_food': '🍽️  EATING',
+                        'interact_rest': '😴 RESTING',
+                        'interact_karaoke': '🎤 SINGING',
+                        'interact_social_hub': '💬 SOCIALIZING',
+                        'interact_wander_point': '🧭 EXPLORING',
+                    }.get(current_action, f'📍 {current_action}')
+                    
+                    print(f"🔒 {short_id} | {activity_display} at '{target_name}' - {remaining:.0f}s left")
+                    return {"action": "STAND_STILL", "duration": duration}
+        
+        # =====================================================================
         # PRIORITY 3: Try utility-based agent decision system
         # =====================================================================
         agent_response = try_agent_decision_system(req)
@@ -233,7 +276,18 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     moo = state.get('mood', 0)
     state_str = f"E:{ene:.0%} H:{hun:.0%} L:{lon:.0%} M:{moo:.0%}"
     
-    print(f"🤖 {short_id} | {action_type:20} {target_name:15} | score:{score:.2f} | {state_str}")
+    # Use nicer names for activities
+    action_display = {
+        'interact_food': 'EATING',
+        'interact_rest': 'RESTING',
+        'interact_karaoke': 'SINGING',
+        'interact_social_hub': 'SOCIALIZING',
+        'interact_wander_point': 'EXPLORING',
+        'walk_to_location': 'walking',
+        'initiate_conversation': 'chat_request',
+    }.get(action_type, action_type)
+    
+    print(f"🤖 {short_id} | {action_display:20} {target_name:15} | score:{score:.2f} | {state_str}")
     
     # Map action types to API responses
     if action_type in ["idle", "stand_still"]:
@@ -260,18 +314,33 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
         return None
     
     elif action_type in ["interact_food", "interact_karaoke", "interact_rest", "interact_social_hub", "interact_wander_point"]:
-        # Interacting with a location - stand still for the duration
-        # The agent is already at the location
-        duration = result.get("duration_seconds", 30)  # Default 30 seconds
+        # Interacting with a location - stand still for the remaining duration
+        # Use duration from agent worker if available, otherwise look up from location
+        duration = result.get("duration_seconds")
         
-        # Try to get the actual location duration
-        if target and target.get("target_id"):
-            client = agent_db.get_supabase_client()
-            if client:
-                locations = agent_db.get_all_world_locations(client)
-                location = next((loc for loc in locations if loc.id == target["target_id"]), None)
-                if location:
-                    duration = location.duration_seconds
+        if duration is None or duration <= 0:
+            # Try to get the actual location duration
+            duration = 30  # Default
+            if target and target.get("target_id"):
+                client = agent_db.get_supabase_client()
+                if client:
+                    locations = agent_db.get_all_world_locations(client)
+                    location = next((loc for loc in locations if loc.id == target["target_id"]), None)
+                    if location:
+                        duration = location.duration_seconds
+        
+        # Log the activity with nice activity names
+        target_name = target.get("name", "") if target else ""
+        short_id = req.robot_id[:8]
+        activity_display = {
+            'interact_food': '🍽️  EATING',
+            'interact_rest': '😴 RESTING',
+            'interact_karaoke': '🎤 SINGING',
+            'interact_social_hub': '💬 SOCIALIZING',
+            'interact_wander_point': '🧭 EXPLORING',
+        }.get(action_type, f'📍 {action_type}')
+        
+        print(f"🎯 {short_id} | {activity_display} at '{target_name}' for {duration:.0f}s")
         
         return {"action": "STAND_STILL", "duration": float(duration)}
     

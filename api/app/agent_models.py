@@ -129,8 +129,8 @@ class AgentState(BaseModel):
         return self.energy < 0.2
 
     def needs_socialization(self) -> bool:
-        """Check if loneliness is high"""
-        return self.loneliness > 0.6
+        """Check if loneliness is high enough to seek conversation"""
+        return self.loneliness > 0.3  # Reduced from 0.6 - agents are more social!
 
 
 # ============================================================================
