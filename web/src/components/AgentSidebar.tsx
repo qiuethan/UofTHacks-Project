@@ -1,5 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { GameEntity } from '../game/types'
+import { 
+  Moon, Footprints, MapPin, MessageCircle, Utensils, Sofa, Mic, 
+  User, Clock, Zap, Apple, Users, Smile, Search, Heart,
+  ChevronDown, ChevronRight, X, Crosshair, Bot, Radio
+} from 'lucide-react'
 
 interface ActionObject {
   score: number
@@ -73,16 +78,16 @@ interface AgentSidebarProps {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003'
 
-// Action icons/emojis for different actions
-const ACTION_ICONS: Record<string, string> = {
-  idle: '😴',
-  wander: '🚶',
-  walk_to_location: '📍',
-  initiate_conversation: '💬',
-  interact_food: '🍽️',
-  interact_rest: '🛋️',
-  interact_karaoke: '🎤',
-  stand_still: '🧍',
+// Action icon components using Lucide React
+const ACTION_ICONS: Record<string, React.ReactNode> = {
+  idle: <Moon size={16} />,
+  wander: <Footprints size={16} />,
+  walk_to_location: <MapPin size={16} />,
+  initiate_conversation: <MessageCircle size={16} />,
+  interact_food: <Utensils size={16} />,
+  interact_rest: <Sofa size={16} />,
+  interact_karaoke: <Mic size={16} />,
+  stand_still: <User size={16} />,
 }
 
 // Format action name for display
@@ -103,40 +108,40 @@ function StatBar({
   label: string
   value: number
   color: string
-  icon: string
+  icon: React.ReactNode
 }) {
   const percentage = Math.round(value * 100)
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="w-4">{icon}</span>
-      <span className="w-16 text-gray-400">{label}</span>
-      <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+      <span className="w-5 text-black/60">{icon}</span>
+      <span className="w-14 text-black/60">{label}</span>
+      <div className="flex-1 h-2 bg-black/10 border border-black overflow-hidden">
         <div 
           className={`h-full ${color} transition-all duration-300`}
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <span className="w-8 text-right text-gray-300">{percentage}%</span>
+      <span className="w-8 text-right text-black font-medium">{percentage}%</span>
     </div>
   )
 }
 
 // Helper to get sentiment label and color
 function getSentimentInfo(sentiment: number) {
-  if (sentiment >= 0.7) return { label: 'Loves', color: 'text-green-400', bgColor: 'bg-green-500' }
-  if (sentiment >= 0.6) return { label: 'Likes', color: 'text-green-300', bgColor: 'bg-green-400' }
-  if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-gray-400', bgColor: 'bg-gray-500' }
-  if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-orange-400', bgColor: 'bg-orange-500' }
-  return { label: 'Hates', color: 'text-red-400', bgColor: 'bg-red-500' }
+  if (sentiment >= 0.7) return { label: 'Loves', color: 'text-[#007a28]', bgColor: 'bg-[#007a28]' }
+  if (sentiment >= 0.6) return { label: 'Likes', color: 'text-[#00a938]', bgColor: 'bg-[#00a938]' }
+  if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-black/60', bgColor: 'bg-black/40' }
+  if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-[#7a5224]', bgColor: 'bg-[#7a5224]' }
+  return { label: 'Hates', color: 'text-red-600', bgColor: 'bg-red-600' }
 }
 
 // Helper to get familiarity label
 function getFamiliarityInfo(familiarity: number) {
-  if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-purple-400', bgColor: 'bg-purple-500' }
-  if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-blue-400', bgColor: 'bg-blue-500' }
-  if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-cyan-400', bgColor: 'bg-cyan-500' }
-  if (familiarity >= 0.2) return { label: 'Just met', color: 'text-gray-400', bgColor: 'bg-gray-500' }
-  return { label: 'Strangers', color: 'text-gray-500', bgColor: 'bg-gray-600' }
+  if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-[#007a28]', bgColor: 'bg-[#007a28]' }
+  if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-[#00a938]', bgColor: 'bg-[#00a938]' }
+  if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-[#7a5224]', bgColor: 'bg-[#7a5224]' }
+  if (familiarity >= 0.2) return { label: 'Just met', color: 'text-black/60', bgColor: 'bg-black/40' }
+  return { label: 'Strangers', color: 'text-black/40', bgColor: 'bg-black/20' }
 }
 
 // Individual agent card
@@ -160,42 +165,42 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     : null
   
   // Determine icon and status
-  let statusIcon = ACTION_ICONS[actionName] || '❓'
+  let statusIcon: React.ReactNode = ACTION_ICONS[actionName] || <User size={16} />
   let statusText = formatAction(actionName)
-  let statusColor = 'text-gray-400'
+  let statusColor = 'text-black/60'
   
   if (isInConversation && partnerName) {
-    statusIcon = '💬'
+    statusIcon = <MessageCircle size={16} className="text-[#007a28]" />
     statusText = `Chatting with ${partnerName}`
-    statusColor = 'text-green-400'
+    statusColor = 'text-[#007a28]'
   } else if (isWalkingToConvo) {
-    statusIcon = '🚶'
+    statusIcon = <Footprints size={16} className="text-[#7a5224]" />
     statusText = 'Walking to chat...'
-    statusColor = 'text-yellow-400'
+    statusColor = 'text-[#7a5224]'
   } else if (hasPendingRequest) {
-    statusIcon = '⏳'
+    statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
-    statusColor = 'text-yellow-400'
+    statusColor = 'text-[#7a5224]'
   }
   
   return (
-    <div className={`bg-gray-800/50 rounded-lg border overflow-hidden transition-all ${
-      isFollowing ? 'border-blue-500 bg-blue-900/20' : 
-      isInConversation ? 'border-green-500/50 bg-green-900/10' : 
-      'border-gray-700/50'
+    <div className={`bg-[#FFF8F0] border-2 overflow-hidden transition-all ${
+      isFollowing ? 'border-[#007a28] shadow-[3px_3px_0_#007a28]' : 
+      isInConversation ? 'border-[#007a28]' : 
+      'border-black'
     }`}>
       {/* Header - always visible */}
       <div className="flex items-center">
         <button 
           onClick={onToggle}
-          className="flex-1 px-3 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition-colors"
+          className="flex-1 px-3 py-2 flex items-center gap-3 hover:bg-black/5 transition-colors"
         >
-        <span className="text-lg">{statusIcon}</span>
+        <span className="text-black">{statusIcon}</span>
         <div className="flex-1 text-left min-w-0">
-          <div className="font-medium text-white text-sm truncate flex items-center gap-2">
+          <div className="font-medium text-black text-sm truncate flex items-center gap-2">
             {agent.display_name || 'Unknown'}
             {isInConversation && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">
+              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-[#007a28] text-white border border-black">
                 TALKING
               </span>
             )}
@@ -204,14 +209,10 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
             {statusText}
           </div>
         </div>
-        <svg 
-          className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
-          fill="none" 
-          viewBox="0 0 24 24" 
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown 
+          size={16} 
+          className={`text-black/60 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+        />
         </button>
         {/* Follow button */}
         {onFollow && (
@@ -220,64 +221,64 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
               e.stopPropagation()
               onFollow()
             }}
-            className={`px-3 py-2 border-l border-gray-700/50 transition-colors ${
+            className={`px-3 py-2 border-l-2 border-black transition-colors ${
               isFollowing 
-                ? 'text-blue-400 hover:text-blue-300' 
-                : 'text-gray-400 hover:text-white hover:bg-gray-700/30'
+                ? 'bg-[#007a28] text-white' 
+                : 'text-black hover:bg-[#bae854]'
             }`}
             title={isFollowing ? 'Stop following' : 'Follow this agent'}
           >
-            {isFollowing ? '👁️' : '📍'}
+            {isFollowing ? <X size={14} /> : <Crosshair size={14} />}
           </button>
         )}
       </div>
       
       {/* Expanded details */}
       {isExpanded && (
-        <div className="px-3 pb-3 space-y-3 border-t border-gray-700/50">
+        <div className="px-3 pb-3 space-y-3 border-t-2 border-black/20">
           {/* Relationship Stats - Only show when in conversation */}
           {isInConversation && relationshipStats && partnerName && (
             <div className="pt-3">
-              <div className="text-xs font-medium text-gray-300 mb-2 flex items-center gap-2">
-                💕 Relationship with {partnerName}
+              <div className="text-xs font-bold text-black mb-2 flex items-center gap-2">
+                <Heart size={12} className="text-[#007a28]" /> Relationship with {partnerName}
               </div>
               <div className="space-y-1.5">
                 {/* Sentiment */}
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="w-4">💭</span>
-                  <span className="w-16 text-gray-400">Sentiment</span>
-                  <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <Smile size={14} className="text-black/60" />
+                  <span className="w-14 text-black/60">Sentiment</span>
+                  <div className="flex-1 h-2 bg-black/10 border border-black overflow-hidden">
                     <div 
                       className={`h-full ${getSentimentInfo(relationshipStats.sentiment).bgColor} transition-all duration-300`}
                       style={{ width: `${relationshipStats.sentiment * 100}%` }}
                     />
                   </div>
-                  <span className={`w-20 text-right text-xs ${getSentimentInfo(relationshipStats.sentiment).color}`}>
+                  <span className={`w-20 text-right text-xs font-medium ${getSentimentInfo(relationshipStats.sentiment).color}`}>
                     {getSentimentInfo(relationshipStats.sentiment).label}
                   </span>
                 </div>
                 
                 {/* Familiarity */}
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="w-4">🤝</span>
-                  <span className="w-16 text-gray-400">Familiar</span>
-                  <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <Users size={14} className="text-black/60" />
+                  <span className="w-14 text-black/60">Familiar</span>
+                  <div className="flex-1 h-2 bg-black/10 border border-black overflow-hidden">
                     <div 
                       className={`h-full ${getFamiliarityInfo(relationshipStats.familiarity).bgColor} transition-all duration-300`}
                       style={{ width: `${relationshipStats.familiarity * 100}%` }}
                     />
                   </div>
-                  <span className={`w-20 text-right text-xs ${getFamiliarityInfo(relationshipStats.familiarity).color}`}>
+                  <span className={`w-20 text-right text-xs font-medium ${getFamiliarityInfo(relationshipStats.familiarity).color}`}>
                     {getFamiliarityInfo(relationshipStats.familiarity).label}
                   </span>
                 </div>
                 
                 {/* Interaction Count */}
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="w-4">💬</span>
-                  <span className="w-16 text-gray-400">Chats</span>
-                  <span className="text-blue-400 font-medium">{relationshipStats.interaction_count}</span>
-                  <span className="text-gray-500">conversations</span>
+                  <MessageCircle size={14} className="text-black/60" />
+                  <span className="w-14 text-black/60">Chats</span>
+                  <span className="text-[#007a28] font-bold">{relationshipStats.interaction_count}</span>
+                  <span className="text-black/60">conversations</span>
                 </div>
               </div>
             </div>
@@ -285,28 +286,28 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
           
           {/* Needs */}
           <div className={isInConversation && relationshipStats ? "" : "pt-3"}>
-            <div className="text-xs font-medium text-gray-300 mb-2">Needs</div>
+            <div className="text-xs font-bold text-black mb-2">Needs</div>
             <div className="space-y-1.5">
-              <StatBar label="Energy" value={agent.state.energy} color="bg-yellow-500" icon="⚡" />
-              <StatBar label="Hunger" value={1 - agent.state.hunger} color="bg-green-500" icon="🍔" />
-              <StatBar label="Social" value={1 - agent.state.loneliness} color="bg-blue-500" icon="👥" />
-              <StatBar label="Mood" value={(agent.state.mood + 1) / 2} color="bg-pink-500" icon="😊" />
+              <StatBar label="Energy" value={agent.state.energy} color="bg-[#bae854]" icon={<Zap size={14} />} />
+              <StatBar label="Hunger" value={1 - agent.state.hunger} color="bg-[#007a28]" icon={<Apple size={14} />} />
+              <StatBar label="Social" value={1 - agent.state.loneliness} color="bg-[#7a5224]" icon={<Users size={14} />} />
+              <StatBar label="Mood" value={(agent.state.mood + 1) / 2} color="bg-[#00a938]" icon={<Smile size={14} />} />
             </div>
           </div>
           
           {/* Personality */}
           <div>
-            <div className="text-xs font-medium text-gray-300 mb-2">Personality</div>
+            <div className="text-xs font-bold text-black mb-2">Personality</div>
             <div className="space-y-1.5">
-              <StatBar label="Social" value={agent.personality.sociability} color="bg-purple-500" icon="🗣️" />
-              <StatBar label="Curious" value={agent.personality.curiosity} color="bg-cyan-500" icon="🔍" />
-              <StatBar label="Agreeable" value={agent.personality.agreeableness} color="bg-orange-500" icon="🤝" />
+              <StatBar label="Social" value={agent.personality.sociability} color="bg-[#7a5224]" icon={<Users size={14} />} />
+              <StatBar label="Curious" value={agent.personality.curiosity} color="bg-[#00a938]" icon={<Search size={14} />} />
+              <StatBar label="Agree" value={agent.personality.agreeableness} color="bg-[#bae854]" icon={<Heart size={14} />} />
             </div>
           </div>
           
           {/* Location */}
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <span>📍</span>
+          <div className="flex items-center gap-2 text-xs text-black/60">
+            <MapPin size={14} />
             <span>Position: ({agent.position.x}, {agent.position.y})</span>
           </div>
         </div>
@@ -460,69 +461,60 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       >
         <button
           onClick={onToggle}
-          className="flex items-center gap-3 px-4 py-3 bg-gray-900/95 backdrop-blur-md border border-gray-700/50 rounded-xl shadow-lg hover:bg-gray-800/95 transition-colors"
+          className="flex items-center gap-3 px-4 py-3 bg-[#FFF8F0] border-2 border-black shadow-[3px_3px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
           title="Show Agent Monitor"
         >
-          <span className="text-xl">🤖</span>
+          <Bot size={24} className="text-black" />
           <div className="text-left">
-            <div className="text-sm font-medium text-white">
+            <div className="text-sm font-bold text-black">
               {agents.length} Agent{agents.length !== 1 ? 's' : ''}
             </div>
             {talkingCount > 0 && (
-              <div className="flex items-center gap-1.5 text-xs text-green-400">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              <div className="flex items-center gap-1.5 text-xs text-[#007a28] font-medium">
+                <span className="w-1.5 h-1.5 bg-[#007a28] rounded-full animate-pulse" />
                 {talkingCount} talking
               </div>
             )}
           </div>
-          <svg 
-            className="w-4 h-4 text-gray-400 ml-2"
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+          <ChevronRight size={20} className="text-black ml-2" />
         </button>
       </div>
       
       {/* Sidebar panel - slides in from left */}
       <div 
-        className={`fixed top-0 left-0 w-80 h-screen bg-gray-900/95 backdrop-blur-md border-r border-gray-700/50 transform transition-transform duration-300 z-40 shadow-2xl ${
+        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] border-r-2 border-black transform transition-transform duration-300 z-40 shadow-[4px_0_0_#000] ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="h-full flex flex-col">
           {/* Header */}
-          <div className="px-4 py-4 border-b border-gray-700/50 bg-gray-800/30">
+          <div className="px-4 py-4 border-b-2 border-black bg-[#d9c9a8]">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <span>🤖</span> Agent Monitor
+              <h2 className="text-lg font-bold text-black flex items-center gap-2">
+                <Bot size={20} /> Agent Monitor
               </h2>
               <button
                 onClick={onToggle}
-                className="p-1.5 hover:bg-gray-700/50 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-black/10 border-2 border-black transition-colors"
                 title="Close"
               >
-                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={20} className="text-black" />
               </button>
             </div>
             <div className="flex items-center gap-3 mt-2">
               <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-xs text-green-400">LIVE</span>
+                <Radio size={12} className="text-[#007a28] animate-pulse" />
+                <span className="text-xs text-[#007a28] font-bold">LIVE</span>
               </div>
-              <span className="text-xs text-gray-500">•</span>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-black/40">|</span>
+              <span className="text-xs text-black/60 font-medium">
                 {agents.length} agent{agents.length !== 1 ? 's' : ''}
               </span>
               {talkingCount > 0 && (
                 <>
-                  <span className="text-xs text-gray-500">•</span>
-                  <span className="text-xs text-green-400 flex items-center gap-1">
-                    💬 {talkingCount} talking
+                  <span className="text-xs text-black/40">|</span>
+                  <span className="text-xs text-[#007a28] font-medium flex items-center gap-1">
+                    <MessageCircle size={12} /> {talkingCount} talking
                   </span>
                 </>
               )}
@@ -532,16 +524,16 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
           {/* Agent list */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {loading && agents.length === 0 ? (
-              <div className="text-center text-gray-400 py-8">
-                <div className="animate-spin w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full mx-auto mb-2" />
+              <div className="text-center text-black/60 py-8">
+                <div className="animate-spin w-6 h-6 border-2 border-black border-t-[#007a28] mx-auto mb-2" />
                 Loading agents...
               </div>
             ) : error && agents.length === 0 ? (
-              <div className="text-center text-red-400 py-8">
+              <div className="text-center text-red-600 py-8 font-medium">
                 {error}
               </div>
             ) : agents.length === 0 ? (
-              <div className="text-center text-gray-400 py-8">
+              <div className="text-center text-black/60 py-8">
                 No agents found
               </div>
             ) : (
@@ -558,19 +550,6 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
                 />
               ))
             )}
-          </div>
-          
-          {/* Legend - simplified */}
-          <div className="px-4 py-3 border-t border-gray-700/50 bg-gray-800/20">
-            <div className="text-xs text-gray-500">
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span title="Idle">😴 Idle</span>
-                <span title="Walking">🚶 Walk</span>
-                <span title="Talking">💬 Chat</span>
-                <span title="Eating">🍽️ Eat</span>
-                <span title="Resting">🛋️ Rest</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>

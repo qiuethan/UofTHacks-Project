@@ -65,20 +65,20 @@ export function ConversationChat({
   
   // Helper to get sentiment label and color
   const getSentimentInfo = (sentiment: number) => {
-    if (sentiment >= 0.7) return { label: 'Loves you', color: 'text-green-400', emoji: '💚' }
-    if (sentiment >= 0.6) return { label: 'Likes you', color: 'text-green-300', emoji: '😊' }
-    if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-gray-400', emoji: '😐' }
-    if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-orange-400', emoji: '😒' }
-    return { label: 'Hates you', color: 'text-red-400', emoji: '😠' }
+    if (sentiment >= 0.7) return { label: 'Loves you', color: 'text-[#007a28]', emoji: '💚' }
+    if (sentiment >= 0.6) return { label: 'Likes you', color: 'text-[#00a938]', emoji: '😊' }
+    if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-black/60', emoji: '😐' }
+    if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-[#7a5224]', emoji: '😒' }
+    return { label: 'Hates you', color: 'text-red-600', emoji: '😠' }
   }
   
   // Helper to get familiarity label
   const getFamiliarityInfo = (familiarity: number) => {
-    if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-purple-400' }
-    if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-blue-400' }
-    if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-cyan-400' }
-    if (familiarity >= 0.2) return { label: 'Just met', color: 'text-gray-400' }
-    return { label: 'Strangers', color: 'text-gray-500' }
+    if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-[#007a28]' }
+    if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-[#00a938]' }
+    if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-[#7a5224]' }
+    if (familiarity >= 0.2) return { label: 'Just met', color: 'text-black/60' }
+    return { label: 'Strangers', color: 'text-black/40' }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -90,8 +90,9 @@ export function ConversationChat({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Prevent game movement keys from bubbling
+    // Prevent game movement keys from bubbling (WASD, arrows, etc.)
     e.stopPropagation()
+    // Let Enter key trigger form submission naturally via onSubmit
   }
 
   return (
@@ -112,7 +113,7 @@ export function ConversationChat({
         </div>
       )}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4">
-        <div className="panel-fun overflow-hidden relative">
+        <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] overflow-hidden relative">
         {/* Header */}
         <div className="px-4 py-3 border-b-2 border-black bg-[#FFF8F0]">
           <div className="flex items-center justify-between mb-2">

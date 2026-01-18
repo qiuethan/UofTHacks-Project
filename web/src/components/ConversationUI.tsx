@@ -37,7 +37,7 @@ export function EntityActionBanner({
 
   return (
     <div className="absolute bottom-[400%] left-0 w-[calc(200%+1px)] z-[100] flex flex-col items-center pointer-events-none">
-      <div className="panel-fun p-3 min-w-[160px] animate-in fade-in zoom-in duration-200 pointer-events-auto">
+      <div className="bg-[#FFF8F0] border-2 border-black shadow-[2px_2px_0_#000] p-3 min-w-[160px] pointer-events-auto">
         <div className="text-[10px] font-bold text-black uppercase tracking-wider mb-1 text-center">Talk to {entity.displayName}?</div>
         
         {isOutOfRange && (
@@ -54,9 +54,9 @@ export function EntityActionBanner({
 
         <div className="flex gap-2">
           <button
-            className={`flex-1 px-2 py-1 text-[10px] font-bold transition-colors ${
+            className={`flex-1 px-2 py-1 text-[10px] font-bold transition-colors border-2 border-black ${
               !canSend 
-                ? 'bg-gray-300 cursor-not-allowed text-gray-500' 
+                ? 'bg-black/10 cursor-not-allowed text-black/40' 
                 : 'bg-[#007a28] text-white hover:bg-[#009830]'
             }`}
             onClick={(e) => {
@@ -97,22 +97,22 @@ export function IncomingRequests({ requests, onAccept, onReject }: IncomingReque
   const mostRecentRequest = requests[requests.length - 1]
   
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-      <div className="panel-fun px-8 py-5 min-w-[360px] max-w-[450px]">
+    <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50">
+      <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-8 py-5 min-w-[360px] max-w-[450px]">
         <p className="text-black mb-2 text-center font-sans text-xl">
           <strong>{mostRecentRequest.initiatorName}</strong> wants to talk!
         </p>
         {/* Show the reason/message if provided */}
         {mostRecentRequest.reason && (
           <div className="mb-4 text-center">
-            <p className="text-black/70 text-sm italic bg-white border-2 border-black/20 px-4 py-2">
+            <p className="text-black/70 text-sm italic bg-white border-2 border-black px-4 py-2">
               "{mostRecentRequest.reason}"
             </p>
           </div>
         )}
         <div className="flex gap-3 justify-center">
           <button
-            className="btn-primary px-6 py-3 text-white text-base font-bold border-0"
+            className="btn-primary px-6 py-3 text-white text-base font-bold"
             onClick={() => onAccept(mostRecentRequest.requestId)}
           >
             Accept
@@ -136,8 +136,8 @@ interface ActiveConversationProps {
 
 export function ActiveConversation({ partnerName, onEnd }: ActiveConversationProps) {
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-      <div className="panel-fun px-6 py-4 min-w-[300px]">
+    <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50">
+      <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-6 py-4 min-w-[300px]">
         <p className="text-black mb-3 text-center text-lg">
           Chatting with <strong>{partnerName}</strong>
         </p>

@@ -1,6 +1,6 @@
 import { World, createMapDef, createWall, createAvatar, CONVERSATION_CONFIG } from '../../world/index.ts';
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL, CONVERSATION_TIMEOUT_MS, API_BASE_URL } from './config';
-import { broadcast } from './network';
+import { broadcast, broadcastToSpectators } from './network';
 import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
 import { getAllUsers, getAllAgentStats } from './db';
 import type { ChatMessage } from './types';
@@ -456,7 +456,7 @@ export async function processAgentAgentConversations() {
         convData.messages.push(message);
         convData.lastMessageAt = Date.now();
         
-        // Broadcast to any spectators (watch mode)
+        // Broadcast to spectators only (agent-agent conversations have no player participants)
         const chatEvent = {
           type: 'CHAT_MESSAGE' as const,
           messageId: message.id,
@@ -466,7 +466,7 @@ export async function processAgentAgentConversations() {
           timestamp: message.timestamp,
           conversationId: convData.conversationId
         };
-        broadcast(chatEvent);
+        broadcastToSpectators(chatEvent);
         
         console.log(`[Agent-Agent] ${speaker.displayName} → ${listener.displayName}: ${response.substring(0, 50)}...`);
         
@@ -496,7 +496,7 @@ export async function processAgentAgentConversations() {
               isPlayerControlled: false
             };
             convData.messages.push(farewellMsg);
-            broadcast({
+            broadcastToSpectators({
               type: 'CHAT_MESSAGE' as const,
               messageId: farewellMsg.id,
               senderId: farewellMsg.senderId,
