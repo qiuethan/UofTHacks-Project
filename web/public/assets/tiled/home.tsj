@@ -1,0 +1,14 @@
+{ "columns":14,
+ "image":"moderninteriors-win\/6_Home_Designs\/Generic_Home_Designs\/16x16\/Generic_Home_1_Layer_1.png",
+ "imageheight":224,
+ "imagewidth":224,
+ "margin":0,
+ "name":"home",
+ "spacing":0,
+ "tilecount":196,
+ "tiledversion":"1.11.2",
+ "tileheight":16,
+ "tilewidth":16,
+ "type":"tileset",
+ "version":"1.10"
+}

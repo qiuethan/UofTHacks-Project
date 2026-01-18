@@ -1,0 +1,14 @@
+{ "columns":11,
+ "image":"Sprout Lands - Sprites - Basic pack\/Tilesets\/Hills.png",
+ "imageheight":144,
+ "imagewidth":176,
+ "margin":0,
+ "name":"Hills_16x16",
+ "spacing":0,
+ "tilecount":99,
+ "tiledversion":"1.11.2",
+ "tileheight":16,
+ "tilewidth":16,
+ "type":"tileset",
+ "version":"1.10"
+}

@@ -66,12 +66,11 @@ export function generateFlowField(
     ];
     
     for (const neighbor of neighbors) {
-      // Check if 2x1 entity (width 2, height 1) can fit at this position
+      // Check if 1x1 entity can fit at this position
       const isValid =
-        neighbor.x >= 0 && neighbor.x + 1 < map.width &&
+        neighbor.x >= 0 && neighbor.x < map.width &&
         neighbor.y >= 0 && neighbor.y < map.height &&
-        !obstacles.has(`${neighbor.x},${neighbor.y}`) &&
-        !obstacles.has(`${neighbor.x + 1},${neighbor.y}`);
+        !obstacles.has(`${neighbor.x},${neighbor.y}`);
       
       if (!isValid) continue;
       

@@ -163,12 +163,12 @@ export default function PhaserGame({
     }
   }, [isReady]) // Initialize once ready
 
-  // Update game size when viewport changes (only for play mode which needs responsive sizing)
+  // Update game size when viewport changes
   useEffect(() => {
-    if (gameRef.current && mode === 'play') {
+    if (gameRef.current) {
       gameRef.current.scale.resize(viewportWidth, viewportHeight)
     }
-  }, [viewportWidth, viewportHeight, mode])
+  }, [viewportWidth, viewportHeight])
 
   return (
     <div 

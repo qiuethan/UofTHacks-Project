@@ -278,10 +278,10 @@ export default function GameView() {
       if (id === myEntityId) continue
       if (entity.kind === 'WALL') continue
       
-      // Calculate distance (center to center for 2x1 entities)
-      const centerX1 = me.x + 1
+      // Calculate distance (center to center for 1x1 entities)
+      const centerX1 = me.x + 0.5
       const centerY1 = me.y + 0.5
-      const centerX2 = entity.x + 1
+      const centerX2 = entity.x + 0.5
       const centerY2 = entity.y + 0.5
       const distance = Math.sqrt(
         Math.pow(centerX2 - centerX1, 2) + 

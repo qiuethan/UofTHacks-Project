@@ -2,10 +2,10 @@ import Phaser from 'phaser'
 import type { GameEntity, SceneData, WorldLocation } from '../types'
 import type { ChatMessage, LocationType } from '../../types/game'
 
-// Character sprite dimensions
-const SPRITE_WIDTH = 80
-const SPRITE_HEIGHT = 120  // Taller characters
-const GRID_SIZE = 32
+// Character sprite dimensions (2x2 tiles = 32px x 32px)
+const SPRITE_WIDTH = 32
+const SPRITE_HEIGHT = 32
+const GRID_SIZE = 16  // Matches 16px Tiled map tiles
 
 // Location type colors for rendering
 const LOCATION_COLORS: Record<LocationType, number> = {
@@ -59,7 +59,6 @@ export class GameScene extends Phaser.Scene {
   private lastDirection = { x: 0, y: 0 }
   private worldWidth = 0
   private worldHeight = 0
-  private background?: Phaser.GameObjects.Image
   private isInConversation = false
   private conversationZoomTween?: Phaser.Tweens.Tween
   private lastProcessedMessageId?: string
@@ -86,12 +85,37 @@ export class GameScene extends Phaser.Scene {
     // Create background from the loaded image - this defines the world size
     this.createBackground()
 
+    console.log(`[GameScene] World size: ${this.worldWidth}x${this.worldHeight}`)
+    console.log(`[GameScene] Camera size: ${this.cameras.main.width}x${this.cameras.main.height}`)
+    console.log(`[GameScene] Mode: ${mode}`)
+
     // Setup camera based on mode
     if (mode === 'watch') {
       this.setupWatchModeCamera()
     } else {
-      // Play mode: set world bounds, camera will follow player
+      // Play mode: camera will follow player with close-up zoom
+      const viewportWidth = this.cameras.main.width
+      const viewportHeight = this.cameras.main.height
+      
+      // Calculate zoom to fit the world in the viewport (for reference)
+      const fitZoomX = viewportWidth / this.worldWidth
+      const fitZoomY = viewportHeight / this.worldHeight
+      const fitZoom = Math.min(fitZoomX, fitZoomY)
+      
+      console.log(`[GameScene] Fit zoom: ${fitZoom} (X: ${fitZoomX}, Y: ${fitZoomY})`)
+      
+      // Use a much higher zoom for close-up gameplay (3-4x the fit zoom)
+      // This gives a zoomed-in view following the player
+      const playZoom = fitZoom * 3.5 // Zoom in 3.5x more than fit
+      this.cameras.main.setZoom(playZoom)
+      console.log(`[GameScene] Play zoom: ${playZoom}`)
+      
+      // Set bounds so camera doesn't show outside the world
       this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+      
+      // Center camera on world initially (before player entity spawns)
+      this.cameras.main.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+      console.log(`[GameScene] Camera centered on: ${this.worldWidth / 2}, ${this.worldHeight / 2}`)
     }
 
     // Setup keyboard input
@@ -117,28 +141,35 @@ export class GameScene extends Phaser.Scene {
     this.scale.on('resize', () => {
       if (this.sceneDataRef.current.mode === 'watch') {
         this.setupWatchModeCamera()
+      } else {
+        // Recalculate play mode zoom on resize
+        const viewportWidth = this.cameras.main.width
+        const viewportHeight = this.cameras.main.height
+        const fitZoomX = viewportWidth / this.worldWidth
+        const fitZoomY = viewportHeight / this.worldHeight
+        const fitZoom = Math.min(fitZoomX, fitZoomY)
+        const playZoom = fitZoom * 3.5 // Match the create() zoom calculation
+        this.cameras.main.setZoom(playZoom)
+        
+        // If not following a player yet, recenter the camera
+        const myEntityId = this.sceneDataRef.current.myEntityId
+        const mySprite = myEntityId ? this.entitySprites.get(myEntityId) : null
+        if (!mySprite) {
+          this.cameras.main.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+        }
       }
     })
   }
 
   private createBackground() {
-    if (this.textures.exists('background')) {
-      // Get the actual background image dimensions
-      const texture = this.textures.get('background')
-      const frame = texture.get()
-      
-      // World size matches the background image exactly
-      this.worldWidth = frame.width
-      this.worldHeight = frame.height
-
-      // Add background at origin, no scaling needed
-      this.background = this.add.image(0, 0, 'background')
-      this.background.setOrigin(0, 0)
-      this.background.setDepth(-1)
-    } else {
-      // Fallback if no background loaded
-      this.worldWidth = 1920
-      this.worldHeight = 1080
+    // Create the Tiled map
+    const map = this.make.tilemap({ key: 'mainMap' })
+    
+    if (!map) {
+      // Fallback if map not loaded
+      console.warn('[GameScene] Tiled map not loaded, using fallback')
+      this.worldWidth = 960
+      this.worldHeight = 640
       
       const bg = this.add.rectangle(
         this.worldWidth / 2,
@@ -148,7 +179,81 @@ export class GameScene extends Phaser.Scene {
         0x2d5a27
       )
       bg.setDepth(-1)
+      return
     }
+    
+    console.log('[GameScene] Loading Tiled map')
+    
+    // Add all tilesets (names must match those in the .tmj file)
+    // NOTE: Interiors_16x16 was 256x17024 pixels - split into 4 parts to fit 4096 texture limit
+    // home and Generic_Home_1_Layer_2_ have been padded to 224x224 to fix dimension issues
+    const tilesets = [
+      map.addTilesetImage('Hills_16x16', 'Hills_16x16'),
+      map.addTilesetImage('interior_room_16x16', 'interior_room_16x16'),
+      map.addTilesetImage('home', 'home'),
+      map.addTilesetImage('Generic_Home_1_Layer_2_', 'Generic_Home_1_Layer_2_'),
+      map.addTilesetImage('Room_Builder_16x16', 'Room_Builder_16x16'),
+      map.addTilesetImage('Tilled_Dirt_v2', 'Tilled_Dirt_v2'),
+      map.addTilesetImage('Gym_preview', 'Gym_preview'),
+      map.addTilesetImage('Interiors_16x16_part1', 'Interiors_16x16_part1'),
+      map.addTilesetImage('Interiors_16x16_part2', 'Interiors_16x16_part2'),
+      map.addTilesetImage('Interiors_16x16_part3', 'Interiors_16x16_part3'),
+      map.addTilesetImage('Interiors_16x16_part4', 'Interiors_16x16_part4'),
+      map.addTilesetImage('Tv_Studio_Design_layer_1', 'Tv_Studio_Design_layer_1'),
+      map.addTilesetImage('8_Gym_Black_Shadow_16x16', '8_Gym_Black_Shadow_16x16'),
+      map.addTilesetImage('14_Basement_Black_Shadow_16x16', '14_Basement_Black_Shadow_16x16'),
+      map.addTilesetImage('Museum_room_1_layer_1', 'Museum_room_1_layer_1'),
+      map.addTilesetImage('Museum_room_1_layer_2', 'Museum_room_1_layer_2'),
+      map.addTilesetImage('Tilled_Dirt_Wide', 'Tilled_Dirt_Wide'),
+      map.addTilesetImage('interior_furniture_16x16', 'interior_furniture_16x16'),
+    ].filter((ts): ts is Phaser.Tilemaps.Tileset => ts !== null)
+    
+    console.log(`[GameScene] Loaded ${tilesets.length} tilesets`)
+    
+    // Create all 16 layers in order (bottom to top)
+    // The layer names must match those in the .tmj file
+    const layerNames = [
+      'grass',                    // Base ground
+      'dirt',                     // Dirt paths
+      'house',                    // House structures
+      'landscaping',              // Landscaping
+      'Landscaping top layer',    // Landscaping top
+      'Food Court props',         // Food court
+      'Food court props upper layer', // Food court upper
+      'walls',                    // Wall structures
+      'computer room rug',        // Computer room base
+      'Computer room chairs',     // Computer room furniture
+      'computer room tables',     // Computer room tables
+      'Computer room computers',  // Computer room computers
+      'museum props',             // Museum items
+      'music room props',         // Music room items
+      'cafe',                     // Cafe items
+      'cafe2',                    // Cafe items upper
+    ]
+    
+    let layersCreated = 0
+    layerNames.forEach((layerName, index) => {
+      try {
+        const layer = map.createLayer(layerName, tilesets, 0, 0)
+        if (layer) {
+          // Set depth based on layer order
+          // Lower layers get negative depth, upper layers get positive
+          // This ensures proper rendering order
+          layer.setDepth(index - 10) // Start from -10 so entities at 0+ render above
+          layersCreated++
+        } else {
+          console.warn(`[GameScene] Layer "${layerName}" could not be created (may use missing tilesets)`)
+        }
+      } catch (error) {
+        console.warn(`[GameScene] Error creating layer "${layerName}":`, error)
+      }
+    })
+    
+    console.log(`[GameScene] Created ${layersCreated}/${layerNames.length} layers`)
+    
+    // Set world dimensions from the tilemap
+    this.worldWidth = map.widthInPixels  // 60 * 16 = 960px
+    this.worldHeight = map.heightInPixels // 40 * 16 = 640px
   }
 
   private setupWatchModeCamera() {
@@ -156,14 +261,20 @@ export class GameScene extends Phaser.Scene {
     const viewportHeight = this.cameras.main.height
     const { watchZoom } = this.sceneDataRef.current
     
+    console.log(`[GameScene] Watch mode - Viewport: ${viewportWidth}x${viewportHeight}, World: ${this.worldWidth}x${this.worldHeight}`)
+    
     // Calculate default zoom to fit entire background in viewport
     const zoomX = viewportWidth / this.worldWidth
     const zoomY = viewportHeight / this.worldHeight
     this.defaultWatchZoom = Math.min(zoomX, zoomY)
     
+    console.log(`[GameScene] Watch zoom calculation - X: ${zoomX}, Y: ${zoomY}, default: ${this.defaultWatchZoom}`)
+    
     // watchZoom is a multiplier: undefined/1.0 = default, 2.0 = 2x default, etc.
     const zoomMultiplier = watchZoom !== undefined ? watchZoom : 1.0
     const actualZoom = this.defaultWatchZoom * zoomMultiplier
+    
+    console.log(`[GameScene] Watch actual zoom: ${actualZoom}`)
     
     this.cameras.main.setZoom(actualZoom)
     this.cameras.main.removeBounds()
@@ -280,12 +391,20 @@ export class GameScene extends Phaser.Scene {
         const myEntityId = this.sceneDataRef.current.myEntityId
         if (myEntityId) {
           const mySprite = this.entitySprites.get(myEntityId)
-          if (mySprite) {
-            this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
-            this.cameras.main.startFollow(mySprite.container, true, 0.1, 0.1)
-            this.cameras.main.setZoom(0.75)
-            this.cameras.main.setDeadzone(0, 0)
-          }
+      if (mySprite) {
+        // Calculate appropriate zoom for play mode
+        const viewportWidth = this.cameras.main.width
+        const viewportHeight = this.cameras.main.height
+        const fitZoomX = viewportWidth / this.worldWidth
+        const fitZoomY = viewportHeight / this.worldHeight
+        const fitZoom = Math.min(fitZoomX, fitZoomY)
+        const playZoom = fitZoom * 3.5
+        
+        this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+        this.cameras.main.startFollow(mySprite.container, true, 0.1, 0.1)
+        this.cameras.main.setZoom(playZoom)
+        this.cameras.main.setDeadzone(0, 0)
+      }
         }
       } else {
         // In watch mode, return to overview
@@ -296,10 +415,18 @@ export class GameScene extends Phaser.Scene {
     
     const entitySprite = this.entitySprites.get(entityId)
     if (entitySprite) {
+      // Calculate appropriate zoom for play mode
+      const viewportWidth = this.cameras.main.width
+      const viewportHeight = this.cameras.main.height
+      const fitZoomX = viewportWidth / this.worldWidth
+      const fitZoomY = viewportHeight / this.worldHeight
+      const fitZoom = Math.min(fitZoomX, fitZoomY)
+      const playZoom = fitZoom * 3.5
+      
       // Match exact play mode camera settings
       this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
       this.cameras.main.startFollow(entitySprite.container, true, 0.1, 0.1)
-      this.cameras.main.setZoom(0.75)
+      this.cameras.main.setZoom(playZoom)
       this.cameras.main.setDeadzone(0, 0)
     }
   }
@@ -521,6 +648,14 @@ export class GameScene extends Phaser.Scene {
     // Stop following player
     this.cameras.main.stopFollow()
     
+    // Calculate appropriate zoom (slightly more than play zoom for conversation focus)
+    const viewportWidth = this.cameras.main.width
+    const viewportHeight = this.cameras.main.height
+    const fitZoomX = viewportWidth / this.worldWidth
+    const fitZoomY = viewportHeight / this.worldHeight
+    const fitZoom = Math.min(fitZoomX, fitZoomY)
+    const conversationZoom = fitZoom * 4.5 // Slightly more zoomed than play mode
+    
     // Smoothly zoom in and pan to conversation center
     if (this.conversationZoomTween) {
       this.conversationZoomTween.stop()
@@ -528,9 +663,9 @@ export class GameScene extends Phaser.Scene {
     
     this.conversationZoomTween = this.tweens.add({
       targets: this.cameras.main,
-      zoom: 1.5,
-      scrollX: centerX - this.cameras.main.width / 2 / 1.5,
-      scrollY: centerY - this.cameras.main.height / 2 / 1.5,
+      zoom: conversationZoom,
+      scrollX: centerX - this.cameras.main.width / 2 / conversationZoom,
+      scrollY: centerY - this.cameras.main.height / 2 / conversationZoom,
       duration: 500,
       ease: 'Sine.easeInOut'
     })
@@ -544,10 +679,18 @@ export class GameScene extends Phaser.Scene {
       this.conversationZoomTween.stop()
     }
     
+    // Calculate appropriate play mode zoom
+    const viewportWidth = this.cameras.main.width
+    const viewportHeight = this.cameras.main.height
+    const fitZoomX = viewportWidth / this.worldWidth
+    const fitZoomY = viewportHeight / this.worldHeight
+    const fitZoom = Math.min(fitZoomX, fitZoomY)
+    const playZoom = fitZoom * 3.5
+    
     // Zoom back out
     this.conversationZoomTween = this.tweens.add({
       targets: this.cameras.main,
-      zoom: 0.75,
+      zoom: playZoom,
       duration: 300,
       ease: 'Sine.easeOut',
       onComplete: () => {
@@ -686,10 +829,10 @@ export class GameScene extends Phaser.Scene {
     const existing = this.entitySprites.get(entity.entityId)
     
     // Convert grid position to pixel position
-    // Entity hitbox is 2x1 (bottom row only), so position at the hitbox center
+    // Entity hitbox is 1x1, position at the center
     // Visual sprite extends upward from the hitbox
-    const targetX = entity.x * GRID_SIZE + GRID_SIZE  // Center of 2-wide hitbox
-    const targetY = entity.y * GRID_SIZE + GRID_SIZE / 2  // Center of 1-tall hitbox
+    const targetX = entity.x * GRID_SIZE + GRID_SIZE / 2  // Center of 1x1 hitbox
+    const targetY = entity.y * GRID_SIZE + GRID_SIZE / 2  // Center of 1x1 hitbox
 
     if (existing) {
       // Check if entity's grid position has changed (works for player and AI)
@@ -853,8 +996,16 @@ export class GameScene extends Phaser.Scene {
       })
       
       if (this.sceneDataRef.current.mode === 'play') {
+        // Calculate appropriate zoom for play mode
+        const viewportWidth = this.cameras.main.width
+        const viewportHeight = this.cameras.main.height
+        const fitZoomX = viewportWidth / this.worldWidth
+        const fitZoomY = viewportHeight / this.worldHeight
+        const fitZoom = Math.min(fitZoomX, fitZoomY)
+        const playZoom = fitZoom * 3.5
+        
         this.cameras.main.startFollow(container, true, 0.1, 0.1)
-        this.cameras.main.setZoom(0.75)
+        this.cameras.main.setZoom(playZoom)
         this.cameras.main.setDeadzone(0, 0)
       }
     }

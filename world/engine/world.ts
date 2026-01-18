@@ -196,9 +196,8 @@ export class World {
         // Walls are 1x1
         staticObstacles.add(`${e.x},${e.y}`);
       } else {
-        // Players and Robots are 2x1 (width 2, height 1)
+        // Players and Robots are 1x1
         dynamicObstacles.add(`${e.x},${e.y}`);
-        dynamicObstacles.add(`${e.x + 1},${e.y}`);
       }
     }
 
@@ -294,12 +293,7 @@ export class World {
           
           if (needsReplan) {
             // Replan path using BFS
-            const selfCells = [
-              `${entity.x},${entity.y}`,
-              `${entity.x + 1},${entity.y}`,
-              `${entity.x},${entity.y + 1}`,
-              `${entity.x + 1},${entity.y + 1}`
-            ];
+            const selfCells = [`${entity.x},${entity.y}`];
             
             // Exclude self and partner from obstacles
             const pathObstacles = new Set(staticObstacles);
@@ -315,19 +309,11 @@ export class World {
               const partner = this.state.entities.get(entity.conversationTargetId);
               if (partner) {
                 pathObstacles.delete(`${partner.x},${partner.y}`);
-                pathObstacles.delete(`${partner.x + 1},${partner.y}`);
-                pathObstacles.delete(`${partner.x},${partner.y + 1}`);
-                pathObstacles.delete(`${partner.x + 1},${partner.y + 1}`);
               }
             }
             
             // Also explicitly exclude target area cells
-            const targetCells = [
-              `${target.x},${target.y}`,
-              `${target.x + 1},${target.y}`,
-              `${target.x},${target.y + 1}`,
-              `${target.x + 1},${target.y + 1}`
-            ];
+            const targetCells = [`${target.x},${target.y}`];
             targetCells.forEach(c => pathObstacles.delete(c));
             
             plannedPath = findPath(this.state.map, { x: entity.x, y: entity.y }, target, pathObstacles) || undefined;
@@ -724,15 +710,15 @@ export class World {
     
     // Calculate position adjacent to target in the direction they're facing
     // Calculate the closest adjacent position to the initiator
-    // Entities are 2x1 (width 2, height 1), so adjacent positions are:
-    // - Right: x + 2, y
-    // - Left: x - 2, y
+    // Entities are 1x1, so adjacent positions are:
+    // - Right: x + 1, y
+    // - Left: x - 1, y
     // - Down: x, y + 1
     // - Up: x, y - 1
     
     const possiblePositions = [
-      { x: target.x + 2, y: target.y }, // Right
-      { x: target.x - 2, y: target.y }, // Left
+      { x: target.x + 1, y: target.y }, // Right
+      { x: target.x - 1, y: target.y }, // Left
       { x: target.x, y: target.y + 1 }, // Down
       { x: target.x, y: target.y - 1 }  // Up
     ];

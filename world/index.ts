@@ -14,7 +14,7 @@ export type { Avatar } from './entities/avatar';
 export type { Entity, SpriteUrls } from './entities/entity';
 
 // Map
-export { createMapDef, isInBounds, clampToBounds } from './map';
+export { createMapDef, isInBounds, clampToBounds, isTileBlocked, MAIN_MAP } from './map';
 export type { MapDef } from './map';
 
 // Actions & Events
@@ -71,3 +71,6 @@ export type { MoveProposal } from './utils/reservations';
 
 // WHCA* cooperative pathfinding
 export { planCooperativePaths, getNextMove } from './utils/whca';
+
+// Pathfinding
+export { findPath } from './utils/pathfinding';

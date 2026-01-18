@@ -5,15 +5,20 @@
 export interface MapDef {
   readonly width: number;
   readonly height: number;
-  // TODO: Add blocked tiles array for collision support
-  // readonly blockedTiles?: ReadonlySet<string>; // e.g., "x,y" format
+  /** Optional collision grid in row-major order [y][x]. true = blocked, false = walkable */
+  readonly collisionGrid?: ReadonlyArray<ReadonlyArray<boolean>>;
 }
 
 /** Create a new map definition */
-export function createMapDef(width: number, height: number): MapDef {
+export function createMapDef(
+  width: number,
+  height: number,
+  collisionGrid?: ReadonlyArray<ReadonlyArray<boolean>>
+): MapDef {
   return {
     width: Math.max(1, Math.floor(width)),
     height: Math.max(1, Math.floor(height)),
+    collisionGrid,
   };
 }
 
@@ -34,5 +39,20 @@ export function clampToBounds(
   };
 }
 
-// TODO: Add collision detection helpers
-// export function isTileBlocked(map: MapDef, x: number, y: number): boolean
+/**
+ * Check if a tile is blocked by static map obstacles.
+ * Returns true if out of bounds or if the tile is marked as blocked.
+ */
+export function isTileBlocked(map: MapDef, x: number, y: number): boolean {
+  // Out of bounds = blocked
+  if (!isInBounds(map, x, y)) {
+    return true;
+  }
+
+  // Check collision grid if available
+  if (map.collisionGrid && map.collisionGrid[y] && map.collisionGrid[y][x]) {
+    return true;
+  }
+
+  return false;
+}

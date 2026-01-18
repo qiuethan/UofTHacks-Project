@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGL Max Texture Size Test</title>
+</head>
+<body>
+    <h1>WebGL Max Texture Size Test</h1>
+    <div id="output"></div>
+    
+    <script>
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            console.log('gl =', gl);
+            
+            const outputDiv = document.getElementById('output');
+            
+            if (!gl) {
+                outputDiv.innerHTML = '<p style="color: red;">WebGL context creation failed</p>';
+                throw new Error('WebGL context creation failed');
+            }
+            
+            const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+            console.log('MAX_TEXTURE_SIZE =', maxTextureSize);
+            
+            outputDiv.innerHTML = `
+                <p><strong>WebGL Context:</strong> ${gl ? 'Created successfully' : 'Failed'}</p>
+                <p><strong>MAX_TEXTURE_SIZE:</strong> ${maxTextureSize}</p>
+                <p><strong>WebGL Version:</strong> ${gl.getParameter(gl.VERSION)}</p>
+                <p><strong>Renderer:</strong> ${gl.getParameter(gl.RENDERER)}</p>
+                <p><strong>Vendor:</strong> ${gl.getParameter(gl.VENDOR)}</p>
+            `;
+        } catch (error) {
+            document.getElementById('output').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+    </script>
+</body>
+</html>

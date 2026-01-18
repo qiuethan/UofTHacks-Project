@@ -36,14 +36,11 @@ export class ReservationTable {
   }
   
   /**
-   * Check if a 2x1 entity (width 2, height 1) can reserve a position at time t
+   * Check if a 1x1 entity can reserve a position at time t
    */
   canReserve(entityId: string, pos: Point, time: number): boolean {
-    // Check both cells of the 2x1 entity
-    const cells = [
-      { x: pos.x, y: pos.y },
-      { x: pos.x + 1, y: pos.y },
-    ];
+    // Check the cell of the 1x1 entity
+    const cells = [{ x: pos.x, y: pos.y }];
     
     for (const cell of cells) {
       const key = `${cell.x},${cell.y},${time}`;
@@ -61,7 +58,7 @@ export class ReservationTable {
    * Also checks for swap conflicts (opposite edge)
    */
   canReserveEdge(entityId: string, from: Point, to: Point, time: number): boolean {
-    // For 2x1 entities, check the top-left cell movement
+    // For 1x1 entities, check the cell movement
     const edgeKey = `${from.x},${from.y},${to.x},${to.y},${time}`;
     const swapKey = `${to.x},${to.y},${from.x},${from.y},${time}`;
     
@@ -80,13 +77,10 @@ export class ReservationTable {
   }
   
   /**
-   * Reserve a position for a 2x1 entity (width 2, height 1) at time t
+   * Reserve a position for a 1x1 entity at time t
    */
   reserveVertex(entityId: string, pos: Point, time: number): void {
-    const cells = [
-      { x: pos.x, y: pos.y },
-      { x: pos.x + 1, y: pos.y },
-    ];
+    const cells = [{ x: pos.x, y: pos.y }];
     
     for (const cell of cells) {
       const key = `${cell.x},${cell.y},${time}`;
