@@ -1,4 +1,4 @@
-# UofTHacks 2026 Project: Avatar World
+# UofTHacks 2026 Project: Identity Matrix
 
 A multiplayer virtual world where users can create avatars, move around in real-time, and have their avatars taken over by AI when they go offline.
 

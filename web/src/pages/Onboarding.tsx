@@ -229,8 +229,8 @@ export default function Onboarding() {
           <div className="w-32"></div>
           
           {/* Center logo */}
-          <div className="absolute left-1/2 -translate-x-1/2 text-black font-bold text-2xl">
-            WORLD
+          <div className="absolute left-1/2 -translate-x-1/2">
+            <img src="/logo.png" alt="Logo" className="h-12" style={{ imageRendering: 'pixelated' }} />
           </div>
           
           {/* Right - Enter button */}
@@ -242,10 +242,10 @@ export default function Onboarding() {
             {isCompleting ? (
               <>
                 <div className="w-3 h-3 border-2 border-white border-t-transparent animate-spin"></div>
-                <span>Entering World...</span>
+                <span>Entering Identity Matrix...</span>
               </>
             ) : (
-              <span>Enter World →</span>
+              <span>Enter Identity Matrix →</span>
             )}
           </button>
         </div>
@@ -464,7 +464,7 @@ export default function Onboarding() {
             </span>
           </div>
           <p className="text-xs text-black/60">
-            {canProceed ? 'Ready to enter the world!' : 'Complete all steps to continue'}
+            {canProceed ? 'Ready to enter the Identity Matrix!' : 'Complete all steps to continue'}
           </p>
         </div>
       </div>

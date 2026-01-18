@@ -122,7 +122,7 @@ async def chat_onboarding(req: OnboardingChatRequest, user = Depends(get_current
 
     # 3. Construct LLM Prompt
     system_instruction = f"""
-    You are a friendly, casual interviewer for a virtual world called 'Avatar World'. 
+    You are a friendly, casual interviewer for a virtual world called 'Identity Matrix'. 
     Your goal is to welcome the new user and get to know them by getting answers to the following questions.
     
     REQUIRED QUESTIONS:
