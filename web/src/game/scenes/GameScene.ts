@@ -1,6 +1,9 @@
 import Phaser from 'phaser'
 import type { GameEntity, SceneData } from '../types'
 import type { ChatMessage } from '../../types/game'
+import { findPath } from '../../../../world/utils/pathfinding'
+import { createMapDef } from '../../../../world/map/mapDef'
+import { COLLISION_GRID, MAP_WIDTH, MAP_HEIGHT } from '../../../../world/map/collisionData'
 
 // Character sprite dimensions (2x2 tiles = 32px x 32px)
 const SPRITE_WIDTH = 32
@@ -51,6 +54,9 @@ export class GameScene extends Phaser.Scene {
   private lastWheelTime = 0 // Track last wheel event to debounce
   private wheelDebounceMs = 50 // Minimum time between wheel events
   private followingEntityId: string | null = null
+  // Click-to-move pathfinding state
+  private currentPath: Array<{ x: number; y: number }> = []
+  private pathIndex = 0
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -105,6 +111,16 @@ export class GameScene extends Phaser.Scene {
         S: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
       }
+    }
+
+    // Setup click-to-move for play mode
+    if (mode !== 'watch') {
+      this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        // Only handle left click
+        if (pointer.leftButtonDown()) {
+          this.handleClickToMove(pointer)
+        }
+      })
     }
 
     // Initial entity rendering
@@ -1166,6 +1182,70 @@ export class GameScene extends Phaser.Scene {
     return '↓'
   }
 
+  private handleClickToMove(pointer: Phaser.Input.Pointer) {
+    const myEntityId = this.sceneDataRef.current.myEntityId
+    const myEntity = myEntityId ? this.sceneDataRef.current.entities.get(myEntityId) : null
+    
+    if (!myEntity) {
+      console.log('[GameScene] Cannot pathfind: player entity not found')
+      return
+    }
+
+    // Convert screen coordinates to world coordinates
+    const worldX = pointer.worldX
+    const worldY = pointer.worldY
+    
+    // Convert world coordinates (pixels) to tile coordinates
+    const targetTileX = Math.floor(worldX / GRID_SIZE)
+    const targetTileY = Math.floor(worldY / GRID_SIZE)
+    
+    console.log(`[GameScene] Click at screen (${pointer.x}, ${pointer.y}) -> world (${worldX}, ${worldY}) -> tile (${targetTileX}, ${targetTileY})`)
+    
+    // Get current player position
+    const startTileX = Math.floor(myEntity.x)
+    const startTileY = Math.floor(myEntity.y)
+    
+    // Check if clicked on the same tile
+    if (startTileX === targetTileX && startTileY === targetTileY) {
+      console.log('[GameScene] Clicked on current position, ignoring')
+      return
+    }
+    
+    // Create map definition for pathfinding
+    const mapDef = createMapDef(MAP_WIDTH, MAP_HEIGHT, COLLISION_GRID)
+    
+    // Build obstacles set from other entities (walls and other players/robots)
+    const obstacles = new Set<string>()
+    for (const [entityId, entity] of this.sceneDataRef.current.entities) {
+      // Skip self
+      if (entityId === myEntityId) continue
+      
+      // Add walls and other entities as obstacles
+      if (entity.kind === 'WALL' || entity.kind === 'PLAYER' || entity.kind === 'ROBOT') {
+        obstacles.add(`${Math.floor(entity.x)},${Math.floor(entity.y)}`)
+      }
+    }
+    
+    // Find path
+    const path = findPath(
+      mapDef,
+      { x: startTileX, y: startTileY },
+      { x: targetTileX, y: targetTileY },
+      obstacles
+    )
+    
+    if (path) {
+      console.log(`[GameScene] Path found with ${path.length} waypoints`)
+      this.currentPath = path
+      this.pathIndex = 0
+    } else {
+      console.log('[GameScene] No path found to target')
+      // Clear any existing path
+      this.currentPath = []
+      this.pathIndex = 0
+    }
+  }
+
   update(time: number) {
     const { mode, inputEnabled, onDirectionChange } = this.sceneDataRef.current
     
@@ -1184,18 +1264,68 @@ export class GameScene extends Phaser.Scene {
     let dx: -1 | 0 | 1 = 0
     let dy: -1 | 0 | 1 = 0
 
-    if (this.cursors) {
-      if (this.cursors.up.isDown) dy = -1
-      else if (this.cursors.down.isDown) dy = 1
-      if (this.cursors.left.isDown) dx = -1
-      else if (this.cursors.right.isDown) dx = 1
+    // Check for keyboard input first - if any key is pressed, cancel pathfinding
+    const hasKeyboardInput = 
+      (this.cursors && (this.cursors.up.isDown || this.cursors.down.isDown || this.cursors.left.isDown || this.cursors.right.isDown)) ||
+      (this.wasd && (this.wasd.W.isDown || this.wasd.S.isDown || this.wasd.A.isDown || this.wasd.D.isDown))
+
+    if (hasKeyboardInput) {
+      // Cancel path following if keyboard is used
+      this.currentPath = []
+      this.pathIndex = 0
     }
 
-    if (this.wasd) {
-      if (this.wasd.W.isDown) dy = -1
-      else if (this.wasd.S.isDown) dy = 1
-      if (this.wasd.A.isDown) dx = -1
-      else if (this.wasd.D.isDown) dx = 1
+    // Follow path if one exists
+    if (this.currentPath.length > 0 && this.pathIndex < this.currentPath.length) {
+      const myEntityId = this.sceneDataRef.current.myEntityId
+      const myEntity = myEntityId ? this.sceneDataRef.current.entities.get(myEntityId) : null
+      
+      if (myEntity) {
+        const nextWaypoint = this.currentPath[this.pathIndex]
+        
+        // Check if we've reached the current waypoint
+        if (myEntity.x === nextWaypoint.x && myEntity.y === nextWaypoint.y) {
+          this.pathIndex++
+          
+          // If we've reached the end of the path, stop moving
+          if (this.pathIndex >= this.currentPath.length) {
+            dx = 0
+            dy = 0
+            this.currentPath = []
+            this.pathIndex = 0
+          } else {
+            // Move to next waypoint
+            const newWaypoint = this.currentPath[this.pathIndex]
+            dx = Math.sign(newWaypoint.x - myEntity.x) as -1 | 0 | 1
+            dy = Math.sign(newWaypoint.y - myEntity.y) as -1 | 0 | 1
+          }
+        } else {
+          // Continue moving towards the current waypoint
+          dx = Math.sign(nextWaypoint.x - myEntity.x) as -1 | 0 | 1
+          dy = Math.sign(nextWaypoint.y - myEntity.y) as -1 | 0 | 1
+        }
+      }
+    } else if (!hasKeyboardInput) {
+      // No path and no keyboard input - stop
+      dx = 0
+      dy = 0
+    }
+
+    // Handle keyboard input if no path is active
+    if (this.currentPath.length === 0) {
+      if (this.cursors) {
+        if (this.cursors.up.isDown) dy = -1
+        else if (this.cursors.down.isDown) dy = 1
+        if (this.cursors.left.isDown) dx = -1
+        else if (this.cursors.right.isDown) dx = 1
+      }
+
+      if (this.wasd) {
+        if (this.wasd.W.isDown) dy = -1
+        else if (this.wasd.S.isDown) dy = 1
+        if (this.wasd.A.isDown) dx = -1
+        else if (this.wasd.D.isDown) dx = 1
+      }
     }
 
     if (dx !== this.lastDirection.x || dy !== this.lastDirection.y) {
