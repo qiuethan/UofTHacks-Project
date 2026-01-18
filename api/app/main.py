@@ -270,6 +270,12 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     elif action_type in ["join_conversation", "leave_conversation"]:
         return {"action": "STAND_STILL", "duration": 1.0}
     
+    elif action_type == "avoid_avatar":
+        # Move away from disliked avatar
+        if target and target.get("x") is not None and target.get("y") is not None:
+            return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
+        return None
+    
     elif action_type == "move":
         if target and target.get("x") is not None and target.get("y") is not None:
             return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}

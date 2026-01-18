@@ -164,6 +164,22 @@ def execute_action(
     elif action.action_type == ActionType.LEAVE_CONVERSATION:
         logger.info(f"Avatar {context.avatar_id} left the conversation")
     
+    elif action.action_type == ActionType.AVOID_AVATAR:
+        # Move away from disliked avatar
+        if action.target and action.target.x is not None and action.target.y is not None:
+            # Move towards flee position
+            dx = action.target.x - context.x
+            dy = action.target.y - context.y
+            distance = max(1, (dx**2 + dy**2) ** 0.5)
+            # Move up to 4 units per tick (faster than normal walking)
+            move_factor = min(1.0, 4.0 / distance)
+            new_x = context.x + int(dx * move_factor)
+            new_y = context.y + int(dy * move_factor)
+            agent_db.update_avatar_position(client, context.avatar_id, new_x, new_y)
+            state = apply_interaction_effects(state, {"energy": -0.03, "mood": -0.05})  # Fleeing is stressful
+            target_name = action.target.target_id[:8] if action.target.target_id else "unknown"
+            logger.info(f"Avatar {context.avatar_id} avoiding avatar {target_name} - moving to ({new_x}, {new_y})")
+    
     # Update the current action in state
     state.current_action = action.action_type.value
     state.current_action_target = action.target.model_dump() if action.target else None
