@@ -1721,6 +1721,53 @@ def get_user_conversations(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# RESPAWN ENDPOINT
+# ============================================================================
+
+@app.post("/player/{user_id}/respawn")
+async def respawn_player(user_id: str):
+    """
+    Respawn a player to the center of the map.
+    This is called from the game UI when a player wants to respawn.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    try:
+        # Map dimensions (matching realtime-server config)
+        MAP_WIDTH = 60
+        MAP_HEIGHT = 40
+        
+        # Spawn in the middle
+        center_x = MAP_WIDTH // 2
+        center_y = MAP_HEIGHT // 2
+        
+        # Update the user's position in the database
+        result = supabase.table("user_positions").update({
+            "x": center_x,
+            "y": center_y,
+            "facing_x": 0,
+            "facing_y": 1  # Face down
+        }).eq("user_id", user_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "ok": True, 
+            "x": center_x, 
+            "y": center_y,
+            "message": "Respawned to center of map"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error respawning player: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3003)

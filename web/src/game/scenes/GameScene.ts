@@ -20,16 +20,16 @@ const LOCATION_COLORS: Record<LocationType, number> = {
 }
 
 // Location dot size
-const LOCATION_DOT_SIZE = 16
+const LOCATION_DOT_SIZE = 8
 
 // Sprite loading configuration
 const SPRITE_LOAD_MAX_RETRIES = 3
 const SPRITE_LOAD_RETRY_DELAY = 1000
 
 // Chat bubble configuration
-const CHAT_BUBBLE_MAX_WIDTH = 220
-const CHAT_BUBBLE_MIN_WIDTH = 80
-const CHAT_BUBBLE_MAX_CHARS = 80  // Max characters before truncation
+const CHAT_BUBBLE_MAX_WIDTH = 150
+const CHAT_BUBBLE_MIN_WIDTH = 50
+const CHAT_BUBBLE_MAX_CHARS = 60  // Max characters before truncation
 const CHAT_BUBBLE_DISPLAY_TIME = 6000  // ms to show each message
 
 interface EntitySprite {
@@ -563,13 +563,13 @@ export class GameScene extends Phaser.Scene {
     // Create text first to measure its width
     const nameText = this.add.text(0, 0, location.name, {
       fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
+      fontSize: '9px',
       fontStyle: 'bold',
       color: '#000000'
     }).setOrigin(0.5)
     
     // Size background based on text
-    const padding = 8
+    const padding = 5
     const bannerWidth = nameText.width + padding * 2
     const bannerHeight = nameText.height + padding
     
@@ -745,9 +745,9 @@ export class GameScene extends Phaser.Scene {
     // Text style with word wrap
     const textStyle = {
       fontFamily: '"Nunito", Arial, sans-serif',
-      fontSize: '13px',
+      fontSize: '9px',
       color: '#000000',
-      wordWrap: { width: CHAT_BUBBLE_MAX_WIDTH - 20, useAdvancedWrap: true }
+      wordWrap: { width: CHAT_BUBBLE_MAX_WIDTH - 12, useAdvancedWrap: true }
     }
     
     // Create temp text to measure dimensions
@@ -757,9 +757,9 @@ export class GameScene extends Phaser.Scene {
     tempText.destroy()
     
     // Calculate bubble dimensions
-    const padding = 12
+    const padding = 8
     const bubbleWidth = Math.max(CHAT_BUBBLE_MIN_WIDTH, Math.min(measuredWidth + padding * 2, CHAT_BUBBLE_MAX_WIDTH))
-    const bubbleHeight = Math.max(28, measuredHeight + padding)
+    const bubbleHeight = Math.max(18, measuredHeight + padding)
     
     // Background colors based on who's speaking
     const bgColor = isMe ? 0x007a28 : 0xFFF8F0  // Green for me, cream for others
@@ -965,7 +965,7 @@ export class GameScene extends Phaser.Scene {
       container.add(rect)
       
       const arrowText = this.add.text(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, this.getFacingArrow(entity.facing), {
-        fontSize: '24px',
+        fontSize: '14px',
         color: '#000000'
       }).setOrigin(0.5)
       container.add(arrowText)
@@ -994,9 +994,9 @@ export class GameScene extends Phaser.Scene {
 
     // Player highlight and camera setup
     if (isMe) {
-      // Arrow pointing down above the player's head (moved up higher)
-      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 40, '▼', {
-        fontSize: '36px',
+      // Arrow pointing down above the player's head
+      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 20, '▼', {
+        fontSize: '18px',
         color: '#000000'
       }).setOrigin(0.5)
       container.add(arrow)
@@ -1004,7 +1004,7 @@ export class GameScene extends Phaser.Scene {
       // Add bobbing animation to the arrow
       this.tweens.add({
         targets: arrow,
-        y: arrow.y - 8,
+        y: arrow.y - 4,
         duration: 500,
         yoyo: true,
         repeat: -1,
@@ -1139,7 +1139,7 @@ export class GameScene extends Phaser.Scene {
     
     const initial = (entity.displayName || '?')[0].toUpperCase()
     const text = this.add.text(0, 0, initial, {
-      fontSize: '28px',
+      fontSize: '16px',
       fontStyle: 'bold',
       color: '#000000'
     }).setOrigin(0.5)
@@ -1293,13 +1293,13 @@ export class GameScene extends Phaser.Scene {
     // Create text first to measure its width
     const nameText = this.add.text(0, 0, name, {
       fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
+      fontSize: '10px',
       fontStyle: 'bold',
       color: '#000000'
     }).setOrigin(0.5)
     
-    // Size background based on text - larger padding for retro look
-    const padding = 10
+    // Size background based on text
+    const padding = 6
     const bannerWidth = nameText.width + padding * 2
     const bannerHeight = nameText.height + padding
     // Sharp corners for pixel aesthetic (cornerRadius = 2)

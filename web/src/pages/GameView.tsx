@@ -12,7 +12,7 @@ import { useGameSocket } from '../hooks'
 import { CONVERSATION_CONFIG, API_CONFIG } from '../config/constants'
 import type { GameEntity, WorldLocation, PlayerActivityState } from '../game/types'
 import type { Entity, LocationType } from '../types/game'
-import { Utensils, Mic, Sofa, Users, Compass, MapPin, X } from 'lucide-react'
+import { Utensils, Mic, Sofa, Users, Compass, MapPin, X, RotateCcw } from 'lucide-react'
 
 // Location type colors for rendering
 const LOCATION_COLORS: Record<LocationType, string> = {
@@ -58,7 +58,7 @@ export default function GameView() {
   const [activityEndTime, setActivityEndTime] = useState<number | null>(null)
   const [activityTimeLeft, setActivityTimeLeft] = useState<number>(0)
   const activityTimerRef = useRef<NodeJS.Timeout | null>(null)
-
+  
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
     token: session?.access_token,
@@ -89,7 +89,8 @@ export default function GameView() {
     rejectConversation, 
     endConversation,
     clearNotification,
-    sendChatMessage
+    sendChatMessage,
+    respawn
   } = gameActions
 
   // Fetch world locations on mount
@@ -368,6 +369,20 @@ export default function GameView() {
         playerActivityState={playerActivityState}
         currentLocationId={currentLocationId}
       />
+
+      {/* Respawn Button (top right, near profile) */}
+      {connected && !inConversationWith && !isWalkingToConversation && (
+        <div className="fixed top-20 right-6 z-50">
+          <button
+            onClick={respawn}
+            className="px-3 py-1.5 text-xs font-medium bg-[#FFF8F0] text-black border-2 border-black shadow-[2px_2px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-1.5"
+            title="Respawn to center of map"
+          >
+            <RotateCcw size={12} />
+            Respawn
+          </button>
+        </div>
+      )}
 
       {/* Agent Sidebar */}
       <AgentSidebar
