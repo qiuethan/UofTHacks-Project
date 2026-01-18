@@ -152,7 +152,7 @@ def execute_action(
                     # Log in the same format as player activities for consistency
                     short_id = context.avatar_id[:8]
                     print(f"[Activity] {short_id} started {interact_action.value} at {location.name}")
-                    logger.info(f"Avatar {context.avatar_id} ARRIVED at '{location.name}' - starting {interact_action.value} for {chosen_duration}s (affinity: {affinity:.0%})")
+                    logger.info(f"Avatar {context.avatar_id} ARRIVED at '{location.name}' - starting {interact_action.value} for {chosen_duration}s")
                     result = "arrived_started_activity"
                 else:
                     # Move towards location (up to 3 units per tick)
