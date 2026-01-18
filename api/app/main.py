@@ -286,29 +286,116 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
 
 
 def get_random_move_target(req: AgentRequest) -> dict:
-    """Generate a random move target avoiding obstacles."""
+    """
+    Generate a move target with social bias - moving towards liked entities
+    and away from disliked ones, with some randomness.
+    """
+    import math
+    
     MARGIN = 2
     min_x = MARGIN
     max_x = max(min_x + 1, req.map_width - MARGIN - 2)
     min_y = MARGIN
     max_y = max(min_y + 1, req.map_height - MARGIN - 2)
     
+    current_x = req.x if req.x else (max_x // 2)
+    current_y = req.y if req.y else (max_y // 2)
+    
+    # Calculate social influence from nearby entities
+    social_dx = 0.0
+    social_dy = 0.0
+    total_weight = 0.0
+    
+    if req.nearby_entities:
+        client = agent_db.get_supabase_client()
+        
+        for entity in req.nearby_entities:
+            if entity.get("kind") not in ["PLAYER", "ROBOT"]:
+                continue
+            if entity.get("entityId") == req.robot_id:
+                continue
+                
+            ex = entity.get("x", current_x)
+            ey = entity.get("y", current_y)
+            
+            # Calculate direction to entity
+            dx = ex - current_x
+            dy = ey - current_y
+            distance = max(1, math.sqrt(dx**2 + dy**2))
+            dx_norm = dx / distance
+            dy_norm = dy / distance
+            
+            # Get sentiment if possible
+            sentiment = 0.0
+            if client:
+                memory = agent_db.get_social_memory(client, req.robot_id, entity.get("entityId", ""))
+                if memory:
+                    sentiment = memory.sentiment
+                else:
+                    # Unknown person - slight attraction (curiosity)
+                    sentiment = 0.1
+            
+            # Distance weight (closer = more influence)
+            distance_weight = 1.0 / (1.0 + distance * 0.1)
+            
+            # Sentiment determines direction
+            influence = sentiment * distance_weight
+            
+            social_dx += dx_norm * influence
+            social_dy += dy_norm * influence
+            total_weight += abs(influence)
+    
+    # Normalize social influence
+    if total_weight > 0:
+        social_dx /= total_weight
+        social_dy /= total_weight
+        
+        # Scale to reasonable distance
+        social_magnitude = math.sqrt(social_dx**2 + social_dy**2)
+        if social_magnitude > 0:
+            social_dx = (social_dx / social_magnitude) * 10
+            social_dy = (social_dy / social_magnitude) * 10
+    
+    # Random component
+    random_angle = random.uniform(0, 2 * math.pi)
+    random_distance = random.uniform(5, 15)
+    random_dx = math.cos(random_angle) * random_distance
+    random_dy = math.sin(random_angle) * random_distance
+    
+    # Blend social (60%) and random (40%) influences
+    if total_weight > 0:
+        final_dx = social_dx * 0.6 + random_dx * 0.4
+        final_dy = social_dy * 0.6 + random_dy * 0.4
+    else:
+        final_dx = random_dx
+        final_dy = random_dy
+    
+    # Calculate target
+    target_x = int(current_x + final_dx)
+    target_y = int(current_y + final_dy)
+    
+    # Clamp to bounds
+    target_x = max(min_x, min(max_x, target_x))
+    target_y = max(min_y, min(max_y, target_y))
+    
+    # Avoid obstacles
     obstacles = set()
     if req.nearby_entities:
         for entity in req.nearby_entities:
             ex, ey = entity.get("x", -1), entity.get("y", -1)
-            for dx in range(2):
-                for dy in range(2):
-                    obstacles.add((ex + dx, ey + dy))
-    
-    target_x, target_y = random.randint(min_x, max_x), random.randint(min_y, max_y)
+            for ddx in range(2):
+                for ddy in range(2):
+                    obstacles.add((ex + ddx, ey + ddy))
     
     for _ in range(100):
-        is_blocked = any((target_x + dx, target_y + dy) in obstacles for dx in range(2) for dy in range(2))
+        is_blocked = any((target_x + ddx, target_y + ddy) in obstacles for ddx in range(2) for ddy in range(2))
         if not is_blocked:
             break
-        target_x = random.randint(min_x, max_x)
-        target_y = random.randint(min_y, max_y)
+        # Try a slightly different random position if blocked
+        target_x = int(current_x + random.uniform(-10, 10))
+        target_y = int(current_y + random.uniform(-10, 10))
+        target_x = max(min_x, min(max_x, target_x))
+        target_y = max(min_y, min(max_y, target_y))
     
     return {"action": "MOVE", "target_x": target_x, "target_y": target_y}
 

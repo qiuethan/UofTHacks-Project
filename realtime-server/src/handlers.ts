@@ -292,7 +292,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
     console.error('Error starting sentiment analysis:', e);
   }
   
-  // Broadcast to both participants
+  // Create chat event
   const chatEvent = {
     type: 'CHAT_MESSAGE' as const,
     messageId: message.id,
@@ -308,6 +308,9 @@ export async function handleChatMessage(client: Client, content: string): Promis
   
   // Send to the partner if online
   sendToUser(partnerId, chatEvent);
+  
+  // Broadcast to spectators so they can see chat bubbles
+  broadcast(chatEvent);
   
   // If partner is offline (ROBOT), generate AI response
   // This is the ONLY place where player-agent conversation responses are generated
@@ -349,7 +352,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
           agentResponse
         );
         
-        // Send agent's response ONLY to the player (the agent is offline)
+        // Send agent's response to the player and broadcast for spectators
         const agentChatEvent = {
           type: 'CHAT_MESSAGE' as const,
           messageId: agentMessage.id,
@@ -362,8 +365,11 @@ export async function handleChatMessage(client: Client, content: string): Promis
         
         console.log(`[Agent→Player] ${partnerEntity.displayName} → ${client.displayName}: ${agentResponse.substring(0, 50)}...`);
         
-        // Only send to the player, not broadcast (agent is offline, no need to send to them)
+        // Send to the player
         send(client.ws, agentChatEvent);
+        
+        // Broadcast for spectators (chat bubbles)
+        broadcast(agentChatEvent);
         
         // Check if the agent wants to end the conversation
         const shouldEndResult = await checkAgentWantsToEnd(
@@ -391,7 +397,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
             };
             convData.messages.push(farewellMsg);
             
-            send(client.ws, {
+            const farewellEvent = {
               type: 'CHAT_MESSAGE' as const,
               messageId: farewellMsg.id,
               senderId: farewellMsg.senderId,
@@ -399,7 +405,9 @@ export async function handleChatMessage(client: Client, content: string): Promis
               content: farewellMsg.content,
               timestamp: farewellMsg.timestamp,
               conversationId: convData.conversationId
-            });
+            };
+            send(client.ws, farewellEvent);
+            broadcast(farewellEvent);
           }
           
           // End the conversation - pass reason and agent name for notifications
