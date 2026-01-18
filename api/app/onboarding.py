@@ -266,6 +266,35 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
        - Provide insight into who they are
        Only include the exact text they wrote, nothing from the assistant.
     
+    4. WORLD AFFINITIES (world_affinities):
+       Based on the user's answers about their preferences, rate their affinity for each world location type.
+       Score each from 0.0 to 1.0:
+       
+       - "food": How much do they like food, cafes, eating out, cooking? 
+         High (0.7-1.0): Foodie, loves cafes, cooking enthusiast, mentions favorite foods with passion
+         Medium (0.4-0.7): Casual interest in food, mentions eating but not a focus
+         Low (0.0-0.4): Doesn't mention food much, or prefers to eat quickly
+       
+       - "karaoke": How much do they enjoy music, singing, performing, karaoke?
+         High (0.7-1.0): Music lover, would do karaoke, enjoys singing, mentions bands/artists passionately
+         Medium (0.4-0.7): Likes music casually, might sing along but not perform
+         Low (0.0-0.4): Not interested in performing, doesn't mention music
+       
+       - "rest_area": How much do they value rest, relaxation, quiet time?
+         High (0.7-1.0): Values alone time, mentions needing rest, prefers quiet, introverted tendencies
+         Medium (0.4-0.7): Balanced between activity and rest
+         Low (0.0-0.4): Always active, doesn't mention needing downtime
+       
+       - "social_hub": How social are they? Do they enjoy crowds, meeting people?
+         High (0.7-1.0): Social butterfly, loves meeting people, mentions parties, hangouts
+         Medium (0.4-0.7): Enjoys some socializing but also alone time
+         Low (0.0-0.4): Prefers solitude, avoids crowds, introverted
+       
+       - "wander_point": Do they enjoy outdoors, walking, exploring, nature?
+         High (0.7-1.0): Loves outdoors, hiking, walking, gardens, nature, exploring
+         Medium (0.4-0.7): Occasionally enjoys outdoors
+         Low (0.0-0.4): Indoor person, doesn't mention outdoor activities
+    
     Output JSON:
     {{
       "conversation_summary": "Factual summary of what was discussed...",
@@ -275,6 +304,8 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         "name": "...",
         "occupation": "...",
         "hobbies": ["..."],
+        "favorite_food": "...",
+        "music_preferences": "...",
         "other_details": {{}}
       }},
       "communication_style": {{
@@ -291,6 +322,13 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         "curiosity": 0.0 to 1.0 (how curious/exploratory they are),
         "agreeableness": 0.0 to 1.0 (how agreeable/friendly they are),
         "energy_baseline": 0.0 to 1.0 (their natural energy level)
+      }},
+      "world_affinities": {{
+        "food": 0.0 to 1.0 (affinity for cafes, food, eating),
+        "karaoke": 0.0 to 1.0 (affinity for music, singing, performing),
+        "rest_area": 0.0 to 1.0 (affinity for rest, quiet, relaxation),
+        "social_hub": 0.0 to 1.0 (affinity for socializing, crowds, meeting people),
+        "wander_point": 0.0 to 1.0 (affinity for outdoors, walking, exploring)
       }}
     }}
     """
@@ -380,6 +418,16 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         agreeableness = max(0.0, min(1.0, agreeableness))
         energy_baseline = max(0.0, min(1.0, energy_baseline))
         
+        # Extract world affinities from analysis (determines where agent likes to go)
+        world_affinities_raw = summary_data.get("world_affinities", {})
+        world_affinities = {
+            "food": max(0.0, min(1.0, float(world_affinities_raw.get("food", 0.5)))),
+            "karaoke": max(0.0, min(1.0, float(world_affinities_raw.get("karaoke", 0.5)))),
+            "rest_area": max(0.0, min(1.0, float(world_affinities_raw.get("rest_area", 0.5)))),
+            "social_hub": max(0.0, min(1.0, float(world_affinities_raw.get("social_hub", 0.5)))),
+            "wander_point": max(0.0, min(1.0, float(world_affinities_raw.get("wander_point", 0.5))))
+        }
+        
         # Upsert to agent_personality
         personality_data = {
             "avatar_id": user.id,
@@ -392,13 +440,7 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
             "interests": json.dumps(interests) if interests else None,
             "conversation_topics": json.dumps(conversation_topics) if conversation_topics else None,
             "personality_notes": personality_notes[:1000] if personality_notes else None,
-            "world_affinities": json.dumps({
-                "food": 0.5,
-                "karaoke": 0.5,
-                "rest_area": 0.5,
-                "social_hub": 0.5,
-                "wander_point": 0.5
-            })
+            "world_affinities": json.dumps(world_affinities)
         }
         
         supabase.table("agent_personality").upsert(personality_data).execute()
@@ -406,6 +448,7 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         print(f"[onboarding] Personality scores: sociability={sociability:.2f}, curiosity={curiosity:.2f}, agreeableness={agreeableness:.2f}, energy={energy_baseline:.2f}")
         print(f"[onboarding] Interests: {interests}")
         print(f"[onboarding] Conversation topics: {conversation_topics}")
+        print(f"[onboarding] World affinities: {world_affinities}")
         
         # Also initialize agent_state with HEALTHY defaults (100% stats)
         # All users start fully rested, not hungry, social, and happy
