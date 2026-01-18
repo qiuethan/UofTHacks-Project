@@ -66,20 +66,25 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
     
     // If the agent was in a conversation, send the conversation history to the player
     const convData = activeConversations.get(userId);
-    if (convData && convData.messages.length > 0) {
-      console.log(`[handleJoin] Sending ${convData.messages.length} existing messages to player taking over`);
-      
-      // Send each message in the conversation history
-      for (const msg of convData.messages) {
-        send(ws, {
-          type: 'CHAT_MESSAGE' as const,
-          messageId: msg.id,
-          senderId: msg.senderId,
-          senderName: msg.senderName,
-          content: msg.content,
-          timestamp: msg.timestamp,
-          conversationId: convData.conversationId
-        });
+    console.log(`[handleJoin] Checking for active conversation for ${userId.substring(0, 8)}: ${convData ? 'found' : 'none'}`);
+    if (convData) {
+      console.log(`[handleJoin] Conversation ${convData.conversationId.substring(0, 8)} has ${convData.messages.length} messages`);
+      if (convData.messages.length > 0) {
+        console.log(`[handleJoin] Sending ${convData.messages.length} existing messages to player taking over`);
+        
+        // Send each message in the conversation history
+        for (const msg of convData.messages) {
+          console.log(`[handleJoin] Sending msg: ${msg.id.substring(0, 8)} from ${msg.senderName}: ${msg.content.substring(0, 30)}...`);
+          send(ws, {
+            type: 'CHAT_MESSAGE' as const,
+            messageId: msg.id,
+            senderId: msg.senderId,
+            senderName: msg.senderName,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            conversationId: convData.conversationId
+          });
+        }
       }
     }
     

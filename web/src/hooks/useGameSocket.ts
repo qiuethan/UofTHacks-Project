@@ -91,17 +91,48 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   useEffect(() => {
     if (myEntityId) {
       const me = entities.get(myEntityId)
+      console.log('[ConvSync] myEntityId:', myEntityId?.substring(0, 8), 'convState:', me?.conversationState, 'partner:', me?.conversationPartnerId?.substring(0, 8))
       if (me?.conversationState === 'IN_CONVERSATION' && me.conversationPartnerId) {
         setInConversationWith(prev => {
-          // Clear messages when starting a new conversation (different partner)
-          if (prev !== me.conversationPartnerId) {
+          console.log('[ConvSync] IN_CONVERSATION - prev:', prev?.substring(0, 8) || 'null', 'new partner:', me.conversationPartnerId?.substring(0, 8))
+          // Only clear messages when switching to a DIFFERENT partner in a NEW conversation
+          // Don't clear if prev is null/undefined (taking over an agent already in conversation)
+          // The server will send conversation history for takeover scenarios
+          if (prev !== null && prev !== undefined && prev !== me.conversationPartnerId) {
+            console.log('[ConvSync] Clearing messages - switching partners')
             setChatMessages([])
           }
+          
+          // If we're entering a conversation (prev was null), fetch history from database
+          if (prev === null || prev === undefined) {
+            console.log('[ConvSync] Taking over conversation, fetching history from database...')
+            fetch(`${API_CONFIG.BASE_URL}/conversation/active/${myEntityId}`)
+              .then(res => res.json())
+              .then(data => {
+                console.log('[ConvSync] Got conversation history from DB:', data)
+                if (data.ok && data.messages && data.messages.length > 0) {
+                  console.log(`[ConvSync] Loading ${data.messages.length} messages from database`)
+                  setChatMessages(prevMsgs => {
+                    // Merge database messages with any that may have arrived via WebSocket
+                    // Use message IDs to prevent duplicates
+                    const existingIds = new Set(prevMsgs.map(m => m.id))
+                    const newMsgs = data.messages.filter((m: ChatMessage) => !existingIds.has(m.id))
+                    // Sort by timestamp
+                    const combined = [...prevMsgs, ...newMsgs].sort((a, b) => a.timestamp - b.timestamp)
+                    console.log(`[ConvSync] Merged: ${prevMsgs.length} existing + ${newMsgs.length} new = ${combined.length} total`)
+                    return combined
+                  })
+                }
+              })
+              .catch(err => console.error('[ConvSync] Error fetching conversation history:', err))
+          }
+          
           return me.conversationPartnerId!
         })
       } else {
         // Clear messages when conversation ends
         if (inConversationWith !== null) {
+          console.log('[ConvSync] Clearing messages - conversation ended')
           setChatMessages([])
         }
         setInConversationWith(null)
@@ -424,6 +455,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
 
         case 'CHAT_MESSAGE':
           // Handle incoming chat message
+          console.log('[CHAT_MESSAGE] Received:', msg.messageId, msg.senderName, msg.content?.substring(0, 30))
           if (msg.messageId && msg.senderId && msg.content) {
             const chatMessage: ChatMessage = {
               id: msg.messageId,
@@ -438,8 +470,10 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
             setChatMessages(prev => {
               // Don't add if we already have this message
               if (prev.some(m => m.id === msg.messageId)) {
+                console.log('[CHAT_MESSAGE] Duplicate, skipping:', msg.messageId)
                 return prev
               }
+              console.log('[CHAT_MESSAGE] Adding message, total now:', prev.length + 1)
               return [...prev, chatMessage]
             })
             
