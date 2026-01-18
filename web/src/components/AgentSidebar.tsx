@@ -517,7 +517,7 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
     <>
       {/* Compact status bar at bottom left - never overlaps with zoom controls */}
       <div 
-        className={`fixed bottom-4 left-4 z-50 transition-all duration-300 ${
+        className={`fixed bottom-4 left-4 z-[30] transition-all duration-300 ${
           isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
