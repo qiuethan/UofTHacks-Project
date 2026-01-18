@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding'
 import Profile from './pages/Profile'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
+import CreateNPC from './pages/CreateNPC'
 
 import Header from './components/Header'
 
@@ -54,7 +55,7 @@ function ProtectedRoute({
 
 function AppContent() {
   const location = useLocation()
-  const hideHeader = location.pathname === '/onboarding'
+  const hideHeader = location.pathname === '/onboarding' || location.pathname === '/create'
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#FFF8F0]">
@@ -65,7 +66,8 @@ function AppContent() {
           <Route path="/" element={<Landing />} />
           <Route path="/play" element={<ProtectedRoute requireAvatar requireOnboarding><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
-          <Route path="/create" element={<Navigate to="/onboarding" replace />} />
+          {/* Secret NPC creation route - no auth required */}
+          <Route path="/create" element={<CreateNPC />} />
           <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute requireAvatar><Profile /></ProtectedRoute>} />
         </Routes>

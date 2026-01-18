@@ -6,7 +6,7 @@ import type { WorldState } from '../state/worldState';
 import type { Entity } from '../entities/entity';
 import type { WorldAction, WorldEvent, Result } from './types';
 import { ok, err } from './types';
-import { clampToBounds, isTileBlocked } from '../map/mapDef';
+import { clampToBounds, isTileBlocked, DISABLE_WALL_COLLISIONS } from '../map/mapDef';
 
 // ============================================================================
 // VALIDATION
@@ -189,6 +189,11 @@ function applyMoveAction(
   // Dynamic entity collision - handle different entity sizes
   for (const other of state.entities.values()) {
     if (other.entityId !== actor.entityId) {
+       // TEMPORARY: Skip WALL entity collisions when disabled
+       if (DISABLE_WALL_COLLISIONS && other.kind === 'WALL') {
+         continue;
+       }
+       
        const otherWidth = other.kind === 'WALL' ? 1 : 2;
        const otherHeight = 1;  // All entities have height 1 for collision
        

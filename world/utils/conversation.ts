@@ -24,8 +24,8 @@ export interface ActiveConversation {
 export const CONVERSATION_CONFIG = {
   INITIATION_RADIUS: 15,         // Max distance to initiate conversation
   CONVERSATION_RADIUS: 2,        // Must be within 2 cells to start conversation
-  REQUEST_TIMEOUT_MS: 30000,     // Request expires after 30 seconds
-  REJECTION_COOLDOWN_MS: 30000,  // 30 second cooldown after rejection
+  REQUEST_TIMEOUT_MS: 4000,      // Request expires after 4 seconds (quick decline)
+  REJECTION_COOLDOWN_MS: 10000,  // 10 second cooldown after rejection
   REQUEST_CLEANUP_MS: 5 * 60 * 1000, // Clean up old requests after 5 minutes
   AI_INTEREST_BASE: 0.5,         // Base probability for AI interest
   AI_INTEREST_VARIANCE: 0.3,     // Variance in AI interest
@@ -316,6 +316,22 @@ export class ConversationRequestManager {
     }
     
     return null;
+  }
+  
+  /**
+   * Cancel all pending requests involving an entity (as initiator or target).
+   * Used to prevent group chats by cleaning up when a conversation is accepted.
+   * @param entityId - The entity ID to cancel requests for
+   * @param exceptRequestId - Optional request ID to NOT cancel (the one being accepted)
+   */
+  cancelRequestsInvolving(entityId: string, exceptRequestId?: string): void {
+    for (const request of this.requests.values()) {
+      if (request.status === 'PENDING' && request.requestId !== exceptRequestId) {
+        if (request.initiatorId === entityId || request.targetId === entityId) {
+          this.requests.set(request.requestId, { ...request, status: 'REJECTED' });
+        }
+      }
+    }
   }
   
   isOnCooldown(initiatorId: string, targetId: string): boolean {

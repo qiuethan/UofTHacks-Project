@@ -2,6 +2,9 @@
 // MAP DEFINITION - Simple tile-based map
 // ============================================================================
 
+// TEMPORARY: Set to true to disable wall collisions for testing
+export const DISABLE_WALL_COLLISIONS = true;
+
 export interface MapDef {
   readonly width: number;
   readonly height: number;
@@ -44,9 +47,14 @@ export function clampToBounds(
  * Returns true if out of bounds or if the tile is marked as blocked.
  */
 export function isTileBlocked(map: MapDef, x: number, y: number): boolean {
-  // Out of bounds = blocked
+  // Out of bounds = blocked (always check this)
   if (!isInBounds(map, x, y)) {
     return true;
+  }
+
+  // TEMPORARY: Skip collision grid check if disabled
+  if (DISABLE_WALL_COLLISIONS) {
+    return false;
   }
 
   // Check collision grid if available

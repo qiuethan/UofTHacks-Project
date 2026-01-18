@@ -109,8 +109,8 @@ class AgentState(BaseModel):
     hunger: float = Field(default=0.3, ge=0.0, le=1.0)
     loneliness: float = Field(default=0.3, ge=0.0, le=1.0)
     mood: float = Field(default=0.5, ge=-1.0, le=1.0)
-    # Current action
-    current_action: str = "idle"
+    # Current action (can be None if not set in DB)
+    current_action: Optional[str] = "idle"
     current_action_target: Optional[dict] = None
     action_started_at: Optional[datetime] = None
     action_expires_at: Optional[datetime] = None

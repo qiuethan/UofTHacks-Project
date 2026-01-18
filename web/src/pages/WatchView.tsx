@@ -252,6 +252,7 @@ export default function WatchView() {
 
           case 'CHAT_MESSAGE':
             // Handle chat messages for speech bubbles
+            console.log(`[Watch] RAW CHAT_MESSAGE received:`, msg)
             if (msg.messageId && msg.senderId && msg.content) {
               const chatMessage: ChatMessage = {
                 id: msg.messageId,
@@ -262,7 +263,7 @@ export default function WatchView() {
                 conversationId: msg.conversationId
               }
               
-              console.log(`[Watch] Chat: ${chatMessage.senderName}: ${chatMessage.content.substring(0, 50)}...`)
+              console.log(`[Watch] Chat processed: ${chatMessage.senderName} (${chatMessage.senderId.substring(0, 8)}): ${chatMessage.content.substring(0, 50)}...`)
               
               // Track for entity chat bubbles
               setAllEntityMessages(prev => {

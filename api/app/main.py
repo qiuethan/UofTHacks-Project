@@ -4,12 +4,13 @@ FastAPI server for Avatar creation and management
 
 import os
 import sys
-import shutil
+import json
 import uuid
 import random
 import tempfile
 import time
 import logging
+import re
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -27,8 +28,6 @@ from .agent_models import (
     InitializeAgentResponse,
     AgentStateUpdateRequest,
     SentimentUpdateRequest,
-    AgentPersonality,
-    AgentState,
     AgentActionResponse,
 )
 from . import agent_database as agent_db
@@ -106,40 +105,82 @@ def get_agent_decision(req: AgentRequest):
         # =====================================================================
         if req.pending_requests:
             for pending in req.pending_requests:
-                initiator_type = pending.get("initiator_type", "PLAYER")
-                interest = calculate_ai_interest_to_accept(req.robot_id, pending.get("initiator_id", ""), initiator_type)
-                if should_ai_accept(interest):
+                request_id = pending.get("request_id")
+                initiator_id = pending.get("initiator_id", "")
+                expires_at = pending.get("expires_at")
+                # Note: initiator_type and created_at also available if needed
+                
+                # Check if request is about to expire (within 1 second) - auto-decline
+                current_time = time.time() * 1000  # Convert to milliseconds
+                if expires_at and current_time >= expires_at - 1000:
+                    response = {
+                        "action": "REJECT_CONVERSATION",
+                        "request_id": request_id,
+                        "reason": "Request timed out - didn't respond in time"
+                    }
+                    print(f"AI Decision for {req.robot_id}: AUTO-DECLINE (timeout) {response}")
+                    return response
+                
+                # Use the intelligent decision system for accept/decline
+                # Get agent and initiator display names for context
+                client = agent_db.get_supabase_client()
+                agent_name = req.robot_id[:8]
+                initiator_name = initiator_id[:8]
+                
+                if client:
+                    agent_pos = agent_db.get_avatar_position(client, req.robot_id)
+                    initiator_pos = agent_db.get_avatar_position(client, initiator_id)
+                    if agent_pos:
+                        agent_name = agent_pos.get("display_name", agent_name)
+                    if initiator_pos:
+                        initiator_name = initiator_pos.get("display_name", initiator_name)
+                
+                # Use the conversation decision system to decide accept/decline
+                decision_result = conv.decide_accept_conversation(
+                    agent_id=req.robot_id,
+                    agent_name=agent_name,
+                    requester_id=initiator_id,
+                    requester_name=initiator_name
+                )
+                
+                should_accept = decision_result.get("should_accept", True)
+                reason = decision_result.get("reason", "")
+                
+                if should_accept:
                     response = {
                         "action": "ACCEPT_CONVERSATION",
-                        "request_id": pending.get("request_id")
+                        "request_id": request_id,
+                        "reason": reason
                     }
-                    print(f"AI Decision for {req.robot_id}: {response}")
+                    print(f"AI Decision for {req.robot_id}: ACCEPT - {reason}")
                     return response
                 else:
                     response = {
                         "action": "REJECT_CONVERSATION",
-                        "request_id": pending.get("request_id")
+                        "request_id": request_id,
+                        "reason": reason
                     }
-                    print(f"AI Decision for {req.robot_id}: {response}")
+                    print(f"AI Decision for {req.robot_id}: DECLINE - {reason}")
                     return response
         
         # =====================================================================
         # PRIORITY 2: Handle active conversation states
         # =====================================================================
         if req.conversation_state == "IN_CONVERSATION":
-            response = {"action": "STAND_STILL", "duration": random.uniform(2.0, 5.0)}
+            # Stay in conversation briefly then check again
+            response = {"action": "STAND_STILL", "duration": 0.5}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
         
         if req.conversation_state == "WALKING_TO_CONVERSATION":
-            response = {"action": "STAND_STILL", "duration": 1.0}
+            # Very brief check while walking
+            response = {"action": "STAND_STILL", "duration": 0.3}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
         
         if req.conversation_state == "PENDING_REQUEST":
-            # Robot has sent a conversation request and is waiting for response
-            # Stand still while waiting
-            response = {"action": "STAND_STILL", "duration": 1.0}
+            # Very brief wait while request is pending
+            response = {"action": "STAND_STILL", "duration": 0.3}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
         
@@ -184,7 +225,8 @@ def get_agent_decision(req: AgentRequest):
                     }.get(current_action, f'📍 {current_action}')
                     
                     print(f"🔒 {short_id} | {activity_display} at '{target_name}' - {remaining:.0f}s left")
-                    return {"action": "STAND_STILL", "duration": duration}
+                    # Even during activities, keep check duration very short
+                    return {"action": "STAND_STILL", "duration": min(duration, 1.0)}
         
         # =====================================================================
         # PRIORITY 3: Try utility-based agent decision system
@@ -202,7 +244,11 @@ def get_agent_decision(req: AgentRequest):
         
     except Exception as e:
         print(f"Error in get_agent_decision: {e}")
-        return {"action": "STAND_STILL", "duration": 5.0}
+        # On error, check conversation state first
+        if req.conversation_state and req.conversation_state != "IDLE":
+            return {"action": "STAND_STILL", "duration": 0.5}
+        # Otherwise try to move somewhere
+        return get_fallback_decision(req)
 
 
 def try_agent_decision_system(req: AgentRequest) -> Optional[dict]:
@@ -292,7 +338,8 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     
     # Map action types to API responses
     if action_type in ["idle", "stand_still"]:
-        return {"action": "STAND_STILL", "duration": random.uniform(2.0, 5.0)}
+        # Don't stand still - wander instead!
+        return get_random_move_target(req)
     
     elif action_type == "wander":
         if target and target.get("x") is not None and target.get("y") is not None:
@@ -331,21 +378,26 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
                         duration = location.duration_seconds
         
         # The activity was already logged by agent_worker, just return response
-        
-        return {"action": "STAND_STILL", "duration": float(duration)}
+        # Keep durations short - agents should be active
+        return {"action": "STAND_STILL", "duration": min(float(duration), 1.0)}
     
     elif action_type == "initiate_conversation":
         if target and target.get("target_id"):
             return {"action": "REQUEST_CONVERSATION", "target_entity_id": target["target_id"]}
-        # Find a nearby entity to talk to
+        # Find a nearby entity to talk to - only target IDLE entities to prevent group chats
         if req.nearby_entities:
             for entity in req.nearby_entities:
                 if entity.get("kind") in ["PLAYER", "ROBOT"] and entity.get("entityId") != req.robot_id:
+                    # Only target IDLE entities
+                    target_state = entity.get("conversationState", "IDLE")
+                    if target_state and target_state != "IDLE":
+                        continue  # Skip - entity is busy
                     return {"action": "REQUEST_CONVERSATION", "target_entity_id": entity.get("entityId")}
         return None
     
     elif action_type in ["join_conversation", "leave_conversation"]:
-        return {"action": "STAND_STILL", "duration": 1.0}
+        # Very brief pause then do something else
+        return {"action": "STAND_STILL", "duration": 0.3}
     
     elif action_type == "avoid_avatar":
         # Move away from disliked avatar
@@ -455,17 +507,15 @@ def get_random_move_target(req: AgentRequest) -> dict:
     target_x = max(min_x, min(max_x, target_x))
     target_y = max(min_y, min(max_y, target_y))
     
-    # Avoid obstacles
+    # Avoid obstacles (entities are 1x1)
     obstacles = set()
     if req.nearby_entities:
         for entity in req.nearby_entities:
             ex, ey = entity.get("x", -1), entity.get("y", -1)
-            for ddx in range(2):
-                for ddy in range(2):
-                    obstacles.add((ex + ddx, ey + ddy))
+            obstacles.add((ex, ey))  # 1x1 entity occupies single cell
     
     for _ in range(100):
-        is_blocked = any((target_x + ddx, target_y + ddy) in obstacles for ddx in range(2) for ddy in range(2))
+        is_blocked = (target_x, target_y) in obstacles  # 1x1 entity check
         if not is_blocked:
             break
         # Try a slightly different random position if blocked
@@ -479,22 +529,26 @@ def get_random_move_target(req: AgentRequest) -> dict:
 
 def get_fallback_decision(req: AgentRequest) -> dict:
     """Fallback decision logic when agent system is unavailable."""
+    # First check if agent is in any conversation state - don't try to start new ones
+    if req.conversation_state and req.conversation_state != "IDLE":
+        return {"action": "STAND_STILL", "duration": 0.5}
+    
     # Check if we should initiate a conversation with nearby entities
+    # Only initiate if target is IDLE (prevents group chats)
     if req.nearby_entities:
         for entity in req.nearby_entities:
             if entity.get("kind") in ["PLAYER", "ROBOT"] and entity.get("entityId") != req.robot_id:
+                # Only target IDLE entities to prevent group chats
+                target_state = entity.get("conversationState", "IDLE")
+                if target_state and target_state != "IDLE":
+                    continue  # Skip - entity is busy
                 interest = calculate_ai_interest_to_initiate(req.robot_id, entity.get("entityId", ""), entity.get("kind", "ROBOT"))
                 if should_ai_initiate(interest):
                     response = {"action": "REQUEST_CONVERSATION", "target_entity_id": entity.get("entityId")}
                     print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
                     return response
     
-    # Small chance to stand still
-    if random.random() < 0.1:
-        response = {"action": "STAND_STILL", "duration": random.uniform(2.0, 8.0)}
-        print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
-        return response
-    
+    # NEVER stand still - always be moving or doing something!
     # Default: random walk
     response = get_random_move_target(req)
     print(f"AI Decision (FALLBACK) for {req.robot_id}: {response}")
@@ -1616,9 +1670,8 @@ def get_user_relationships(user_id: str):
             mutual_interests = row.get("mutual_interests", [])
             if isinstance(mutual_interests, str):
                 try:
-                    import json
                     mutual_interests = json.loads(mutual_interests)
-                except:
+                except Exception:
                     mutual_interests = []
             
             relationships.append({
@@ -1895,6 +1948,375 @@ async def respawn_player(user_id: str):
         raise
     except Exception as e:
         print(f"Error respawning player: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# NPC CREATION - Create LLM-controlled characters without authentication
+# ============================================================================
+
+class CreateNPCRequest(BaseModel):
+    """Request to create a new NPC character"""
+    display_name: str
+    sprite_front: Optional[str] = None
+    sprite_back: Optional[str] = None
+    sprite_left: Optional[str] = None
+    sprite_right: Optional[str] = None
+
+
+class UpdateNPCRequest(BaseModel):
+    """Request to update an existing NPC's sprites/name"""
+    npc_id: str
+    display_name: Optional[str] = None
+    sprite_front: Optional[str] = None
+    sprite_back: Optional[str] = None
+    sprite_left: Optional[str] = None
+    sprite_right: Optional[str] = None
+
+
+class CreateNPCResponse(BaseModel):
+    """Response from creating an NPC"""
+    ok: bool
+    npc_id: Optional[str] = None
+    display_name: Optional[str] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+@app.post("/create-npc", response_model=CreateNPCResponse)
+async def create_npc(req: CreateNPCRequest):
+    """
+    Create a new NPC character that will be controlled by LLMs.
+    This endpoint does NOT require authentication - NPCs are public characters.
+    
+    The NPC will:
+    - Get a random UUID (not tied to auth.users)
+    - Be inserted into user_positions with is_npc=true
+    - Have agent_state and agent_personality initialized
+    - Be automatically controlled by the AI loop
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    if not req.display_name or not req.display_name.strip():
+        raise HTTPException(status_code=400, detail="Display name is required")
+    
+    try:
+        # Generate a random UUID for the NPC
+        npc_id = str(uuid.uuid4())
+        
+        # Map dimensions (matching realtime-server config)
+        MAP_WIDTH = 60
+        MAP_HEIGHT = 40
+        
+        # Spawn at a random position (not in the center to avoid crowding)
+        spawn_x = random.randint(10, MAP_WIDTH - 10)
+        spawn_y = random.randint(10, MAP_HEIGHT - 10)
+        
+        print(f"[NPC] Creating NPC '{req.display_name}' with ID {npc_id} at ({spawn_x}, {spawn_y})")
+        
+        # Insert into user_positions with is_npc=true
+        position_result = supabase.table("user_positions").insert({
+            "user_id": npc_id,
+            "x": spawn_x,
+            "y": spawn_y,
+            "facing_x": 0,
+            "facing_y": 1,
+            "display_name": req.display_name.strip(),
+            "has_avatar": True,
+            "sprite_front": req.sprite_front,
+            "sprite_back": req.sprite_back,
+            "sprite_left": req.sprite_left,
+            "sprite_right": req.sprite_right,
+            "is_npc": True,  # Mark as NPC
+            "conversation_state": "IDLE"
+        }).execute()
+        
+        if not position_result.data:
+            raise Exception("Failed to create NPC position")
+        
+        print(f"[NPC] Position created for {req.display_name}")
+        
+        # Initialize agent personality with random values (for variety)
+        # Note: agent_personality table has: sociability, curiosity, agreeableness, energy_baseline, world_affinities
+        supabase.table("agent_personality").insert({
+            "avatar_id": npc_id,
+            "sociability": random.uniform(0.6, 1.0),  # NPCs are social!
+            "curiosity": random.uniform(0.4, 0.9),
+            "agreeableness": random.uniform(0.5, 0.9),
+            "energy_baseline": random.uniform(0.7, 1.0),  # High energy
+            "world_affinities": {"food": 0.3, "karaoke": 0.5, "rest_area": 0.1, "social_hub": 0.9, "wander_point": 0.7}
+        }).execute()
+        
+        print(f"[NPC] Personality created for {req.display_name}")
+        
+        # Initialize agent state with optimal values for social behavior
+        supabase.table("agent_state").insert({
+            "avatar_id": npc_id,
+            "energy": 1.0,  # Always full energy
+            "hunger": 0.0,  # Never hungry
+            "loneliness": 0.5,  # Somewhat lonely to encourage chatting
+            "mood": 0.5,  # Positive mood
+            "current_action": None,
+            "current_action_target": None
+        }).execute()
+        
+        print(f"[NPC] State created for {req.display_name}")
+        
+        return CreateNPCResponse(
+            ok=True,
+            npc_id=npc_id,
+            display_name=req.display_name.strip(),
+            message=f"NPC '{req.display_name}' created successfully! They will appear in the game world."
+        )
+        
+    except Exception as e:
+        print(f"[NPC] Error creating NPC: {e}")
+        return CreateNPCResponse(
+            ok=False,
+            error=str(e)
+        )
+
+
+@app.post("/update-npc")
+async def update_npc(req: UpdateNPCRequest):
+    """
+    Update an existing NPC's sprites and/or display name.
+    This is called when the avatar is generated after the NPC was initially created.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    if not req.npc_id:
+        raise HTTPException(status_code=400, detail="npc_id is required")
+    
+    try:
+        # Build update data - only include fields that are provided
+        update_data = {}
+        
+        if req.display_name:
+            update_data["display_name"] = req.display_name.strip()
+        
+        if req.sprite_front:
+            update_data["sprite_front"] = req.sprite_front
+        
+        if req.sprite_back:
+            update_data["sprite_back"] = req.sprite_back
+        
+        if req.sprite_left:
+            update_data["sprite_left"] = req.sprite_left
+        
+        if req.sprite_right:
+            update_data["sprite_right"] = req.sprite_right
+        
+        # Mark has_avatar as true if we have any sprites
+        if req.sprite_front or req.sprite_back or req.sprite_left or req.sprite_right:
+            update_data["has_avatar"] = True
+        
+        if not update_data:
+            return {"ok": True, "message": "No updates provided"}
+        
+        print(f"[NPC] Updating NPC {req.npc_id} with: {list(update_data.keys())}")
+        
+        # Update in database
+        result = supabase.table("user_positions").update(update_data).eq("user_id", req.npc_id).execute()
+        
+        if not result.data:
+            return {"ok": False, "error": "NPC not found"}
+        
+        print(f"[NPC] Successfully updated NPC {req.npc_id}")
+        
+        return {"ok": True, "message": "NPC updated successfully"}
+        
+    except Exception as e:
+        print(f"[NPC] Error updating NPC: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/create-npc-chat")
+async def create_npc_chat(req: dict):
+    """
+    Chat endpoint for NPC creation onboarding.
+    Similar to regular onboarding but without authentication.
+    The NPC ID should be provided to associate the conversation.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    npc_id = req.get("npc_id")
+    message = req.get("message", "")
+    conversation_id = req.get("conversation_id")
+    
+    if not npc_id:
+        raise HTTPException(status_code=400, detail="npc_id is required")
+    
+    # Reuse the onboarding chat logic but for NPC
+    # This is a simplified version - just store the transcript
+    try:
+        transcript = []
+        
+        if conversation_id:
+            # Get existing conversation
+            res = supabase.table("conversations").select("*").eq("id", conversation_id).single().execute()
+            if res.data:
+                transcript = res.data.get("transcript", [])
+        else:
+            # Create new conversation for NPC
+            new_conv = supabase.table("conversations").insert({
+                "participant_a": npc_id,
+                "is_onboarding": True,
+                "transcript": []
+            }).execute()
+            conversation_id = new_conv.data[0]["id"]
+        
+        # Add user message to transcript
+        if message and message != "[START]":
+            transcript.append({"role": "user", "content": message})
+        
+        # Generate AI response (simplified for NPC creation)
+        response_text = "Tell me about yourself! What's your personality like? What do you enjoy doing?"
+        
+        if len(transcript) > 0:
+            # Use the onboarding system to generate a response
+            from .onboarding import QUESTIONS
+            from openai import OpenAI
+            OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+            if OPENROUTER_API_KEY:
+                try:
+                    client = OpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=OPENROUTER_API_KEY,
+                    )
+                    
+                    system_instruction = f"""
+                    You are a friendly, casual interviewer for a virtual world called 'Identity Matrix'. 
+                    You're helping create a new NPC character. Get to know their personality.
+                    
+                    QUESTIONS TO ASK:
+                    {json.dumps(QUESTIONS, indent=2)}
+                    
+                    INSTRUCTIONS:
+                    1. Ask questions ONE BY ONE to learn about this character's personality.
+                    2. Keep responses concise (1-2 sentences).
+                    3. Be friendly and encouraging.
+                    4. Use plain text only, no markdown.
+                    """
+                    
+                    messages = [{"role": "system", "content": system_instruction}]
+                    for msg in transcript:
+                        messages.append(msg)
+                    
+                    completion = client.chat.completions.create(
+                        model="x-ai/grok-4-fast",
+                        messages=messages,
+                        max_tokens=200
+                    )
+                    
+                    response_text = completion.choices[0].message.content or response_text
+                except Exception as e:
+                    print(f"[NPC Chat] LLM error: {e}")
+        
+        # Add AI response to transcript
+        transcript.append({"role": "assistant", "content": response_text})
+        
+        # Update conversation
+        supabase.table("conversations").update({
+            "transcript": transcript
+        }).eq("id", conversation_id).execute()
+        
+        return {
+            "ok": True,
+            "response": response_text,
+            "conversation_id": conversation_id
+        }
+        
+    except Exception as e:
+        print(f"[NPC Chat] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/complete-npc-onboarding")
+async def complete_npc_onboarding(req: dict):
+    """
+    Complete the NPC onboarding and update their personality based on the conversation.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    npc_id = req.get("npc_id")
+    conversation_id = req.get("conversation_id")
+    
+    if not npc_id:
+        raise HTTPException(status_code=400, detail="npc_id is required")
+    
+    try:
+        if conversation_id:
+            # Get conversation transcript
+            res = supabase.table("conversations").select("transcript").eq("id", conversation_id).single().execute()
+            if res.data:
+                transcript = res.data.get("transcript", [])
+                
+                # Use LLM to analyze personality from transcript
+                from openai import OpenAI
+                OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+                
+                if OPENROUTER_API_KEY and len(transcript) > 2:
+                    try:
+                        client = OpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=OPENROUTER_API_KEY,
+                        )
+                        
+                        analysis_prompt = f"""
+                        Analyze this conversation and extract personality traits on a scale of 0.0 to 1.0.
+                        
+                        Conversation:
+                        {json.dumps(transcript, indent=2)}
+                        
+                        Return ONLY a JSON object with these traits:
+                        {{
+                            "sociability": 0.0-1.0,
+                            "curiosity": 0.0-1.0,
+                            "agreeableness": 0.0-1.0,
+                            "energy_baseline": 0.0-1.0
+                        }}
+                        """
+                        
+                        completion = client.chat.completions.create(
+                            model="x-ai/grok-4-fast",
+                            messages=[{"role": "user", "content": analysis_prompt}],
+                            max_tokens=200
+                        )
+                        
+                        response_text = completion.choices[0].message.content or ""
+                        
+                        # Parse personality from response
+                        json_match = re.search(r'\{[^}]+\}', response_text)
+                        if json_match:
+                            personality = json.loads(json_match.group())
+                            
+                            # Update NPC personality (columns: sociability, curiosity, agreeableness, energy_baseline)
+                            supabase.table("agent_personality").update({
+                                "sociability": min(1.0, max(0.0, personality.get("sociability", 0.7))),
+                                "curiosity": min(1.0, max(0.0, personality.get("curiosity", 0.6))),
+                                "agreeableness": min(1.0, max(0.0, personality.get("agreeableness", 0.7))),
+                                "energy_baseline": min(1.0, max(0.0, personality.get("energy_baseline", 0.8)))
+                            }).eq("avatar_id", npc_id).execute()
+                            
+                            print(f"[NPC] Updated personality for {npc_id}: {personality}")
+                            
+                    except Exception as e:
+                        print(f"[NPC] Personality analysis error: {e}")
+                
+                # Mark conversation as completed
+                supabase.table("conversations").update({
+                    "completed_at": "now()"
+                }).eq("id", conversation_id).execute()
+        
+        return {"ok": True, "message": "NPC onboarding completed!"}
+        
+    except Exception as e:
+        print(f"[NPC] Complete error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

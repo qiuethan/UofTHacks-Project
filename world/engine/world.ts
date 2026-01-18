@@ -255,6 +255,20 @@ export class World {
         let plannedPath = entity.plannedPath;
         let lastMovedTime = entity.lastMovedTime || currentTime;
         
+        // Special case: if entity is already at their target position (e.g., conversation target who stays still)
+        // They don't need to move, skip the movement logic
+        if (entity.x === target.x && entity.y === target.y) {
+          // Already at destination - just need to wait for partner (if in WALKING_TO_CONVERSATION)
+          // Add a wait proposal so they hold their position
+          moveProposals.push({
+            entityId: entity.entityId,
+            from: { x: entity.x, y: entity.y },
+            to: { x: entity.x, y: entity.y },
+            priority: 0 // High priority to stay put
+          });
+          continue;
+        }
+        
         const currentPos = `${entity.x},${entity.y}`;
         const { NO_PROGRESS_TIMEOUT_MS, REPLAN_INTERVAL, HISTORY_SIZE, STUCK_THRESHOLD } = PATHFINDING_CONFIG;
         
@@ -271,6 +285,53 @@ export class World {
         if (target && lastMovedTime && (currentTime - lastMovedTime > NO_PROGRESS_TIMEOUT_MS)) {
           // Timeout - give up on this target (entity is stuck/blocked)
           // For conversation targets, this means they couldn't reach the partner
+          
+          // If in WALKING_TO_CONVERSATION state, we need to reset conversation state too
+          if (entity.conversationState === 'WALKING_TO_CONVERSATION') {
+            console.log(`[World] ${entity.displayName} (${entity.entityId.substring(0, 8)}) timed out walking to conversation - resetting to IDLE`);
+            
+            // Reset conversation state for this entity
+            const currentEntity = this.state.entities.get(entity.entityId)!;
+            const resetEntity = {
+              ...currentEntity,
+              conversationState: 'IDLE' as const,
+              conversationTargetId: undefined,
+              conversationPartnerId: undefined,
+              targetPosition: undefined,
+              plannedPath: undefined,
+              direction: { x: 0 as const, y: 0 as const },
+              positionHistory: [],
+              stuckCounter: 0,
+              lastMovedTime: currentTime
+            };
+            this.state.entities.set(entity.entityId, resetEntity);
+            
+            // Also reset the partner if they were waiting for this entity
+            const partnerId = entity.conversationTargetId;
+            if (partnerId) {
+              const partner = this.state.entities.get(partnerId);
+              if (partner && partner.conversationState === 'WALKING_TO_CONVERSATION' && partner.conversationTargetId === entity.entityId) {
+                console.log(`[World] Also resetting partner ${partner.displayName} (${partnerId.substring(0, 8)}) to IDLE`);
+                const resetPartner = {
+                  ...partner,
+                  conversationState: 'IDLE' as const,
+                  conversationTargetId: undefined,
+                  conversationPartnerId: undefined,
+                  targetPosition: undefined,
+                  plannedPath: undefined,
+                  direction: { x: 0 as const, y: 0 as const },
+                  positionHistory: [],
+                  stuckCounter: 0,
+                  lastMovedTime: currentTime
+                };
+                this.state.entities.set(partnerId, resetPartner);
+              }
+            }
+            
+            // Skip further processing for this entity this tick
+            continue;
+          }
+          
           target = undefined;
           targetSetAt = undefined;
           positionHistory = [];
@@ -353,6 +414,11 @@ export class World {
             targetCells.forEach(c => pathObstacles.delete(c));
             
             plannedPath = findPath(this.state.map, { x: entity.x, y: entity.y }, target, pathObstacles) || undefined;
+            
+            // Log pathfinding failures for WALKING_TO_CONVERSATION entities
+            if (!plannedPath && entity.conversationState === 'WALKING_TO_CONVERSATION') {
+              console.log(`[World] No path found for ${entity.displayName} (${entity.entityId.substring(0, 8)}) from (${entity.x}, ${entity.y}) to (${target.x}, ${target.y})`);
+            }
           }
           
           if (plannedPath && plannedPath.length > 0) {
@@ -626,6 +692,7 @@ export class World {
     for (const req of expiredRequests) {
       // If the initiator was in PENDING_REQUEST state for this specific request, reset them
       const initiator = this.state.entities.get(req.initiatorId);
+      const target = this.state.entities.get(req.targetId);
       if (initiator && initiator.conversationState === 'PENDING_REQUEST' && initiator.pendingConversationRequestId === req.requestId) {
         const updated = {
           ...initiator,
@@ -636,11 +703,68 @@ export class World {
           direction: { x: 0 as const, y: 0 as const }
         };
         this.state.entities.set(req.initiatorId, updated);
+        
+        // Emit a proper rejection event with auto-decline reason
+        events.push({
+          type: 'CONVERSATION_REJECTED',
+          requestId: req.requestId,
+          initiatorId: req.initiatorId,
+          targetId: req.targetId,
+          cooldownUntil: Date.now() + CONVERSATION_CONFIG.REJECTION_COOLDOWN_MS,
+          rejectorName: target?.displayName,
+          reason: 'Request timed out - no response within time limit'
+        });
+        
         events.push({
           type: 'ENTITY_STATE_CHANGED',
           entityId: req.initiatorId,
           conversationState: 'IDLE'
         });
+      }
+    }
+
+    // Safety cleanup: Reset any entities stuck in WALKING_TO_CONVERSATION without a valid target or partner
+    const WALKING_TIMEOUT_MS = 15000; // Max 15 seconds to walk to conversation
+    for (const entity of this.state.entities.values()) {
+      if (entity.conversationState === 'WALKING_TO_CONVERSATION') {
+        const partner = entity.conversationTargetId ? this.state.entities.get(entity.conversationTargetId) : null;
+        
+        // Check for invalid states:
+        // 1. No partner exists anymore
+        // 2. Partner is not in WALKING_TO_CONVERSATION or IN_CONVERSATION state (they gave up)
+        // 3. Partner's conversationTargetId doesn't point back to us
+        const partnerInvalid = !partner || 
+          (partner.conversationState !== 'WALKING_TO_CONVERSATION' && partner.conversationState !== 'IN_CONVERSATION') ||
+          (partner.conversationTargetId !== entity.entityId && partner.conversationPartnerId !== entity.entityId);
+        
+        // Check for walking timeout (been walking too long)
+        const walkingTooLong = entity.targetSetAt && (currentTime - entity.targetSetAt > WALKING_TIMEOUT_MS);
+        
+        if (partnerInvalid || walkingTooLong) {
+          const reason = partnerInvalid 
+            ? `partner state invalid (partner: ${partner?.conversationState || 'missing'})` 
+            : 'walking timeout exceeded';
+          console.log(`[World] Safety cleanup: ${entity.displayName} (${entity.entityId.substring(0, 8)}) stuck in WALKING_TO_CONVERSATION - ${reason}`);
+          
+          const resetEntity = {
+            ...entity,
+            conversationState: 'IDLE' as const,
+            conversationTargetId: undefined,
+            conversationPartnerId: undefined,
+            targetPosition: undefined,
+            plannedPath: undefined,
+            direction: { x: 0 as const, y: 0 as const },
+            positionHistory: [],
+            stuckCounter: 0
+          };
+          this.state.entities.set(entity.entityId, resetEntity);
+          
+          events.push({
+            type: 'ENTITY_STATE_CHANGED',
+            entityId: entity.entityId,
+            conversationState: 'IDLE'
+          });
+        }
       }
     }
 
@@ -675,12 +799,13 @@ export class World {
       return err('OUT_OF_RANGE', 'Target is too far away to initiate conversation');
     }
     
-    // Check if either party is already in a conversation
-    if (initiator.conversationState === 'IN_CONVERSATION') {
-      return err('ALREADY_IN_CONVERSATION', 'Initiator is already in a conversation');
+    // Check if either party is already in a conversation or busy with conversation-related activity
+    // This prevents "group chats" by ensuring strict 1-on-1 conversations only
+    if (initiator.conversationState && initiator.conversationState !== 'IDLE') {
+      return err('ALREADY_IN_CONVERSATION', `Initiator is busy (${initiator.conversationState})`);
     }
-    if (target.conversationState === 'IN_CONVERSATION') {
-      return err('TARGET_BUSY', 'Target is already in a conversation');
+    if (target.conversationState && target.conversationState !== 'IDLE') {
+      return err('TARGET_BUSY', `Target is busy (${target.conversationState})`);
     }
     
     // Create the request
@@ -734,15 +859,30 @@ export class World {
     if (request.targetId !== acceptorId) return err('NOT_TARGET', 'Only the target can accept');
     if (request.status !== 'PENDING') return err('REQUEST_NOT_PENDING', 'Request is no longer pending');
     
-    const accepted = this.conversationRequests.acceptRequest(requestId);
-    if (!accepted) return err('ACCEPT_FAILED', 'Failed to accept request');
-    
     const initiator = this.state.entities.get(request.initiatorId);
     const target = this.state.entities.get(request.targetId);
     
     if (!initiator || !target) {
       return err('ENTITY_NOT_FOUND', 'One of the participants no longer exists');
     }
+    
+    // Verify both entities are still available for this specific conversation
+    // Initiator should be in PENDING_REQUEST for THIS request
+    if (initiator.conversationState !== 'PENDING_REQUEST' || initiator.pendingConversationRequestId !== requestId) {
+      return err('INITIATOR_BUSY', 'Initiator is no longer waiting for this conversation');
+    }
+    // Target should be IDLE (not already in another conversation flow)
+    if (target.conversationState && target.conversationState !== 'IDLE') {
+      return err('TARGET_BUSY', 'Target is already busy with another conversation');
+    }
+    
+    const accepted = this.conversationRequests.acceptRequest(requestId);
+    if (!accepted) return err('ACCEPT_FAILED', 'Failed to accept request');
+    
+    // Cancel ALL other pending requests involving either entity to prevent group chats
+    // This ensures strict 1-on-1 conversations
+    this.conversationRequests.cancelRequestsInvolving(request.initiatorId, requestId);
+    this.conversationRequests.cancelRequestsInvolving(request.targetId, requestId);
     
     // Calculate position adjacent to target in the direction they're facing
     // Calculate the closest adjacent position to the initiator
@@ -759,12 +899,44 @@ export class World {
       { x: target.x, y: target.y - 1 }  // Up
     ];
     
-    // Find the closest position to the initiator's current location
-    let adjacentPosition = possiblePositions[0];
-    let minDistance = getDistance(initiator.x, initiator.y, possiblePositions[0].x, possiblePositions[0].y);
+    // Filter to only valid positions (in bounds and not blocked by walls/entities)
+    const validPositions = possiblePositions.filter(pos => {
+      // Check bounds
+      if (pos.x < 0 || pos.y < 0 || pos.x >= this.state.map.width || pos.y >= this.state.map.height) {
+        return false;
+      }
+      
+      // Check if position is blocked by a wall or another entity
+      const posKey = `${pos.x},${pos.y}`;
+      for (const entity of this.state.entities.values()) {
+        if (entity.entityId === request.initiatorId || entity.entityId === request.targetId) continue;
+        if (entity.x === pos.x && entity.y === pos.y) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
     
-    for (let i = 1; i < possiblePositions.length; i++) {
-      const pos = possiblePositions[i];
+    // If no valid positions, try using initiator's current position if they're already adjacent
+    if (validPositions.length === 0) {
+      // Check if initiator is already adjacent to target
+      if (areAdjacent(initiator.x, initiator.y, target.x, target.y)) {
+        console.log(`[World] No valid adjacent positions, but initiator already adjacent to target`);
+        // Use initiator's current position
+        validPositions.push({ x: initiator.x, y: initiator.y });
+      } else {
+        console.log(`[World] No valid adjacent positions available for conversation`);
+        return err('NO_VALID_POSITION', 'No valid position adjacent to target');
+      }
+    }
+    
+    // Find the closest valid position to the initiator's current location
+    let adjacentPosition = validPositions[0];
+    let minDistance = getDistance(initiator.x, initiator.y, validPositions[0].x, validPositions[0].y);
+    
+    for (let i = 1; i < validPositions.length; i++) {
+      const pos = validPositions[i];
       const dist = getDistance(initiator.x, initiator.y, pos.x, pos.y);
       if (dist < minDistance) {
         minDistance = dist;
@@ -772,15 +944,23 @@ export class World {
       }
     }
     
+    console.log(`[World] Conversation accepted: ${initiator.displayName} walking to (${adjacentPosition.x}, ${adjacentPosition.y}) to talk to ${target.displayName} at (${target.x}, ${target.y})`)
+    
     // Update both entities to WALKING_TO_CONVERSATION state
     // Initiator will walk to position adjacent to target
+    const now = Date.now();
     const updatedInitiator = {
       ...initiator,
       conversationState: 'WALKING_TO_CONVERSATION' as const,
       conversationTargetId: request.targetId,
       targetPosition: adjacentPosition, // Walk to adjacent position
+      targetSetAt: now, // Track when walking started for timeout detection
       direction: { x: 0 as const, y: 0 as const },
-      pendingConversationRequestId: undefined
+      pendingConversationRequestId: undefined,
+      plannedPath: undefined, // Clear any old path
+      positionHistory: [], // Reset history
+      stuckCounter: 0,
+      lastMovedTime: now
     };
     
     // Target should face the initiator immediately (strictly cardinal)
@@ -801,6 +981,7 @@ export class World {
       conversationState: 'WALKING_TO_CONVERSATION' as const,
       conversationTargetId: request.initiatorId,
       targetPosition: { x: target.x, y: target.y }, // Lock them here using the same target system
+      targetSetAt: now, // Track when walking started for timeout detection
       direction: { x: 0 as const, y: 0 as const }, // Target stands still
       facing: targetFacingDir
     };
@@ -1092,8 +1273,9 @@ export class World {
     
     if (!initiator || !target) return false;
     if (target.kind === 'WALL') return false;
-    if (initiator.conversationState === 'IN_CONVERSATION') return false;
-    if (target.conversationState === 'IN_CONVERSATION') return false;
+    // Both must be IDLE to start a new conversation - prevents group chats
+    if (initiator.conversationState && initiator.conversationState !== 'IDLE') return false;
+    if (target.conversationState && target.conversationState !== 'IDLE') return false;
     if (this.conversationRequests.isOnCooldown(initiatorId, targetId)) return false;
     
     return isWithinInitiationRange(initiator.x, initiator.y, target.x, target.y);

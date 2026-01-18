@@ -397,7 +397,16 @@ def generate_agent_response(
     messages = [{"role": "system", "content": system_prompt}]
     
     # Add conversation history
-    if history_text:
+    # Check if this is the first message in a conversation (greeting)
+    is_starting_conversation = message.startswith("[START NEW CONVERSATION]")
+    
+    if is_starting_conversation:
+        # Agent is starting a new conversation - generate a greeting
+        messages.append({
+            "role": "user",
+            "content": f"You just met {partner_name}. Start a friendly conversation with them. Say hi and ask them something interesting or share something about yourself. Keep it natural and brief."
+        })
+    elif history_text:
         messages.append({
             "role": "user", 
             "content": f"Previous messages in this conversation:\n{history_text}\n\nNow {partner_name} says: {message}"
@@ -1625,33 +1634,40 @@ def decide_accept_conversation(
     """
     Decide whether an agent should accept a conversation request.
     
-    Decision is based on:
-    - Social memory sentiment (negative = reject)
-    - Agent's current mood and energy
-    - Familiarity with the requester
-    
-    If no prior relationship (no sentiment), defaults to accepting.
+    BALANCED MODE: 
+    - Usually accept (80% base chance)
+    - May decline if negative sentiment or just talked to them
+    - Natural reasons for declining
     """
+    import random
+    
     db_client = agent_db.get_supabase_client()
     if not db_client:
-        return {"should_accept": True, "reason": "No database, accepting by default"}
+        return {"should_accept": True, "reason": "Sure, let's chat!"}
     
     # Get social memory with the requester
     social_memory = agent_db.get_social_memory(db_client, agent_id, requester_id)
     
-    # Get agent's current state
-    state = agent_db.get_state(db_client, agent_id)
-    
-    # Get agent's personality
-    personality = agent_db.get_personality(db_client, agent_id)
-    
-    # Decision logic
     print(f"[AcceptDecision] {agent_name} considering request from {requester_name}")
     
-    # No prior relationship - always accept (chance to meet someone new)
+    # No prior relationship - high chance to accept (90%)
     if not social_memory:
-        print(f"[AcceptDecision] No prior relationship, accepting")
-        return {"should_accept": True, "reason": "New person, curious to meet them"}
+        if random.random() < 0.9:
+            print(f"[AcceptDecision] New person - ACCEPTING")
+            greetings = [
+                f"Hey {requester_name}! Let's chat!",
+                f"Hi {requester_name}! What's up?",
+                f"Yo {requester_name}! Sure thing!",
+            ]
+            return {"should_accept": True, "reason": random.choice(greetings)}
+        else:
+            print(f"[AcceptDecision] New person but busy - DECLINING")
+            declines = [
+                "Sorry, I'm heading somewhere right now!",
+                "Maybe later, I'm exploring!",
+                "Catch me in a bit!",
+            ]
+            return {"should_accept": False, "reason": random.choice(declines)}
     
     sentiment = social_memory.sentiment
     familiarity = social_memory.familiarity
@@ -1659,50 +1675,52 @@ def decide_accept_conversation(
     
     print(f"[AcceptDecision] Sentiment: {sentiment:.2f}, Familiarity: {familiarity:.2f}, Interactions: {interaction_count}")
     
-    # Very negative sentiment - reject
-    if sentiment < -0.5:
-        print(f"[AcceptDecision] Rejecting due to very negative sentiment")
-        return {
-            "should_accept": False, 
-            "reason": f"Has negative feelings toward {requester_name}"
-        }
+    # Negative sentiment - likely decline (70% chance)
+    if sentiment < -0.3:
+        if random.random() < 0.7:
+            print(f"[AcceptDecision] Negative sentiment - DECLINING")
+            declines = [
+                "Not really in the mood right now",
+                "Maybe another time",
+                "I'm busy, sorry",
+            ]
+            return {"should_accept": False, "reason": random.choice(declines)}
     
-    # Somewhat negative sentiment - consider mood and energy
-    if sentiment < -0.2:
-        # If agent is in a bad mood or low energy, more likely to reject
-        if state and (state.mood < 0 or state.energy < 0.3):
-            print(f"[AcceptDecision] Rejecting - negative sentiment + bad mood/low energy")
-            return {
-                "should_accept": False,
-                "reason": f"Not in the mood to talk to {requester_name}"
-            }
+    # Just talked to them recently - might decline (40% chance if high interaction count)
+    if interaction_count > 5 and random.random() < 0.3:
+        print(f"[AcceptDecision] Already chatted a lot - DECLINING")
+        declines = [
+            "We just talked! Let me walk around a bit",
+            "Gonna explore for a while, catch you later!",
+            "Talked a lot already, need to stretch my legs!",
+        ]
+        return {"should_accept": False, "reason": random.choice(declines)}
     
-    # Low energy - might decline even with neutral sentiment
-    if state and state.energy < 0.15:
-        # But high familiarity/positive sentiment can override
-        if sentiment < 0.3 and familiarity < 0.5:
-            print(f"[AcceptDecision] Rejecting - too tired and not close enough")
-            return {
-                "should_accept": False,
-                "reason": "Too tired to chat right now"
-            }
-    
-    # Check personality - low sociability might decline more often
-    if personality and personality.sociability < 0.3:
-        # Introverts are more selective
-        if sentiment < 0.2 and familiarity < 0.3:
-            # Random chance to decline based on sociability
-            import random
-            if random.random() > personality.sociability + 0.3:
-                print(f"[AcceptDecision] Rejecting - introverted and not close with requester")
-                return {
-                    "should_accept": False,
-                    "reason": "Prefers solitude right now"
-                }
-    
-    # Default: accept
-    print(f"[AcceptDecision] Accepting conversation request")
-    return {"should_accept": True, "reason": "Happy to chat"}
+    # Almost always accept (95% base chance) - agents love chatting!
+    if random.random() < 0.95:
+        print(f"[AcceptDecision] ACCEPTING conversation")
+        if familiarity > 0.5 or interaction_count > 3:
+            starters = [
+                f"Hey {requester_name}! What's up?",
+                f"Yo {requester_name}! Good to see you!",
+                f"Hey {requester_name}! What's new?",
+                f"Hey {requester_name}! Great to see you again!",
+            ]
+        else:
+            starters = [
+                "Sure, let's chat!",
+                "Hey, what's up?",
+                "Sure thing!",
+                "Yeah, what's going on?",
+            ]
+        return {"should_accept": True, "reason": random.choice(starters)}
+    else:
+        print(f"[AcceptDecision] Random decline - rare occurrence")
+        declines = [
+            "I'm on my way somewhere, maybe later!",
+            "Catch me in a sec!",
+        ]
+        return {"should_accept": False, "reason": random.choice(declines)}
 
 
 def decide_initiate_conversation(
@@ -1714,148 +1732,94 @@ def decide_initiate_conversation(
     """
     Decide whether an agent should initiate a conversation and provide a reason.
     
-    Decision is based on:
-    - Social memory sentiment (positive = want to talk)
-    - Agent's current mood, energy, and loneliness
-    - Familiarity with the target
-    - Shared interests
+    BALANCED MODE:
+    - Usually initiate (70% base chance)
+    - Less likely if negative sentiment or recently talked
+    - Sometimes prefer walking around
     
     Returns whether to initiate and a reason why.
     """
+    import random
+    
     db_client = agent_db.get_supabase_client()
     if not db_client:
-        return {"should_initiate": True, "reason": "Just wanted to say hi!"}
+        if random.random() < 0.7:
+            return {"should_initiate": True, "reason": f"Hey {target_name}! What's up?"}
+        else:
+            return {"should_initiate": False, "reason": "Just walking around"}
     
     # Get social memory with the target
     social_memory = agent_db.get_social_memory(db_client, agent_id, target_id)
     
-    # Get agent's current state
-    state = agent_db.get_state(db_client, agent_id)
+    print(f"[InitiateDecision] {agent_name} considering talking to {target_name}")
     
-    # Get agent's personality
-    personality = agent_db.get_personality(db_client, agent_id)
-    
-    print(f"[InitiateDecision] {agent_name} considering conversation with {target_name}")
-    
-    # Check if agent is too tired - only block at very low energy
-    if state and state.energy < 0.08:
-        print(f"[InitiateDecision] Too tired to start conversation")
-        return {"should_initiate": False, "reason": "Too tired"}
-    
-    # Check loneliness - high loneliness means strong desire to talk
-    loneliness_factor = state.loneliness if state else 0.3
-    
-    # No prior relationship - curious about new person
+    # No prior relationship - very likely to meet new people (90%)
     if not social_memory:
-        if personality and personality.curiosity > 0.5:
-            print(f"[InitiateDecision] New person + high curiosity = initiate")
-            return {
-                "should_initiate": True, 
-                "reason": f"Hey {target_name}! Don't think we've met properly yet."
-            }
-        elif loneliness_factor > 0.5:
-            return {
-                "should_initiate": True,
-                "reason": f"Hi {target_name}! Thought I'd say hello."
-            }
-        # High random chance for new acquaintances - meeting new people is fun!
-        import random
-        if random.random() < 0.5:  # 50% base chance for strangers
-            return {
-                "should_initiate": True,
-                "reason": f"Hey {target_name}, what's up?"
-            }
-        return {"should_initiate": False, "reason": "Not feeling social right now"}
+        if random.random() < 0.90:
+            print(f"[InitiateDecision] New person - INITIATING")
+            greetings = [
+                f"Hey {target_name}! What's up?",
+                f"Hi {target_name}! How's it going?",
+                f"Yo {target_name}! Let's chat!",
+                f"Hey {target_name}! Nice to meet you!",
+            ]
+            return {"should_initiate": True, "reason": random.choice(greetings)}
+        else:
+            print(f"[InitiateDecision] New person but walking - NOT initiating")
+            return {"should_initiate": False, "reason": "Exploring for now"}
     
     sentiment = social_memory.sentiment
     familiarity = social_memory.familiarity
     interaction_count = social_memory.interaction_count
     mutual_interests = social_memory.mutual_interests or []
-    last_topic = social_memory.last_conversation_topic
     
     print(f"[InitiateDecision] Sentiment: {sentiment:.2f}, Familiarity: {familiarity:.2f}, Interactions: {interaction_count}")
     
-    # Very negative sentiment - avoid this person
+    # Only avoid if VERY negative sentiment (50% chance to not initiate)
     if sentiment < -0.5:
-        print(f"[InitiateDecision] Avoiding due to very negative sentiment")
-        return {"should_initiate": False, "reason": "Would rather not talk to them"}
+        if random.random() < 0.5:
+            print(f"[InitiateDecision] Very negative sentiment - NOT initiating")
+            return {"should_initiate": False, "reason": "Not feeling it right now"}
     
-    # Positive sentiment - want to catch up
-    if sentiment > 0.5:
-        import random
+    # Recently talked a lot - slightly less likely to initiate (30% chance to skip)
+    if interaction_count > 5:
+        if random.random() < 0.3:
+            print(f"[InitiateDecision] Already talked a lot - walking instead")
+            return {"should_initiate": False, "reason": "Gonna explore a bit"}
+    
+    # Very high chance to initiate (85%) - agents love chatting!
+    if random.random() < 0.85:
+        print(f"[InitiateDecision] INITIATING conversation")
         
-        # If we're already familiar, encourage NEW topics instead of repeating
-        if familiarity > 0.4 or interaction_count > 3:
-            # Variety of conversation starters for familiar friends
-            new_topic_starters = [
-                f"Hey {target_name}! What have you been up to lately?",
-                f"Yo {target_name}! Got any plans for the weekend?",
-                f"Hey {target_name}! Seen anything good on Netflix recently?",
-                f"Hey {target_name}! What's new with you?",
-                f"Yo {target_name}! Random question - what's the last thing that made you laugh?",
-                f"Hey {target_name}! What are you most excited about these days?",
-                f"Hey {target_name}! Tried any new food spots recently?",
-                f"Yo {target_name}! Got any hot takes today?",
-                f"Hey {target_name}! What's been on your mind?",
-                f"Hey {target_name}! Tell me something interesting that happened this week",
+        if familiarity > 0.5 or interaction_count > 3:
+            starters = [
+                f"Hey {target_name}! What's up?",
+                f"Yo {target_name}! What's new?",
+                f"Hey {target_name}! How's it going?",
             ]
-            return {
-                "should_initiate": True,
-                "reason": random.choice(new_topic_starters)
-            }
+        elif sentiment > 0.0:
+            starters = [
+                f"Hey {target_name}! Good to see you!",
+                f"Yo {target_name}! What's up?",
+                f"Hey {target_name}! Got a minute?",
+            ]
+        else:
+            starters = [
+                f"Hey {target_name}!",
+                f"Yo {target_name}! What's up?",
+                "Hey, how's it going?",
+            ]
         
-        # For newer relationships, mutual interests can help break ice
-        if mutual_interests and len(mutual_interests) > 0 and random.random() < 0.3:
+        # Add mutual interest starters if available
+        if mutual_interests and len(mutual_interests) > 0:
             interest = random.choice(mutual_interests[:3])
             if interest:
-                return {
-                    "should_initiate": True,
-                    "reason": f"Hey {target_name}! Been thinking about {interest}, wanted to chat about it."
-                }
+                starters.append(f"Hey {target_name}! Been thinking about {interest}!")
         
-        return {
-            "should_initiate": True,
-            "reason": f"Hey {target_name}! Good to see you, how's it going?"
-        }
-    
-    # Neutral sentiment - consider mood and loneliness
-    if state:
-        if state.loneliness > 0.6:
-            return {
-                "should_initiate": True,
-                "reason": f"Hey {target_name}, was getting a bit bored. What are you up to?"
-            }
-        if state.mood > 0.5 and state.energy > 0.5:
-            return {
-                "should_initiate": True,
-                "reason": f"Hi {target_name}! Feeling good, wanted to say hi."
-            }
-    
-    # Check personality - high sociability wants to talk more
-    if personality and personality.sociability > 0.6:
-        return {
-            "should_initiate": True,
-            "reason": f"Hey {target_name}! Got a minute to chat?"
-        }
-    
-    # Default: HIGH random chance - agents are social creatures!
-    # Base 40% + sociability bonus (up to 20% more)
-    import random
-    sociability = personality.sociability if personality else 0.5
-    initiate_chance = 0.40 + (sociability * 0.2)  # 40-60% chance based on sociability
-    if random.random() < initiate_chance:
-        greetings = [
-            f"Hey {target_name}, what's going on?",
-            f"Yo {target_name}! What's up?",
-            f"Hey {target_name}! Got a sec?",
-            f"Hi {target_name}! How's it going?",
-        ]
-        return {
-            "should_initiate": True,
-            "reason": random.choice(greetings)
-        }
-    
-    return {"should_initiate": False, "reason": "Not feeling chatty right now"}
+        return {"should_initiate": True, "reason": random.choice(starters)}
+    else:
+        print(f"[InitiateDecision] Random walk - NOT initiating")
+        return {"should_initiate": False, "reason": "Just walking around"}
 
 
 def decide_end_conversation(
@@ -1869,16 +1833,21 @@ def decide_end_conversation(
     """
     Decide whether an agent should end a conversation.
     
-    Uses LLM to analyze:
-    - Conversation flow (natural ending point?)
-    - Sentiment of recent messages (getting hostile?)
-    - Agent's personality and mood
-    - Length of conversation
+    BALANCED MODE:
+    - Short conversations (3-8 messages typically)
+    - Natural endings so agents can walk around
+    - Probability-based with increasing chance over time
     
     Returns decision and optional farewell message.
     """
+    import random
+    
     db_client = agent_db.get_supabase_client()
     if not db_client:
+        # Fallback: random chance based on message count
+        message_count = len(conversation_history)
+        if message_count >= 3 and random.random() < 0.2:
+            return {"should_end": True, "farewell_message": "Gotta run, talk later!"}
         return {"should_end": False}
     
     # Get context
@@ -1890,17 +1859,52 @@ def decide_end_conversation(
     
     print(f"[EndDecision] {agent_name} considering ending conversation with {partner_name} ({message_count} messages)")
     
-    # Very short conversations - don't end unless hostile
-    if message_count < 4:
-        # Only end if last message was very negative
+    # Very short conversations (< 3 messages) - only end if hostile
+    if message_count < 3:
         analysis = analyze_message_sentiment(last_message, partner_name, agent_name)
         if analysis.get("is_rude"):
             return {
                 "should_end": True,
-                "farewell_message": "I don't appreciate being spoken to like that. Bye.",
+                "farewell_message": "I don't appreciate that. Bye.",
                 "reason": "Received rude message"
             }
         return {"should_end": False}
+    
+    # After 3+ messages, gradually increasing chance to end
+    # Base probability: 15% at 3 messages, increasing by 10% per message
+    end_probability = 0.15 + (message_count - 3) * 0.10
+    end_probability = min(end_probability, 0.8)  # Max 80%
+    
+    # Forced end after 10 messages
+    if message_count >= 10:
+        print(f"[EndDecision] Conversation too long, ENDING")
+        farewells = [
+            f"Hey {partner_name}, I should get going! Great chat!",
+            f"Gotta run, catch you later {partner_name}!",
+            f"Nice talking to you {partner_name}! See you around!",
+            f"I'm gonna walk around for a bit. Talk later!",
+        ]
+        return {
+            "should_end": True,
+            "farewell_message": random.choice(farewells),
+            "reason": "Conversation long enough"
+        }
+    
+    # Random check
+    if random.random() < end_probability:
+        print(f"[EndDecision] Random end at {message_count} messages (prob={end_probability:.0%})")
+        farewells = [
+            f"Anyway, gotta run! Talk later {partner_name}!",
+            f"Alright, gonna walk around. See ya!",
+            f"Nice chat! Catch you later!",
+            f"I'm gonna explore a bit. Talk soon!",
+            f"Good talk! See you around!",
+        ]
+        return {
+            "should_end": True,
+            "farewell_message": random.choice(farewells),
+            "reason": "Natural ending"
+        }
     
     # Build recent conversation context
     recent_messages = conversation_history[-6:] if len(conversation_history) > 6 else conversation_history

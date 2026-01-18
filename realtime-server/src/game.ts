@@ -2,7 +2,7 @@ import { World, createWall, createAvatar, CONVERSATION_CONFIG, MAIN_MAP, findPat
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL, CONVERSATION_TIMEOUT_MS, API_BASE_URL } from './config';
 import { broadcast, broadcastToSpectators } from './network';
 import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
-import { getAllUsers, getAllAgentStats } from './db';
+import { getAllUsers, getAllAgentStats, supabase } from './db';
 import type { ChatMessage } from './types';
 
 // Use the main map with collision data from the Tiled map
@@ -226,12 +226,109 @@ export async function loadExistingUsers(): Promise<void> {
 }
 
 
+/**
+ * Add a single NPC to the world dynamically (after server startup).
+ * Called from the HTTP API when a new NPC is created.
+ * If the NPC already exists, it will be updated with fresh data from the database.
+ */
+export async function addNpcToWorld(npcId: string): Promise<{ ok: boolean; error?: string }> {
+  console.log(`[NPC] Adding/updating NPC ${npcId} in world...`);
+  
+  // Fetch from database
+  const { data, error } = await supabase
+    .from('user_positions')
+    .select('user_id, x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state')
+    .eq('user_id', npcId)
+    .single();
+  
+  if (error || !data) {
+    console.error(`[NPC] Failed to fetch NPC ${npcId}:`, error);
+    return { ok: false, error: error?.message || 'NPC not found in database' };
+  }
+  
+  // Fetch stats
+  const { data: statsData } = await supabase
+    .from('agent_state')
+    .select('energy, hunger, loneliness, mood')
+    .eq('avatar_id', npcId)
+    .single();
+  
+  const sprites = (data.sprite_front || data.sprite_back || data.sprite_left || data.sprite_right) ? {
+    front: data.sprite_front || undefined,
+    back: data.sprite_back || undefined,
+    left: data.sprite_left || undefined,
+    right: data.sprite_right || undefined,
+  } : undefined;
+  
+  console.log(`[NPC] Found NPC in database: ${data.display_name} at (${data.x}, ${data.y}), sprites: ${sprites ? 'yes' : 'no'}`);
+  
+  // Check if entity already exists
+  const existingEntity = world.getEntity(npcId);
+  if (existingEntity) {
+    // Update the existing entity's sprites and display name
+    console.log(`[NPC] Updating existing entity ${data.display_name}`);
+    (existingEntity as any).sprites = sprites;
+    (existingEntity as any).displayName = data.display_name || 'NPC';
+    if (statsData) {
+      (existingEntity as any).stats = {
+        energy: statsData.energy,
+        hunger: statsData.hunger,
+        loneliness: statsData.loneliness,
+        mood: statsData.mood
+      };
+    }
+    return { ok: true };
+  }
+  
+  // Create the robot entity
+  const facing = { x: data.facing_x ?? 0, y: data.facing_y ?? 1 } as { x: 0 | 1 | -1; y: 0 | 1 | -1 };
+  const robot: any = {
+    ...createAvatar(data.user_id, data.display_name || 'NPC', data.x, data.y, facing),
+    kind: 'ROBOT',
+    sprites: sprites,
+    stats: statsData ? {
+      energy: statsData.energy,
+      hunger: statsData.hunger,
+      loneliness: statsData.loneliness,
+      mood: statsData.mood
+    } : undefined,
+    direction: { x: 0, y: 0 },
+    targetPosition: undefined,
+    plannedPath: undefined
+  };
+  
+  const result = world.addEntity(robot);
+  if (result.ok) {
+    console.log(`[NPC] Successfully added ${data.display_name} to world`);
+    return { ok: true };
+  } else {
+    console.error(`[NPC] Failed to add entity:`, result.error);
+    return { ok: false, error: String(result.error) };
+  }
+}
+
+
 export function startGameLoop() {
   // Game Loop
-  setInterval(() => {
+  setInterval(async () => {
     const events = world.tick();
     if (events.length > 0) {
       broadcast({ type: 'EVENTS', events });
+      
+      // Handle CONVERSATION_STARTED events to initialize tracking for agent-agent conversations
+      for (const event of events) {
+        if (event.type === 'CONVERSATION_STARTED' && event.participant1Id && event.participant2Id) {
+          const entity1 = world.getEntity(event.participant1Id);
+          const entity2 = world.getEntity(event.participant2Id);
+          
+          // Only initialize for agent-agent (both ROBOT) conversations
+          if (entity1?.kind === 'ROBOT' && entity2?.kind === 'ROBOT') {
+            const { initializeConversationTracking } = await import('./handlers');
+            await initializeConversationTracking(event.participant1Id, event.participant2Id);
+            console.log(`[GameLoop] Initialized agent-agent conversation tracking: ${entity1.displayName} ↔ ${entity2.displayName}`);
+          }
+        }
+      }
     }
   }, TICK_RATE);
 }
@@ -392,6 +489,19 @@ export function startConversationTimeoutLoop() {
 export async function processAgentAgentConversations() {
   const { userConnections } = await import('./state');
   
+  // Debug: Log active conversation count on every run
+  const activeCount = activeConversations.size / 2; // Each conversation has 2 entries
+  if (activeCount > 0) {
+    console.log(`[Agent-Agent] Active conversations: ${activeCount}`);
+    for (const [participantId, convData] of activeConversations.entries()) {
+      if (participantId === convData.participant1) { // Only log once per conversation
+        const e1 = world.getEntity(convData.participant1);
+        const e2 = world.getEntity(convData.participant2);
+        console.log(`  - ${e1?.displayName || 'Unknown'} ↔ ${e2?.displayName || 'Unknown'}: ${convData.messages.length} msgs, states: ${e1?.conversationState}/${e2?.conversationState}`);
+      }
+    }
+  }
+  
   // Process each active conversation
   const processedConversations = new Set<string>();
   
@@ -407,9 +517,18 @@ export async function processAgentAgentConversations() {
     const entity2 = world.getEntity(convData.participant2);
     
     // Skip if either entity doesn't exist or isn't in conversation
-    if (!entity1 || !entity2) continue;
-    if (entity1.conversationState !== 'IN_CONVERSATION') continue;
-    if (entity2.conversationState !== 'IN_CONVERSATION') continue;
+    if (!entity1 || !entity2) {
+      console.log(`[Agent-Agent] Skipping - entity missing: e1=${!!entity1} e2=${!!entity2}`);
+      continue;
+    }
+    if (entity1.conversationState !== 'IN_CONVERSATION') {
+      console.log(`[Agent-Agent] Skipping - ${entity1.displayName} state: ${entity1.conversationState}`);
+      continue;
+    }
+    if (entity2.conversationState !== 'IN_CONVERSATION') {
+      console.log(`[Agent-Agent] Skipping - ${entity2.displayName} state: ${entity2.conversationState}`);
+      continue;
+    }
     
     const isEntity1Online = userConnections.has(convData.participant1);
     const isEntity2Online = userConnections.has(convData.participant2);
@@ -417,17 +536,23 @@ export async function processAgentAgentConversations() {
     // CRITICAL: If ANY participant is an online player, skip this conversation entirely.
     // Player-agent conversations are turn-based and handled via handleChatMessage.
     // This loop ONLY handles agent-agent (both offline robots) conversations.
-    if (isEntity1Online || isEntity2Online) continue;
+    if (isEntity1Online || isEntity2Online) {
+      console.log(`[Agent-Agent] Skipping - player online: e1=${isEntity1Online} e2=${isEntity2Online}`);
+      continue;
+    }
     
     // Both must be offline ROBOTs for this loop to generate messages
     const isEntity1Robot = entity1.kind === 'ROBOT';
     const isEntity2Robot = entity2.kind === 'ROBOT';
     
-    if (!isEntity1Robot || !isEntity2Robot) continue;
+    if (!isEntity1Robot || !isEntity2Robot) {
+      console.log(`[Agent-Agent] Skipping - not both robots: e1=${entity1.kind} e2=${entity2.kind}`);
+      continue;
+    }
     
-    // Rate limit: only send messages every 3-5 seconds
+    // Rate limit: only send messages every 2-3 seconds (faster for more active conversations)
     const timeSinceLastMessage = Date.now() - convData.lastMessageAt;
-    const minInterval = 3000 + Math.random() * 2000; // 3-5 seconds
+    const minInterval = 2000 + Math.random() * 1000; // 2-3 seconds
     if (timeSinceLastMessage < minInterval) continue;
     
     // Determine who should speak next (alternate, or the one who didn't speak last)
@@ -449,18 +574,23 @@ export async function processAgentAgentConversations() {
     conversationsBeingProcessed.add(convData.conversationId);
     
     // Generate response from the speaker (agent only)
+    const isFirstMessage = convData.messages.length === 0;
     try {
       const response = await generateAgentMessage(
         nextSpeakerId,
         listenerId,
         listener.displayName || 'Unknown',
-        convData.messages
+        convData.messages,
+        isFirstMessage
       );
       
       if (response) {
+        // Generate a unique message ID with clear identifiers
+        const messageId = `msg-${convData.conversationId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        
         // Agent-agent messages are NOT player controlled (all LLM generated)
         const message: ChatMessage = {
-          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: messageId,
           senderId: nextSpeakerId,
           senderName: speaker.displayName || 'Agent',
           content: response,
@@ -469,10 +599,12 @@ export async function processAgentAgentConversations() {
           isPlayerControlled: false  // Agent-to-agent is all LLM
         };
         
+        console.log(`[Agent-Agent] Message created: id=${messageId.substring(0, 20)}, sender=${speaker.displayName} (${nextSpeakerId.substring(0, 8)}), conv=${convData.conversationId.substring(0, 8)}`);
+        
         convData.messages.push(message);
         convData.lastMessageAt = Date.now();
         
-        // Broadcast to spectators only (agent-agent conversations have no player participants)
+        // Broadcast to ALL clients (players + spectators) so everyone sees agent-agent chat bubbles
         const chatEvent = {
           type: 'CHAT_MESSAGE' as const,
           messageId: message.id,
@@ -482,7 +614,8 @@ export async function processAgentAgentConversations() {
           timestamp: message.timestamp,
           conversationId: convData.conversationId
         };
-        broadcastToSpectators(chatEvent);
+        console.log(`[Agent-Agent] Broadcasting chat: ${message.senderName} → "${message.content.substring(0, 30)}..."`);
+        broadcast(chatEvent);
         
         console.log(`[Agent-Agent] ${speaker.displayName} → ${listener.displayName}: ${response.substring(0, 50)}...`);
         
@@ -512,7 +645,7 @@ export async function processAgentAgentConversations() {
               isPlayerControlled: false
             };
             convData.messages.push(farewellMsg);
-            broadcastToSpectators({
+            const farewellEvent = {
               type: 'CHAT_MESSAGE' as const,
               messageId: farewellMsg.id,
               senderId: farewellMsg.senderId,
@@ -520,7 +653,9 @@ export async function processAgentAgentConversations() {
               content: farewellMsg.content,
               timestamp: farewellMsg.timestamp,
               conversationId: convData.conversationId
-            });
+            };
+            console.log(`[Agent-Agent] Broadcasting farewell: ${farewellMsg.senderName} → "${farewellMsg.content.substring(0, 30)}..."`);
+            broadcast(farewellEvent);
           }
           
           // Pass reason and who ended it for notifications
@@ -536,8 +671,9 @@ export async function processAgentAgentConversations() {
           activeConversations.delete(convData.participant1);
           activeConversations.delete(convData.participant2);
         } else {
-          // Fallback: End conversation after many exchanges (15-20 messages)
-          const maxMessages = 15 + Math.floor(Math.random() * 5);
+          // Fallback: End conversation after moderate exchanges (8-12 messages)
+          // This keeps agents active - they don't get stuck in long conversations
+          const maxMessages = 8 + Math.floor(Math.random() * 5);
           if (convData.messages.length >= maxMessages) {
             console.log(`[Agent-Agent] Conversation ending after ${convData.messages.length} messages (max reached)`);
             const result = world.endConversation(convData.participant1);
@@ -563,19 +699,28 @@ async function generateAgentMessage(
   agentId: string,
   partnerId: string,
   partnerName: string,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  isFirstMessage: boolean = false
 ): Promise<string | null> {
   try {
     const lastMessage = messages[messages.length - 1];
+    
+    // For first message, use a greeting prompt instead of a reply context
+    const messagePrompt = isFirstMessage 
+      ? `[START NEW CONVERSATION] Greet ${partnerName} and start a friendly conversation.`
+      : (lastMessage?.content || 'Hi there!');
+    
+    console.log(`[generateAgentMessage] Agent ${agentId.substring(0, 8)} responding to "${messagePrompt.substring(0, 50)}..." (first=${isFirstMessage})`);
+    
     const response = await fetch(`${API_BASE_URL}/conversation/agent-respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        conversation_id: messages[0]?.conversationId || '',
+        conversation_id: messages[0]?.conversationId || `conv-${Date.now()}`,
         agent_id: agentId,
         partner_id: partnerId,
         partner_name: partnerName,
-        message: lastMessage?.content || 'Hi there!',
+        message: messagePrompt,
         conversation_history: messages.map(m => ({
           senderId: m.senderId,
           senderName: m.senderName,
@@ -585,9 +730,16 @@ async function generateAgentMessage(
       })
     });
     const data = await response.json();
-    return data.ok ? data.response : null;
+    
+    if (data.ok && data.response) {
+      console.log(`[generateAgentMessage] Got response: "${data.response.substring(0, 50)}..."`);
+      return data.response;
+    } else {
+      console.error(`[generateAgentMessage] API returned error:`, data.error);
+      return null;
+    }
   } catch (e) {
-    console.error('Error generating agent message:', e);
+    console.error('[generateAgentMessage] Error:', e);
     return null;
   }
 }
@@ -623,7 +775,7 @@ export function startAiLoop() {
         continue;
       }
       
-      // Skip if robot is in conversation (they stand still)
+      // Skip if robot is in any conversation-related state (they should be doing conversation things)
       if (robot.conversationState === 'IN_CONVERSATION') {
         continue;
       }
@@ -633,14 +785,20 @@ export function startAiLoop() {
         continue;
       }
       
+      // Skip if robot is walking to a conversation partner
+      if (robot.conversationState === 'WALKING_TO_CONVERSATION') {
+        continue;
+      }
+      
       // Get pending conversation requests for this robot
       const pendingRequests = world.getPendingRequestsFor(robot.entityId);
       
       // Get nearby entities for conversation initiation
       const nearbyEntities = world.getEntitiesInRange(robot.entityId);
       
-      // If robot has no target and is not in a conversation flow, ask API
-      if (!robot.targetPosition && robot.conversationState !== 'WALKING_TO_CONVERSATION') {
+      // If robot has no target, ask API for next action
+      // Note: We've already checked for conversation-related states above, so this is a general check
+      if (!robot.targetPosition) {
         // ============================================================
         // 🧪 PATHFINDING TEST - Uncomment to test automatic walking
         // ============================================================
@@ -681,7 +839,9 @@ export function startAiLoop() {
               pending_requests: pendingRequests.map(r => ({
                 request_id: r.requestId,
                 initiator_id: r.initiatorId,
-                initiator_type: r.initiatorType
+                initiator_type: r.initiatorType,
+                created_at: r.createdAt,
+                expires_at: r.expiresAt
               }))
             })
           });
@@ -707,6 +867,18 @@ export function startAiLoop() {
                 if (data.target_entity_id) {
                   // Check if agent WANTS to initiate based on sentiment, interests, mood
                   const targetEntity = world.getEntity(data.target_entity_id);
+                  
+                  // First check if either party is already busy
+                  const currentRobot = world.getEntity(robot.entityId);
+                  if (currentRobot?.conversationState && currentRobot.conversationState !== 'IDLE') {
+                    console.log(`[Agent] ${robot.displayName} already busy (${currentRobot.conversationState}), skipping request`);
+                    break;
+                  }
+                  if (targetEntity?.conversationState && targetEntity.conversationState !== 'IDLE') {
+                    console.log(`[Agent] Target ${targetEntity?.displayName} is busy (${targetEntity?.conversationState}), skipping request`);
+                    break;
+                  }
+                  
                   const initiateResult = await checkShouldInitiateConversation(
                     robot.entityId,
                     robot.displayName || 'Agent',
@@ -716,13 +888,20 @@ export function startAiLoop() {
                   
                   if (!initiateResult.should_initiate) {
                     console.log(`[Agent] ${robot.displayName} decided NOT to initiate conversation with ${targetEntity?.displayName}`);
+                    // Set a small cooldown to prevent immediate re-request
+                    world.setEntityNextDecision(robot.entityId, currentTime + 2000);
                     break;
                   }
                   
                   // Request conversation with the reason from the AI
                   const result = world.requestConversation(robot.entityId, data.target_entity_id, initiateResult.reason);
                   if (result.ok) {
+                    console.log(`[Agent] ${robot.displayName} → ${targetEntity?.displayName}: Request sent!`);
                     broadcast({ type: 'EVENTS', events: result.value });
+                  } else {
+                    console.log(`[Agent] ${robot.displayName} → ${targetEntity?.displayName}: Request FAILED: ${result.error.message}`);
+                    // Set a cooldown to prevent spam
+                    world.setEntityNextDecision(robot.entityId, currentTime + 3000);
                   }
                 }
                 break;
@@ -776,7 +955,9 @@ export function startAiLoop() {
                 
               case 'REJECT_CONVERSATION':
                 if (data.request_id) {
-                  const result = world.rejectConversation(robot.entityId, data.request_id, data.reason);
+                  const reason = data.reason || 'Not interested in chatting right now';
+                  console.log(`[AI Reject] ${robot.displayName} rejecting conversation: ${reason}`);
+                  const result = world.rejectConversation(robot.entityId, data.request_id, reason);
                   if (result.ok) {
                     broadcast({ type: 'EVENTS', events: result.value });
                   }

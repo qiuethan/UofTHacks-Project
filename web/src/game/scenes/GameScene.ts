@@ -638,9 +638,13 @@ export class GameScene extends Phaser.Scene {
       this.shownEntityMessages.set(entityId, message.id)
       
       const entitySprite = this.entitySprites.get(entityId)
+      console.log(`[ChatBubble] Showing bubble for ${message.senderName} (${entityId.substring(0, 8)}): "${message.content.substring(0, 30)}..." sprite found: ${!!entitySprite}, sprites in map: ${this.entitySprites.size}`)
       if (entitySprite) {
         const isMe = entityId === myEntityId
         this.showChatBubble(entitySprite, message.content, isMe)
+        console.log(`[ChatBubble] Bubble created successfully for ${message.senderName}`)
+      } else {
+        console.warn(`[ChatBubble] Cannot show bubble - no sprite for entity ${entityId.substring(0, 8)}`)
       }
     }
     

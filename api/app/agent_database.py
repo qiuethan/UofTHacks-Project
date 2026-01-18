@@ -258,13 +258,17 @@ def get_state(client: Client, avatar_id: str) -> Optional[AgentState]:
     result = client.table("agent_state").select("*").eq("avatar_id", avatar_id).execute()
     if result.data and len(result.data) > 0:
         row = result.data[0]
+        # Handle None values properly - use "idle" as default if current_action is None
+        current_action = row.get("current_action")
+        if current_action is None:
+            current_action = "idle"
         return AgentState(
             avatar_id=row["avatar_id"],
-            energy=row["energy"],
-            hunger=row["hunger"],
-            loneliness=row["loneliness"],
-            mood=row["mood"],
-            current_action=row.get("current_action", "idle"),
+            energy=row.get("energy", 0.8),
+            hunger=row.get("hunger", 0.3),
+            loneliness=row.get("loneliness", 0.3),
+            mood=row.get("mood", 0.5),
+            current_action=current_action,
             current_action_target=row.get("current_action_target"),
             action_started_at=row.get("action_started_at"),
             action_expires_at=row.get("action_expires_at"),

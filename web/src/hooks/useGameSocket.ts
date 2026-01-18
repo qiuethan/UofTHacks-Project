@@ -81,7 +81,13 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const [error, setError] = useState<string | null>(null)
   const [pendingRequests, setPendingRequests] = useState<ConversationRequest[]>([])
   const [inConversationWith, setInConversationWith] = useState<string | null>(null)
+  const inConversationWithRef = useRef<string | null>(null)
   const [isWalkingToConversation, setIsWalkingToConversation] = useState(false)
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    inConversationWithRef.current = inConversationWith
+  }, [inConversationWith])
   const [cooldowns, setCooldowns] = useState<Map<string, number>>(new Map())
   const [notification, setNotification] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -456,7 +462,7 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
 
         case 'CHAT_MESSAGE':
           // Handle incoming chat message
-          console.log('[CHAT_MESSAGE] Received:', msg.messageId, msg.senderName, msg.content?.substring(0, 30))
+          console.log('[CHAT_MESSAGE] Received:', msg.messageId, msg.senderName, msg.content?.substring(0, 30), 'convId:', msg.conversationId?.substring(0, 8))
           if (msg.messageId && msg.senderId && msg.content) {
             const chatMessage: ChatMessage = {
               id: msg.messageId,
@@ -466,17 +472,28 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
               timestamp: msg.timestamp || Date.now(),
               conversationId: msg.conversationId
             }
-            // Add to conversation-specific messages (for the chat UI)
-            // Check for duplicates by message ID to prevent double-adding
-            setChatMessages(prev => {
-              // Don't add if we already have this message
-              if (prev.some(m => m.id === msg.messageId)) {
-                console.log('[CHAT_MESSAGE] Duplicate, skipping:', msg.messageId)
-                return prev
-              }
-              console.log('[CHAT_MESSAGE] Adding message, total now:', prev.length + 1)
-              return [...prev, chatMessage]
-            })
+            
+            // IMPORTANT: Only add to chat UI if this message is part of MY conversation
+            // Check if the message involves me (I'm the sender or the message is from my conversation partner)
+            const isMyMessage = msg.senderId === userId
+            const isFromMyPartner = inConversationWithRef.current && msg.senderId === inConversationWithRef.current
+            const isForMe = isMyMessage || isFromMyPartner
+            
+            if (isForMe) {
+              // Add to conversation-specific messages (for the chat UI)
+              // Check for duplicates by message ID to prevent double-adding
+              setChatMessages(prev => {
+                // Don't add if we already have this message
+                if (prev.some(m => m.id === msg.messageId)) {
+                  console.log('[CHAT_MESSAGE] Duplicate, skipping:', msg.messageId)
+                  return prev
+                }
+                console.log('[CHAT_MESSAGE] Adding MY message, total now:', prev.length + 1)
+                return [...prev, chatMessage]
+              })
+            } else {
+              console.log('[CHAT_MESSAGE] Not my conversation, only adding to bubbles')
+            }
             
             // Also track globally for all entity chat bubbles
             setAllEntityMessages(prev => {

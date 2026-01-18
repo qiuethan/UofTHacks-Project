@@ -7,7 +7,7 @@ It scores candidate actions and selects one using softmax probability.
 
 import math
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from .agent_models import (
@@ -21,7 +21,6 @@ from .agent_models import (
     NearbyAvatar,
     WorldLocation,
     SocialMemory,
-    LocationType,
 )
 
 
@@ -31,45 +30,52 @@ from .agent_models import (
 
 class DecisionConfig:
     """Configuration for the decision engine"""
-    # Scoring weights
+    # Scoring weights - BALANCED for both chatting AND movement
     NEED_WEIGHT = 1.0
-    PERSONALITY_WEIGHT = 0.8  # Increased from 0.6 - personality matters more
-    SOCIAL_WEIGHT = 1.0  # VERY HIGH - social interactions are highly valuable
-    AFFINITY_WEIGHT = 1.0  # Personality affects preferences
-    RECENCY_WEIGHT = 0.15  # Low - don't penalize recent interactions much
-    RANDOMNESS_WEIGHT = 0.3  # Higher randomness for more variety
+    PERSONALITY_WEIGHT = 0.5
+    SOCIAL_WEIGHT = 2.0  # High but not overwhelming
+    AFFINITY_WEIGHT = 0.0  # DISABLED - no location affinity for agents
+    RECENCY_WEIGHT = 0.1  # Some recency penalty - don't always talk to same person
+    RANDOMNESS_WEIGHT = 0.3  # More randomness for varied behavior
     
-    # Activity base bonus - agents are generally attracted to activities
-    ACTIVITY_BASE_BONUS = 0.8  # HIGH base attractiveness for any activity
+    # DISABLED: All location activities for agents (humans only)
+    ACTIVITY_BASE_BONUS = -100.0  # HUGE PENALTY - agents never use locations!
     
-    # Conversation base bonus - agents LOVE talking to each other!
-    # This makes conversation the MOST PREFERRED action
-    CONVERSATION_BASE_BONUS = 3.0  # EXTREMELY HIGH - agents are very social!
+    # Conversation bonus - BALANCED with movement
+    CONVERSATION_BASE_BONUS = 8.0  # High but balanced with movement
     
-    # Softmax temperature (lower = more deterministic)
-    SOFTMAX_TEMPERATURE = 0.25  # Lower = more likely to pick best action (conversations)
+    # Movement bonus - EQUALLY HIGH as conversation!
+    MOVEMENT_BASE_BONUS = 8.0  # Equal to conversation - agents love walking around!
     
-    # Thresholds - matching conversation system thresholds
-    CRITICAL_HUNGER = 0.8  # High hunger = seek food
-    CRITICAL_ENERGY = 0.15  # Match conversation system - below 15% = too tired to talk, go rest!
-    HIGH_LONELINESS = 0.4  # Seek conversation when moderately lonely
-    LOW_MOOD = 0.3  # Prefer fun activities when mood is low
+    # Softmax temperature (higher = more varied choices)
+    SOFTMAX_TEMPERATURE = 0.3  # More randomness for varied behavior
     
-    # Social parameters
-    CONVERSATION_RADIUS = 15  # Can start conversation from up to 15 tiles away
-    SOCIAL_APPROACH_RADIUS = 25  # Agents will move towards others in this range
-    RECENT_INTERACTION_HOURS = 0.1  # Can talk again VERY soon (6 mins)
+    # Thresholds - ALL DISABLED for agents
+    CRITICAL_HUNGER = 1.1  # Impossible to reach - never hungry
+    CRITICAL_ENERGY = 0.0  # DISABLED - never tired
+    HIGH_LONELINESS = 0.3  # Normal threshold
+    LOW_MOOD = 0.3  # Not used
     
-    # Time decay rates (per tick) - VERY SLOW decay
-    ENERGY_DECAY = 0.002  # 10x slower - energy lasts much longer
-    HUNGER_GROWTH = 0.005  # 3x slower
-    LONELINESS_GROWTH = 0.005  # Slower loneliness growth
+    # Social parameters - balanced
+    CONVERSATION_RADIUS = 15  # Reasonable conversation distance
+    SOCIAL_APPROACH_RADIUS = 30  # Move towards others from moderate distance
+    RECENT_INTERACTION_HOURS = 0.05  # ~3 minutes before talking to same person again
     
-    # Wander influence parameters
-    SOCIAL_WANDER_INFLUENCE = 0.5  # How much sentiment influences wander direction (0-1)
-    WANDER_RANDOMNESS = 0.5  # Remaining randomness in wander (should = 1 - SOCIAL_WANDER_INFLUENCE)
+    # Time decay rates (per tick)
+    ENERGY_DECAY = 0.0  # DISABLED - energy always 100%
+    HUNGER_GROWTH = 0.0  # DISABLED - never get hungry
+    LONELINESS_GROWTH = 0.02  # Moderate - builds up over time
+    
+    # Wander influence parameters - balanced exploration
+    SOCIAL_WANDER_INFLUENCE = 0.5  # Balanced - sometimes social, sometimes random
+    WANDER_RANDOMNESS = 0.5  # Equal random exploration
     MAP_WIDTH = 60
     MAP_HEIGHT = 40
+    
+    # Conversation duration limits (for natural ending)
+    MIN_CONVERSATION_MESSAGES = 3  # At least 3 messages before ending
+    MAX_CONVERSATION_MESSAGES = 12  # End after ~12 messages to keep moving
+    CONVERSATION_END_CHANCE = 0.15  # 15% chance to end after each message (if min met)
 
 
 # ============================================================================
@@ -79,111 +85,62 @@ class DecisionConfig:
 def calculate_need_satisfaction(action: ActionType, state: AgentState, target: Optional[ActionTarget] = None, location: Optional[WorldLocation] = None) -> float:
     """
     Calculate how much an action satisfies current needs.
-    Higher scores for actions that address urgent needs.
-    Activities have a base attractiveness to encourage agents to actually do things.
+    
+    BALANCED AGENT BEHAVIOR:
+    - Location activities DISABLED (humans only)
+    - Agents chat AND walk around equally
+    - Agents should end conversations naturally to keep moving
     """
     score = 0.0
     
-    # All location activities get a base attractiveness bonus
-    if action in [ActionType.INTERACT_FOOD, ActionType.INTERACT_REST, ActionType.INTERACT_KARAOKE,
-                  ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
-        score += DecisionConfig.ACTIVITY_BASE_BONUS
+    # =========================================================================
+    # DISABLED: ALL LOCATION INTERACTIONS FOR AGENTS (humans only!)
+    # =========================================================================
+    if action in [ActionType.INTERACT_FOOD, ActionType.INTERACT_KARAOKE,
+                  ActionType.INTERACT_REST, ActionType.INTERACT_SOCIAL_HUB, 
+                  ActionType.INTERACT_WANDER_POINT]:
+        score -= 100.0  # MASSIVE PENALTY - agents NEVER use locations!
     
-    # Walking to a location also gets a smaller base bonus
-    if action == ActionType.WALK_TO_LOCATION and location:
-        score += DecisionConfig.ACTIVITY_BASE_BONUS * 0.5
+    if action == ActionType.WALK_TO_LOCATION:
+        score -= 100.0  # MASSIVE PENALTY - agents NEVER walk to locations!
     
-    # Food-related actions - EVERYONE enjoys food!
-    if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD]:
-        if location and location.location_type == LocationType.FOOD:
-            score += 1.0  # HIGH base appeal - food is always nice!
-            # Higher score when hungrier
-            score += state.hunger * 2.0
-            # Bonus if critically hungry
-            if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-                score += 1.5
-    
-    # Rest-related actions - CRITICAL when energy is very low!
-    if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
-        if action == ActionType.IDLE:
-            score += (1.0 - state.energy) * 0.1  # Very small boost for idle when tired
-        elif location and location.location_type == LocationType.REST_AREA:
-            # When critically tired (< 15%), REST is MANDATORY - huge bonus!
-            if state.energy < DecisionConfig.CRITICAL_ENERGY:
-                score += 5.0  # VERY HIGH - must rest when exhausted!
-            elif state.energy < 0.3:
-                # Tired - rest is attractive
-                score += (1.0 - state.energy) * 2.0
-            elif state.energy < 0.5:
-                # Somewhat tired - small bonus
-                score += 0.3
-            else:
-                # Not tired - resting is BORING, do something fun!
-                score -= 0.3
-    
-    # Social actions - conversations are appealing BUT NOT when exhausted!
+    # =========================================================================
+    # SOCIAL ACTIONS - Agents enjoy chatting (balanced with movement)
+    # =========================================================================
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        # If too tired to talk (< 15%), DON'T try to initiate - go rest instead!
-        if state.energy < DecisionConfig.CRITICAL_ENERGY:
-            score -= 2.0  # PENALTY - too tired to socialize, go rest!
-        else:
-            # High base appeal when not exhausted
-            score += DecisionConfig.CONVERSATION_BASE_BONUS
-            # Additional appeal based on loneliness
-            score += state.loneliness * 1.0
-            # Bonus when lonely
-            if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-                score += 0.5
-            # Bonus when mood is good - happy people chat more!
-            if state.mood > 0.3:
-                score += 0.3
-            # Bonus when we have good energy to socialize
-            if state.energy > 0.3:
-                score += 0.3
+        score += DecisionConfig.CONVERSATION_BASE_BONUS  # 8.0 base
+        score += state.loneliness * 3.0  # Loneliness makes chatting more appealing
+        score += 2.0  # Base desire to chat
     
-    # Moving towards other avatars is appealing - agents are social!
+    # Leaving conversation - becomes appealing over time
+    if action == ActionType.LEAVE_CONVERSATION:
+        # Base appeal increases when not lonely (had enough chatting)
+        score += (1.0 - state.loneliness) * 3.0
+        score += 1.0  # Small base appeal to end conversations
+    
+    # =========================================================================
+    # MOVEMENT - Agents LOVE walking around (equal to chatting!)
+    # =========================================================================
     if action == ActionType.MOVE:
-        # Base social movement appeal
-        score += 1.2  # High appeal - agents want to be near others
-        score += state.loneliness * 0.8  # More when lonely
-        if state.energy > 0.2:  # Has energy to move
-            score += 0.3
+        score += DecisionConfig.MOVEMENT_BASE_BONUS  # 8.0 base - EQUAL to chat!
+        score += state.loneliness * 2.0  # Move towards people when lonely
+        score += 3.0  # Strong base desire to move
     
-    # Karaoke is FUN - agents should want to sing!
-    if action == ActionType.INTERACT_KARAOKE:
-        score += 1.2  # VERY HIGH base appeal - karaoke is super fun!
-        score += state.loneliness * 1.0  # Social aspect
-        score += (1.0 - state.mood) * 1.2  # More appealing when mood is low
-        if state.energy > 0.2:  # Has some energy to sing!
-            score += 0.5
-    
-    # Social hub is great for meeting people - HIGH priority!
-    if action == ActionType.INTERACT_SOCIAL_HUB:
-        score += 1.0  # HIGH base appeal - social spaces are fun
-        score += state.loneliness * 1.5  # More when lonely
-        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.8
-    
-    # Wander point / Exploration - for the curious!
-    if action == ActionType.INTERACT_WANDER_POINT:
-        score += 0.8  # Good exploration appeal
-        score += (1.0 - state.mood) * 0.6  # More appealing when mood is low
-        if state.energy > 0.3:  # Has energy to explore
-            score += 0.4
-    
-    # Wander has HIGH appeal - agents should explore and move around!
+    # Wander - exploring the map freely
     if action == ActionType.WANDER:
-        score += 0.7  # HIGH wandering appeal - movement is natural and fun
-        # More likely to wander when energy is decent
-        if state.energy > 0.3:
-            score += 0.4
-        # More likely to wander when not too hungry
-        if state.hunger < 0.7:
-            score += 0.3
+        score += DecisionConfig.MOVEMENT_BASE_BONUS * 0.8  # 6.4 base - almost as good as move
+        score += 2.0  # Base desire to explore
+        # More appealing when not lonely (already chatted enough)
+        score += (1.0 - state.loneliness) * 2.0
     
-    # Idle has very low appeal - only when really tired or no other options
+    # =========================================================================
+    # Idle and Stand Still - HEAVILY DISCOURAGED! Always be active!
+    # =========================================================================
     if action == ActionType.IDLE:
-        score += 0.01  # Almost no appeal - agents should DO things, not idle!
+        score -= 50.0  # HUGE penalty - never idle!
+    
+    if action == ActionType.STAND_STILL:
+        score -= 50.0  # HUGE penalty - never stand still!
     
     return score
 
@@ -519,16 +476,20 @@ def calculate_social_wander_target(context: AgentContext) -> tuple[int, int]:
 def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
     """
     Generate all feasible actions for the current context.
+    
+    AGENTS ARE SOCIAL ONLY:
+    - NO location actions (food, karaoke, rest, etc.) - humans only!
+    - Agents only: Talk, Move towards people, Wander to find people
     """
     actions: list[CandidateAction] = []
     
-    # Always available: Idle
+    # Idle is available but heavily penalized
     actions.append(CandidateAction(
         action_type=ActionType.IDLE,
         target=None
     ))
     
-    # Always available: Wander (with social-biased target)
+    # Always available: Wander (with social-biased target to find people)
     wander_x, wander_y = calculate_social_wander_target(context)
     actions.append(CandidateAction(
         action_type=ActionType.WANDER,
@@ -539,44 +500,11 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
         )
     ))
     
-    # World location actions
-    for location in context.world_locations:
-        # Skip if on cooldown
-        if location.id in context.active_cooldowns:
-            continue
-        
-        # Calculate distance
-        distance = math.sqrt((location.x - context.x) ** 2 + (location.y - context.y) ** 2)
-        
-        # Determine action type based on location type and distance
-        if distance <= 2:
-            # At location - can interact directly
-            if location.location_type == LocationType.FOOD:
-                action_type = ActionType.INTERACT_FOOD
-            elif location.location_type == LocationType.KARAOKE:
-                action_type = ActionType.INTERACT_KARAOKE
-            elif location.location_type == LocationType.REST_AREA:
-                action_type = ActionType.INTERACT_REST
-            elif location.location_type == LocationType.SOCIAL_HUB:
-                action_type = ActionType.INTERACT_SOCIAL_HUB
-            elif location.location_type == LocationType.WANDER_POINT:
-                action_type = ActionType.INTERACT_WANDER_POINT
-            else:
-                continue
-        else:
-            # Need to walk to location first
-            action_type = ActionType.WALK_TO_LOCATION
-        
-        actions.append(CandidateAction(
-            action_type=action_type,
-            target=ActionTarget(
-                target_type="location",
-                target_id=location.id,
-                name=location.name,
-                x=location.x,
-                y=location.y
-            )
-        ))
+    # =========================================================================
+    # DISABLED: World location actions - AGENTS DON'T USE LOCATIONS!
+    # These are for human players only.
+    # =========================================================================
+    # Location actions are completely removed for agents.
     
     # Social actions - only if not in conversation
     if not context.in_conversation:
@@ -675,7 +603,7 @@ def score_action(
             )
         elif action.target.target_type == "location" and action.target.target_id:
             target_location = next(
-                (l for l in context.world_locations if l.id == action.target.target_id),
+                (loc for loc in context.world_locations if loc.id == action.target.target_id),
                 None
             )
     
@@ -769,67 +697,27 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
     """
     Check for conditions that should interrupt normal decision making.
     Returns an action if an interrupt is triggered, None otherwise.
+    
+    BALANCED BEHAVIOR:
+    - NO location-based interrupts (humans only)
+    - Pending conversation requests trigger JOIN_CONVERSATION for human players
+    - For other agents, let the conversation module decide (don't auto-accept here)
     """
-    state = context.state
+    import random
     
-    # Critical hunger - must eat
-    if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-        food_locations = [l for l in context.world_locations 
-                        if l.location_type == LocationType.FOOD 
-                        and l.id not in context.active_cooldowns]
-        if food_locations:
-            # Pick closest food location
-            closest = min(food_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
-            # If already at location, interact; otherwise walk there
-            if distance <= 2:
-                return SelectedAction(
-                    action_type=ActionType.INTERACT_FOOD,
-                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
-                    utility_score=10.0
-                )
-            else:
-                return SelectedAction(
-                    action_type=ActionType.WALK_TO_LOCATION,
-                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
-                    utility_score=10.0  # High priority
-                )
+    # =========================================================================
+    # DISABLED: ALL LOCATION-BASED INTERRUPTS
+    # Agents don't use locations (food, rest, karaoke, etc.) - humans only!
+    # =========================================================================
     
-    # Critical energy - must rest
-    if state.energy < DecisionConfig.CRITICAL_ENERGY:
-        rest_locations = [l for l in context.world_locations 
-                         if l.location_type == LocationType.REST_AREA 
-                         and l.id not in context.active_cooldowns]
-        if rest_locations:
-            closest = min(rest_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
-            # If already at location, interact; otherwise walk there
-            if distance <= 2:
-                return SelectedAction(
-                    action_type=ActionType.INTERACT_REST,
-                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
-                    utility_score=10.0
-                )
-            else:
-                return SelectedAction(
-                    action_type=ActionType.WALK_TO_LOCATION,
-                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
-                    utility_score=10.0
-                )
-        else:
-            # No rest area available, just idle
-            return SelectedAction(
-                action_type=ActionType.IDLE,
-                target=None,
-                utility_score=5.0,
-                duration_seconds=30.0
-            )
-    
-    # Pending conversation requests from players should be auto-accepted based on agreeableness
+    # =========================================================================
+    # Pending conversation requests from HUMAN PLAYERS - always accept!
+    # For ROBOTS, don't auto-accept here - let the conversation module decide
+    # =========================================================================
     if context.pending_conversation_requests:
         for request in context.pending_conversation_requests:
             initiator_type = request.get("initiator_type", "ROBOT")
-            # Always accept from human players
+            # Always accept from human players - top priority!
             if initiator_type == "PLAYER":
                 return SelectedAction(
                     action_type=ActionType.JOIN_CONVERSATION,
@@ -837,18 +725,19 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
                         target_type="avatar",
                         target_id=request.get("initiator_id")
                     ),
-                    utility_score=10.0
+                    utility_score=20.0  # Maximum priority for players!
                 )
-            # For robots, check agreeableness
-            elif random.random() < context.personality.agreeableness:
+            # For robots, 70% chance to flag for acceptance (let main logic handle decline)
+            elif random.random() < 0.7:
                 return SelectedAction(
                     action_type=ActionType.JOIN_CONVERSATION,
                     target=ActionTarget(
                         target_type="avatar",
                         target_id=request.get("initiator_id")
                     ),
-                    utility_score=5.0
+                    utility_score=10.0
                 )
+            # 30% chance: don't return interrupt, let normal decision flow handle it
     
     return None
 
@@ -897,23 +786,30 @@ def make_decision(context: AgentContext) -> SelectedAction:
 
 
 def calculate_action_duration(action_type: ActionType) -> float:
-    """Calculate how long an action should take. Activities complete in ~6 seconds."""
+    """
+    Calculate how long an action should take.
+    
+    ALWAYS ACTIVE:
+    - NO idle or standing still (tiny durations if somehow selected)
+    - Conversations are moderate length
+    - Movement actions keep agents constantly exploring
+    """
     durations = {
-        ActionType.IDLE: 5.0,
-        ActionType.WANDER: 8.0,
-        ActionType.WALK_TO_LOCATION: 10.0,
-        ActionType.INTERACT_FOOD: 6.0,  # Quick eat
-        ActionType.INTERACT_KARAOKE: 6.0,  # Quick song
-        ActionType.INTERACT_REST: 6.0,  # Quick rest
-        ActionType.INTERACT_SOCIAL_HUB: 6.0,  # Quick socializing
-        ActionType.INTERACT_WANDER_POINT: 6.0,  # Quick explore
-        ActionType.INITIATE_CONVERSATION: 30.0,  # Conversations last a bit longer
-        ActionType.JOIN_CONVERSATION: 30.0,
-        ActionType.LEAVE_CONVERSATION: 2.0,
-        ActionType.MOVE: 5.0,
-        ActionType.STAND_STILL: 3.0,
+        ActionType.IDLE: 0.5,  # TINY - immediately do something else!
+        ActionType.WANDER: 8.0,  # Good exploration time
+        ActionType.WALK_TO_LOCATION: 5.0,  # Unused - agents don't use locations
+        ActionType.INTERACT_FOOD: 3.0,  # Unused - humans only
+        ActionType.INTERACT_KARAOKE: 3.0,  # Unused - humans only
+        ActionType.INTERACT_REST: 3.0,  # Unused - humans only
+        ActionType.INTERACT_SOCIAL_HUB: 3.0,  # Unused - humans only
+        ActionType.INTERACT_WANDER_POINT: 3.0,  # Unused - humans only
+        ActionType.INITIATE_CONVERSATION: 25.0,  # Moderate conversations
+        ActionType.JOIN_CONVERSATION: 25.0,  # Moderate conversations
+        ActionType.LEAVE_CONVERSATION: 1.0,  # Quick exit then walk!
+        ActionType.MOVE: 6.0,  # Walking time
+        ActionType.STAND_STILL: 0.5,  # TINY - immediately move!
     }
-    return durations.get(action_type, 6.0)
+    return durations.get(action_type, 5.0)
 
 
 # ============================================================================
@@ -924,21 +820,25 @@ def apply_state_decay(state: AgentState, elapsed_seconds: float) -> AgentState:
     """
     Apply natural decay/growth to agent needs over time.
     Called at the start of each tick.
+    
+    AGENTS ARE SOCIAL ONLY:
+    - Energy: ALWAYS 100% (never tired)
+    - Hunger: ALWAYS 0% (never hungry - no food locations)
+    - Loneliness: Grows VERY FAST to encourage constant chatting
+    - Mood: Stays positive
     """
     # Calculate number of "ticks" worth of decay (normalized to 5 minute intervals)
     tick_factor = elapsed_seconds / 300.0
     
-    # Energy decays
-    new_energy = max(0.0, state.energy - DecisionConfig.ENERGY_DECAY * tick_factor)
+    # DISABLED: Energy and hunger never change
+    new_energy = 1.0  # Always full energy!
+    new_hunger = 0.0  # Never hungry - agents don't eat!
     
-    # Hunger grows
-    new_hunger = min(1.0, state.hunger + DecisionConfig.HUNGER_GROWTH * tick_factor)
-    
-    # Loneliness grows (slower than hunger)
+    # Loneliness grows VERY FAST (to encourage agents to seek conversation constantly)
     new_loneliness = min(1.0, state.loneliness + DecisionConfig.LONELINESS_GROWTH * tick_factor)
     
-    # Mood slowly drifts toward neutral
-    new_mood = state.mood * (1.0 - 0.01 * tick_factor)
+    # Mood stays positive (agents are happy social creatures!)
+    new_mood = max(0.3, state.mood * (1.0 - 0.005 * tick_factor))  # Minimum 0.3 mood
     
     return AgentState(
         avatar_id=state.avatar_id,

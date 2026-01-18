@@ -11,6 +11,7 @@ export const WS_CONFIG = {
 // API Configuration
 export const API_CONFIG = {
   BASE_URL: 'http://localhost:3003',
+  REALTIME_API_URL: 'http://localhost:3005',  // Realtime server HTTP API for dynamic NPC addition
 }
 
 // Map defaults (should match server config and background.png)
@@ -21,12 +22,12 @@ export const MAP_DEFAULTS = {
 
 // Conversation Configuration  
 export const CONVERSATION_CONFIG = {
-  REQUEST_TIMEOUT_MS: 30000,
+  REQUEST_TIMEOUT_MS: 4000,    // Request expires after 4 seconds
   INITIATION_RADIUS: 15,
-  REJECTION_COOLDOWN_MS: 30000,
+  REJECTION_COOLDOWN_MS: 10000, // 10 second cooldown after rejection
 }
 
 // Entity Configuration
 export const ENTITY_CONFIG = {
-  SIZE: 2, // 2x2 entities
+  SIZE: 1, // 1x1 entities
 }
