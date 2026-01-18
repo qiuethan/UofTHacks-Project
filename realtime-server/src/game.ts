@@ -18,6 +18,9 @@ export interface ActiveConversation {
 
 export const activeConversations = new Map<string, ActiveConversation>();
 
+// Lock to prevent concurrent processing of the same conversation
+const conversationsBeingProcessed = new Set<string>();
+
 // Add perimeter walls (1x1 entities)
 // Top and Bottom edges
 for (let x = 0; x < MAP_WIDTH; x++) {
@@ -190,9 +193,12 @@ export async function processAgentAgentConversations() {
   const processedConversations = new Set<string>();
   
   for (const [participantId, convData] of activeConversations.entries()) {
-    // Skip if we've already processed this conversation
+    // Skip if we've already processed this conversation in this tick
     if (processedConversations.has(convData.conversationId)) continue;
     processedConversations.add(convData.conversationId);
+    
+    // Skip if this conversation is currently being processed (API call in flight)
+    if (conversationsBeingProcessed.has(convData.conversationId)) continue;
     
     const entity1 = world.getEntity(convData.participant1);
     const entity2 = world.getEntity(convData.participant2);
@@ -227,9 +233,17 @@ export async function processAgentAgentConversations() {
       ? (lastMessage.senderId === convData.participant1 ? convData.participant2 : convData.participant1)
       : convData.participant1;
     
+    // IMPORTANT: Never generate AI messages for entities controlled by human players
+    // If the next speaker is online, they're a human - let them speak themselves
+    const isNextSpeakerOnline = userConnections.has(nextSpeakerId);
+    if (isNextSpeakerOnline) continue;
+    
     const speaker = nextSpeakerId === convData.participant1 ? entity1 : entity2;
     const listener = nextSpeakerId === convData.participant1 ? entity2 : entity1;
     const listenerId = nextSpeakerId === convData.participant1 ? convData.participant2 : convData.participant1;
+    
+    // Mark conversation as being processed to prevent duplicate API calls
+    conversationsBeingProcessed.add(convData.conversationId);
     
     // Generate response from the speaker
     try {
@@ -282,6 +296,9 @@ export async function processAgentAgentConversations() {
       }
     } catch (e) {
       console.error('Error in agent-agent conversation:', e);
+    } finally {
+      // Always release the lock
+      conversationsBeingProcessed.delete(convData.conversationId);
     }
   }
 }
