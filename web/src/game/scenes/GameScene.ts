@@ -1369,6 +1369,8 @@ export class GameScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut'
     })
+  }
+
   private handleClickToMove(pointer: Phaser.Input.Pointer) {
     const myEntityId = this.sceneDataRef.current.myEntityId
     const myEntity = myEntityId ? this.sceneDataRef.current.entities.get(myEntityId) : null
