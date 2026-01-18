@@ -13,7 +13,6 @@ const SPRITE_LOAD_RETRY_DELAY = 1000
 
 // Chat bubble configuration
 const CHAT_BUBBLE_WIDTH = 200
-const CHAT_BUBBLE_HEIGHT = 60
 const CHAT_BUBBLE_DISPLAY_TIME = 5000  // ms to show each message
 
 interface EntitySprite {
@@ -194,11 +193,14 @@ export class GameScene extends Phaser.Scene {
       const maxZoom = this.defaultWatchZoom * 4
       const newZoom = Phaser.Math.Clamp(currentZoom * zoomFactor, minZoom, maxZoom)
       
-      camera.setZoom(newZoom)
-      
-      // If at or near default zoom, ensure centered
-      if (newZoom <= this.defaultWatchZoom * 1.05) {
-        camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+      // Only apply if zoom actually changed (prevents issues when at limits)
+      if (Math.abs(newZoom - currentZoom) > 0.001) {
+        camera.setZoom(newZoom)
+        
+        // If at or near default zoom, ensure centered
+        if (newZoom <= this.defaultWatchZoom * 1.05) {
+          camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+        }
       }
     })
   }
@@ -556,7 +558,7 @@ export class GameScene extends Phaser.Scene {
 
     // Create hover banner (shown on hover) - positioned above the sprite
     const hoverBanner = this.createHoverBanner(entity, isMe)
-    hoverBanner.setPosition(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 60)
+    hoverBanner.setPosition(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 30)
     hoverBanner.setVisible(false)
     container.add(hoverBanner)
 
@@ -566,36 +568,11 @@ export class GameScene extends Phaser.Scene {
       Phaser.Geom.Rectangle.Contains
     )
     
-    // Track hover state to keep banner visible when hovering over banner itself
-    let isHoveringSprite = false
-    let isHoveringBanner = false
-    
-    const updateBannerVisibility = () => {
-      hoverBanner.setVisible(isHoveringSprite || isHoveringBanner)
-    }
-    
     container.on('pointerover', () => {
-      isHoveringSprite = true
-      updateBannerVisibility()
+      hoverBanner.setVisible(true)
     })
     container.on('pointerout', () => {
-      isHoveringSprite = false
-      // Delay hiding to allow transition to banner
-      this.time.delayedCall(50, updateBannerVisibility)
-    })
-    
-    // Make banner interactive so it can detect hover (updated for larger size)
-    hoverBanner.setInteractive(
-      new Phaser.Geom.Rectangle(-140, -55, 280, 110),
-      Phaser.Geom.Rectangle.Contains
-    )
-    hoverBanner.on('pointerover', () => {
-      isHoveringBanner = true
-      updateBannerVisibility()
-    })
-    hoverBanner.on('pointerout', () => {
-      isHoveringBanner = false
-      updateBannerVisibility()
+      hoverBanner.setVisible(false)
     })
 
     // Player highlight and camera setup
@@ -852,150 +829,40 @@ export class GameScene extends Phaser.Scene {
     // Banner updates handled by recreating if needed
   }
 
-  private createHoverBanner(entity: GameEntity, isMe: boolean): Phaser.GameObjects.Container {
+  private createHoverBanner(entity: GameEntity, _isMe: boolean): Phaser.GameObjects.Container {
     const banner = this.add.container(0, 0)
-    const isPlayMode = this.sceneDataRef.current.mode === 'play'
-    const showButton = isPlayMode && !isMe && entity.kind !== 'WALL'
-    const hasStats = entity.stats && (entity.stats.energy !== undefined || entity.stats.hunger !== undefined)
     
-    // Larger banner size for better visibility (add space for stats if present)
-    const bannerWidth = 280
-    const statsHeight = hasStats ? 80 : 0
-    const bannerHeight = showButton ? 110 + statsHeight : 70 + statsHeight
-    const cornerRadius = 16
+    // Simple name display with translucent background
+    const name = entity.displayName || 'Unknown'
     
-    // Create rounded rectangle background using graphics
+    // Create text first to measure its width - pixelated retro style
+    const nameText = this.add.text(0, 0, name, {
+      fontFamily: 'monospace, "Courier New", Courier',
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ffffff'
+    }).setOrigin(0.5)
+    
+    // Size background based on text - larger padding for retro look
+    const padding = 10
+    const bannerWidth = nameText.width + padding * 2
+    const bannerHeight = nameText.height + padding
+    const cornerRadius = 2 // Sharp corners for pixel aesthetic
+    
+    // Pixelated background with border
     const bg = this.add.graphics()
-    bg.fillStyle(0x1e293b, 0.95) // Darker, more opaque background
+    
+    // Dark background
+    bg.fillStyle(0x000000, 0.75)
     bg.fillRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, cornerRadius)
     
-    // Add subtle border with gradient effect
-    bg.lineStyle(3, 0x4ade80, 0.8)
+    // Pixel-style border
+    bg.lineStyle(2, 0xffffff, 0.8)
     bg.strokeRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, cornerRadius)
     
-    // Add inner glow effect
-    bg.lineStyle(1, 0x4ade80, 0.3)
-    bg.strokeRoundedRect(-bannerWidth / 2 + 3, -bannerHeight / 2 + 3, bannerWidth - 6, bannerHeight - 6, cornerRadius - 2)
-    
     banner.add(bg)
-    
-    // Display name with modern, clean font
-    const nameText = this.add.text(0, showButton ? -22 : 0, entity.displayName || 'Unknown', {
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      fontSize: '24px',
-      fontStyle: 'bold',
-      color: '#ffffff',
-      shadow: {
-        offsetX: 0,
-        offsetY: 2,
-        color: '#000000',
-        blur: 8,
-        fill: true
-      }
-    }).setOrigin(0.5)
     banner.add(nameText)
     
-    // Stats display (if available)
-    if (hasStats && entity.stats) {
-      const barWidth = 220
-      const barHeight = 12
-      const barSpacing = 18
-      
-      const stats = [
-        { label: '⚡', value: entity.stats.energy, color: 0x3b82f6, name: 'Energy' },
-        { label: '🍔', value: entity.stats.hunger, color: 0xf59e0b, name: 'Hunger' },
-        { label: '💭', value: entity.stats.loneliness, color: 0x8b5cf6, name: 'Social' },
-        { label: '😊', value: entity.stats.mood !== undefined ? (entity.stats.mood + 1) / 2 : undefined, color: 0x10b981, name: 'Mood' }
-      ].filter(s => s.value !== undefined)
-      
-      // Calculate total height of stats block and center it
-      const totalStatsHeight = stats.length * barSpacing
-      const statsStartY = showButton ? -22 + 20 : -(totalStatsHeight / 2) + 10
-      
-      stats.forEach((stat, i) => {
-        const y = statsStartY + i * barSpacing
-        
-        // Stat label
-        const label = this.add.text(-barWidth / 2 - 15, y, stat.label, {
-          fontSize: '14px'
-        }).setOrigin(0.5)
-        banner.add(label)
-        
-        // Background bar
-        const bgBar = this.add.graphics()
-        bgBar.fillStyle(0x1e293b, 0.6)
-        bgBar.fillRoundedRect(-barWidth / 2, y - barHeight / 2, barWidth, barHeight, 6)
-        banner.add(bgBar)
-        
-        // Value bar
-        const fillWidth = barWidth * (stat.value || 0)
-        const valueBar = this.add.graphics()
-        valueBar.fillStyle(stat.color, 0.9)
-        valueBar.fillRoundedRect(-barWidth / 2, y - barHeight / 2, fillWidth, barHeight, 6)
-        banner.add(valueBar)
-        
-        // Percentage text
-        const pctText = this.add.text(barWidth / 2 + 15, y, `${Math.round((stat.value || 0) * 100)}%`, {
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: '11px',
-          color: '#94a3b8'
-        }).setOrigin(0.5)
-        banner.add(pctText)
-      })
-    }
-    
-    // Conversation button (only in play mode, for other entities, not self)
-    if (showButton) {
-      const canConverse = entity.conversationState === 'IDLE' || !entity.conversationState
-      
-      // Button background with rounded corners (adjust position if stats present)
-      const btnWidth = 160
-      const btnHeight = 40
-      const btnRadius = 20
-      const btnY = hasStats ? 12 + statsHeight : 12
-      
-      const btnBg = this.add.graphics()
-      if (canConverse) {
-        btnBg.fillStyle(0x4ade80, 1)
-      } else {
-        btnBg.fillStyle(0x64748b, 0.8)
-      }
-      btnBg.fillRoundedRect(-btnWidth / 2, btnY, btnWidth, btnHeight, btnRadius)
-      banner.add(btnBg)
-      
-      const btnText = this.add.text(0, btnY + 20, canConverse ? '💬 Start Conversation' : '⏸️ Busy', {
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: canConverse ? '#1e293b' : '#cbd5e1'
-      }).setOrigin(0.5)
-      banner.add(btnText)
-      
-      if (canConverse) {
-        // Make button interactive area
-        const btnHitArea = this.add.rectangle(0, btnY + 20, btnWidth, btnHeight, 0x000000, 0)
-        btnHitArea.setInteractive({ useHandCursor: true })
-        banner.add(btnHitArea)
-        
-        btnHitArea.on('pointerover', () => {
-          btnBg.clear()
-          btnBg.fillStyle(0x22c55e, 1)
-          btnBg.fillRoundedRect(-btnWidth / 2, btnY, btnWidth, btnHeight, btnRadius)
-          btnText.setScale(1.05)
-        })
-        btnHitArea.on('pointerout', () => {
-          btnBg.clear()
-          btnBg.fillStyle(0x4ade80, 1)
-          btnBg.fillRoundedRect(-btnWidth / 2, btnY, btnWidth, btnHeight, btnRadius)
-          btnText.setScale(1)
-        })
-        btnHitArea.on('pointerdown', () => {
-          this.initiateConversation(entity.entityId)
-        })
-      }
-    }
-    
-    // Set high depth so it appears above other sprites
     banner.setDepth(1000)
     
     return banner

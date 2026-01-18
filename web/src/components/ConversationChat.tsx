@@ -4,6 +4,7 @@ import type { ChatMessage } from '../types/game'
 interface ConversationChatProps {
   messages: ChatMessage[]
   partnerName: string
+  partnerSpriteUrl?: string
   myEntityId: string | null
   isWaitingForResponse: boolean
   onSendMessage: (content: string) => void
@@ -13,6 +14,7 @@ interface ConversationChatProps {
 export function ConversationChat({
   messages,
   partnerName,
+  partnerSpriteUrl,
   myEntityId,
   isWaitingForResponse,
   onSendMessage,
@@ -46,8 +48,24 @@ export function ConversationChat({
   }
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4">
-      <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-700/50 overflow-hidden">
+    <>
+      {/* Partner sprite - large, positioned BEHIND the modal */}
+      {partnerSpriteUrl && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+          <img 
+            src={partnerSpriteUrl} 
+            alt={partnerName}
+            className="object-contain"
+            style={{ 
+              imageRendering: 'pixelated',
+              width: '400px',
+              height: '800px'
+            }}
+          />
+        </div>
+      )}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4">
+        <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-700/50 overflow-hidden relative">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 bg-gray-800/50">
           <div className="flex items-center gap-2">
@@ -134,7 +152,8 @@ export function ConversationChat({
             </button>
           </div>
         </form>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
