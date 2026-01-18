@@ -593,9 +593,9 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
         </button>
       </div>
       
-      {/* Sidebar panel - slides in from left */}
+      {/* Sidebar panel - slides in from left, below header */}
       <div 
-        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] transform transition-transform duration-300 z-40 ${
+        className={`fixed top-[80px] left-0 w-80 h-[calc(100vh-80px)] bg-[#FFF8F0] transform transition-transform duration-300 z-40 ${
           isOpen ? 'translate-x-0 border-r-2 border-black shadow-[4px_0_0_#000]' : '-translate-x-full'
         }`}
       >
