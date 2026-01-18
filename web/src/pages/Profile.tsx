@@ -286,16 +286,28 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-black">Loading profile...</div>
+      <div className="h-full flex items-center justify-center relative">
+        {/* Fixed background */}
+        <div 
+          className="fixed inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="fixed inset-0 bg-black/40" />
+        <div className="text-white relative z-10">Loading profile...</div>
       </div>
     )
   }
 
   if (!profile?.has_avatar) {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="panel-fun p-8 text-center max-w-md">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Fixed background */}
+        <div 
+          className="fixed inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="fixed inset-0 bg-black/40" />
+        <div className="panel-fun p-8 text-center max-w-md relative z-10">
           <h2 className="text-2xl font-bold mb-4 text-black">No Avatar Yet</h2>
           <p className="text-black mb-6">You haven't created an avatar yet. Create one to start playing!</p>
           <button
@@ -310,7 +322,16 @@ export default function Profile() {
   }
 
   return (
-    <div className="h-full p-4">
+    <div className="h-full relative">
+      {/* Fixed background */}
+      <div 
+        className="fixed inset-0 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+      />
+      <div className="fixed inset-0 bg-black/40" />
+      
+      {/* Scrollable content */}
+      <div className="relative z-10 h-full overflow-y-auto p-4">
       <div className="max-w-2xl mx-auto">
         {error && (
           <div className="alert alert-error mb-6">
@@ -800,6 +821,7 @@ export default function Profile() {
             Enter the Identity Matrix
           </button>
         </div>
+      </div>
       </div>
     </div>
   )

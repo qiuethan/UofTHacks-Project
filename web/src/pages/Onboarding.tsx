@@ -221,9 +221,16 @@ export default function Onboarding() {
   const directions: Array<'front' | 'back' | 'left' | 'right'> = ['front', 'back', 'left', 'right']
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#FFF8F0] text-black">
+    <div className="fixed inset-0 z-50 flex flex-col text-black">
+      {/* Background image with dark overlay */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+      />
+      <div className="absolute inset-0 bg-black/40" />
+      
       {/* Header */}
-      <div className="navbar-fun p-4">
+      <div className="navbar-fun p-4 relative z-10">
         <div className="max-w-6xl mx-auto flex justify-between items-center relative">
           {/* Left spacer */}
           <div className="w-32"></div>
@@ -252,7 +259,7 @@ export default function Onboarding() {
       </div>
 
       {/* Main Content - 3 Cards */}
-      <div className="flex-1 overflow-hidden p-4">
+      <div className="flex-1 overflow-hidden p-4 relative z-10">
         <div className="max-w-6xl mx-auto h-full flex gap-4">
           
           {/* Left Column - Display Name + Avatar */}
@@ -450,7 +457,7 @@ export default function Onboarding() {
       </div>
 
       {/* Bottom Status Bar */}
-      <div className="bg-[#FFF8F0] p-3 border-t-2 border-black">
+      <div className="bg-[#FFF8F0] p-3 border-t-2 border-black relative z-10">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex gap-6 text-sm">
             <span className={displayName.trim() ? 'text-green-600' : 'text-black/40'}>

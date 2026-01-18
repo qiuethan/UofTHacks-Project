@@ -59,8 +59,16 @@ export default function Login() {
   }
 
   return (
-    <div className="h-full flex items-center justify-center p-4">
-      <div className="panel-fun p-8 w-full max-w-md">
+    <div className="h-full flex items-center justify-center p-4 relative">
+      {/* Background image with dark overlay */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+      />
+      <div className="absolute inset-0 bg-black/40" />
+      
+      {/* Content */}
+      <div className="panel-fun p-8 w-full max-w-md relative z-10">
         <h1 className="text-3xl font-bold mb-2 text-center text-black">
           {isSignUp ? 'Join Identity Matrix' : 'Welcome Back'}
         </h1>

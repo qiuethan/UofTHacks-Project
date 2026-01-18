@@ -18,7 +18,7 @@ export default function Header() {
   }
 
   return (
-    <nav className="navbar-fun p-4">
+    <nav className="navbar-fun p-4 relative z-20">
       <div className="max-w-6xl mx-auto flex items-center justify-between" style={{ paddingTop: '4px', paddingBottom: '8px' }}>
         <div className="flex items-center gap-6">
           {/* Watch button when logged out */}

@@ -134,8 +134,15 @@ export default function CreateAvatar() {
   // Input Step
   if (step === 'input') {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="panel-fun p-8 w-full max-w-lg">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Background image with dark overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        
+        <div className="panel-fun p-8 w-full max-w-lg relative z-10">
           <h1 className="text-3xl font-bold mb-2 text-center text-black">Create Your Avatar</h1>
           <p className="text-black text-center mb-8">
             Upload a photo and we'll generate a pixel art character for you
@@ -218,8 +225,15 @@ export default function CreateAvatar() {
   // Generating Step
   if (step === 'generating') {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Background image with dark overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center relative z-10">
           <div className="animate-spin w-16 h-16 border-4 border-black border-t-transparent mx-auto mb-6"></div>
           <h2 className="text-2xl font-bold mb-2 text-black">Creating Your Avatar</h2>
           <p className="text-black">
@@ -236,8 +250,15 @@ export default function CreateAvatar() {
     const directions: Array<'front' | 'back' | 'left' | 'right'> = ['front', 'back', 'left', 'right']
     
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="panel-fun p-8 w-full max-w-lg">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Background image with dark overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        
+        <div className="panel-fun p-8 w-full max-w-lg relative z-10">
           <h2 className="text-2xl font-bold mb-2 text-center text-black">Your Avatar is Ready!</h2>
           <p className="text-black text-center mb-6">
             Here's <span className="font-semibold">{displayName}</span> in pixel art
@@ -332,8 +353,15 @@ export default function CreateAvatar() {
   // Saving Step
   if (step === 'saving') {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Background image with dark overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center relative z-10">
           <div className="animate-spin w-12 h-12 border-4 border-black border-t-transparent mx-auto mb-6"></div>
           <h2 className="text-xl font-bold text-black">Saving your avatar...</h2>
         </div>
@@ -344,8 +372,15 @@ export default function CreateAvatar() {
   // Complete Step
   if (step === 'complete') {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
+      <div className="h-full flex items-center justify-center p-4 relative">
+        {/* Background image with dark overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url(/assets/backgrounds/lobby_background.png)' }}
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center relative z-10">
           <div className="text-6xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold mb-2 text-black">Avatar Created!</h2>
           <p className="text-black">Entering the Identity Matrix...</p>
