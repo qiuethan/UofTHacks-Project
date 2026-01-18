@@ -1,11 +1,23 @@
 import Phaser from 'phaser'
-import type { GameEntity, SceneData } from '../types'
-import type { ChatMessage } from '../../types/game'
+import type { GameEntity, SceneData, WorldLocation } from '../types'
+import type { ChatMessage, LocationType } from '../../types/game'
 
 // Character sprite dimensions
 const SPRITE_WIDTH = 80
 const SPRITE_HEIGHT = 120  // Taller characters
 const GRID_SIZE = 32
+
+// Location type colors for rendering
+const LOCATION_COLORS: Record<LocationType, number> = {
+  food: 0x22c55e,       // green - eating
+  karaoke: 0xec4899,    // pink - singing
+  rest_area: 0x3b82f6,  // blue - resting
+  social_hub: 0xf59e0b, // amber - socializing
+  wander_point: 0x8b5cf6 // purple - wandering
+}
+
+// Location dot size
+const LOCATION_DOT_SIZE = 16
 
 // Sprite loading configuration
 const SPRITE_LOAD_MAX_RETRIES = 3
@@ -29,9 +41,17 @@ interface EntitySprite {
   lastMessageId?: string
 }
 
+// Location sprite interface
+interface LocationSprite {
+  container: Phaser.GameObjects.Container
+  dot: Phaser.GameObjects.Graphics
+  hoverBanner?: Phaser.GameObjects.Container
+}
+
 export class GameScene extends Phaser.Scene {
   private sceneDataRef: React.MutableRefObject<SceneData>
   private entitySprites: Map<string, EntitySprite> = new Map()
+  private locationSprites: Map<string, LocationSprite> = new Map()
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
   private wasd?: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key }
   private lastDirection = { x: 0, y: 0 }
@@ -85,6 +105,11 @@ export class GameScene extends Phaser.Scene {
 
     // Initial entity rendering
     this.updateEntities(this.sceneDataRef.current.entities, this.sceneDataRef.current.myEntityId || null)
+
+    // Initial world location rendering
+    if (this.sceneDataRef.current.worldLocations) {
+      this.updateWorldLocations(this.sceneDataRef.current.worldLocations)
+    }
 
     // Listen for resize events
     this.scale.on('resize', () => {
@@ -306,6 +331,124 @@ export class GameScene extends Phaser.Scene {
       const isMe = id === myEntityId
       this.updateOrCreateEntity(entity, isMe)
     }
+  }
+
+  // Render world locations as colored dots
+  updateWorldLocations(locations: WorldLocation[]) {
+    const currentIds = new Set(locations.map(l => l.id))
+    
+    // Remove locations that no longer exist
+    for (const [id, locationSprite] of this.locationSprites) {
+      if (!currentIds.has(id)) {
+        locationSprite.container.destroy()
+        this.locationSprites.delete(id)
+      }
+    }
+    
+    // Update or create locations
+    for (const location of locations) {
+      if (!this.locationSprites.has(location.id)) {
+        this.createLocationSprite(location)
+      }
+    }
+  }
+
+  private createLocationSprite(location: WorldLocation) {
+    // Convert grid position to pixel position
+    const pixelX = location.x * GRID_SIZE + GRID_SIZE / 2
+    const pixelY = location.y * GRID_SIZE + GRID_SIZE / 2
+    
+    const container = this.add.container(pixelX, pixelY)
+    container.setDepth(5) // Below entities but above background
+    
+    // Create the colored dot
+    const dot = this.add.graphics()
+    const color = LOCATION_COLORS[location.location_type] || 0xffffff
+    
+    // Draw outer ring (border)
+    dot.fillStyle(0x000000, 1)
+    dot.fillCircle(0, 0, LOCATION_DOT_SIZE / 2 + 2)
+    
+    // Draw inner colored circle
+    dot.fillStyle(color, 1)
+    dot.fillCircle(0, 0, LOCATION_DOT_SIZE / 2)
+    
+    // Add pulsing animation
+    this.tweens.add({
+      targets: container,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      duration: 1000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    })
+    
+    container.add(dot)
+    
+    // Create hover banner
+    const hoverBanner = this.createLocationHoverBanner(location)
+    hoverBanner.setPosition(0, -LOCATION_DOT_SIZE - 15)
+    hoverBanner.setVisible(false)
+    container.add(hoverBanner)
+    
+    // Add hover interaction
+    container.setInteractive(
+      new Phaser.Geom.Circle(0, 0, LOCATION_DOT_SIZE),
+      Phaser.Geom.Circle.Contains
+    )
+    
+    container.on('pointerover', () => {
+      hoverBanner.setVisible(true)
+    })
+    container.on('pointerout', () => {
+      hoverBanner.setVisible(false)
+    })
+    
+    this.locationSprites.set(location.id, {
+      container,
+      dot,
+      hoverBanner
+    })
+  }
+
+  private createLocationHoverBanner(location: WorldLocation): Phaser.GameObjects.Container {
+    const banner = this.add.container(0, 0)
+    
+    // Create text first to measure its width
+    const nameText = this.add.text(0, 0, location.name, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      fontStyle: 'bold',
+      color: '#000000'
+    }).setOrigin(0.5)
+    
+    // Size background based on text
+    const padding = 8
+    const bannerWidth = nameText.width + padding * 2
+    const bannerHeight = nameText.height + padding
+    
+    // Background with border
+    const bg = this.add.graphics()
+    const color = LOCATION_COLORS[location.location_type] || 0xffffff
+    
+    // Colored background
+    bg.fillStyle(color, 0.95)
+    bg.fillRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight)
+    
+    // Black border
+    bg.lineStyle(2, 0x000000, 1)
+    bg.strokeRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight)
+    
+    banner.add(bg)
+    
+    // White text for better contrast
+    nameText.setStyle({ color: '#ffffff' })
+    banner.add(nameText)
+    
+    banner.setDepth(1000)
+    
+    return banner
   }
 
   updateChatBubbles(messages: ChatMessage[], inConversationWith: string | null | undefined) {

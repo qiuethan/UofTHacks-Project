@@ -2,8 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { ConnectionStatus, GameLoading } from '../components'
 import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
-import { WS_CONFIG, MAP_DEFAULTS } from '../config'
-import type { GameEntity } from '../game/types'
+import { WS_CONFIG, MAP_DEFAULTS, API_CONFIG } from '../config'
+import type { GameEntity, WorldLocation } from '../game/types'
 import type { SpriteUrls, ChatMessage } from '../types/game'
 import { Plus, Minus, RotateCcw } from 'lucide-react'
 
@@ -68,6 +68,9 @@ export default function WatchView() {
   
   // Track chat messages for all entities (for speech bubbles)
   const [allEntityMessages, setAllEntityMessages] = useState<Map<string, ChatMessage>>(new Map())
+  
+  // World locations state
+  const [worldLocations, setWorldLocations] = useState<WorldLocation[]>([])
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
@@ -277,6 +280,23 @@ export default function WatchView() {
     }
   }, [])
 
+  // Fetch world locations on mount
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/world/locations`)
+        const data = await response.json()
+        if (data.ok && data.data) {
+          setWorldLocations(data.data)
+          console.log('[WatchView] Loaded world locations:', data.data.length)
+        }
+      } catch (err) {
+        console.error('[WatchView] Failed to fetch world locations:', err)
+      }
+    }
+    fetchLocations()
+  }, [])
+
   useEffect(() => {
     mountedRef.current = true
     shouldReconnectRef.current = true
@@ -403,6 +423,7 @@ export default function WatchView() {
         watchZoom={zoom}
         watchPan={pan}
         allEntityMessages={allEntityMessages}
+        worldLocations={worldLocations}
       />
     </div>
   )

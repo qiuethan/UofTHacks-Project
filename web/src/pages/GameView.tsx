@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { 
   ConnectionStatus,
   IncomingRequests,
@@ -9,9 +9,37 @@ import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
-import { CONVERSATION_CONFIG } from '../config/constants'
-import type { GameEntity } from '../game/types'
-import type { Entity } from '../types/game'
+import { CONVERSATION_CONFIG, API_CONFIG } from '../config/constants'
+import type { GameEntity, WorldLocation, PlayerActivityState } from '../game/types'
+import type { Entity, LocationType } from '../types/game'
+import { Utensils, Mic, Sofa, Users, Compass, MapPin, X } from 'lucide-react'
+
+// Location type colors for rendering
+const LOCATION_COLORS: Record<LocationType, string> = {
+  food: '#22c55e',       // green - eating
+  karaoke: '#ec4899',    // pink - singing
+  rest_area: '#3b82f6',  // blue - resting
+  social_hub: '#f59e0b', // amber - socializing
+  wander_point: '#8b5cf6' // purple - wandering
+}
+
+// Location type icons
+const LOCATION_ICONS: Record<LocationType, React.ReactNode> = {
+  food: <Utensils size={14} />,
+  karaoke: <Mic size={14} />,
+  rest_area: <Sofa size={14} />,
+  social_hub: <Users size={14} />,
+  wander_point: <Compass size={14} />
+}
+
+// Map location type to activity state
+const LOCATION_TO_ACTIVITY: Record<LocationType, PlayerActivityState> = {
+  food: 'eating',
+  karaoke: 'singing',
+  rest_area: 'resting',
+  social_hub: 'socializing',
+  wander_point: 'wandering'
+}
 
 export default function GameView() {
   console.log('[GameView] Rendering...')
@@ -20,6 +48,16 @@ export default function GameView() {
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  
+  // World locations state
+  const [worldLocations, setWorldLocations] = useState<WorldLocation[]>([])
+  
+  // Player activity state
+  const [playerActivityState, setPlayerActivityState] = useState<PlayerActivityState>('idle')
+  const [currentLocationId, setCurrentLocationId] = useState<string | null>(null)
+  const [activityEndTime, setActivityEndTime] = useState<number | null>(null)
+  const [activityTimeLeft, setActivityTimeLeft] = useState<number>(0)
+  const activityTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -53,6 +91,129 @@ export default function GameView() {
     clearNotification,
     sendChatMessage
   } = gameActions
+
+  // Fetch world locations on mount
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/world/locations`)
+        const data = await response.json()
+        if (data.ok && data.data) {
+          setWorldLocations(data.data)
+          console.log('[GameView] Loaded world locations:', data.data.length)
+        }
+      } catch (err) {
+        console.error('[GameView] Failed to fetch world locations:', err)
+      }
+    }
+    fetchLocations()
+  }, [])
+
+  // Cleanup activity timer on unmount
+  useEffect(() => {
+    return () => {
+      if (activityTimerRef.current) {
+        clearTimeout(activityTimerRef.current)
+      }
+    }
+  }, [])
+
+  // Update activity time left every second
+  useEffect(() => {
+    if (!activityEndTime) {
+      setActivityTimeLeft(0)
+      return
+    }
+    
+    const updateTimer = () => {
+      const remaining = Math.max(0, Math.ceil((activityEndTime - Date.now()) / 1000))
+      setActivityTimeLeft(remaining)
+    }
+    
+    updateTimer()
+    const interval = setInterval(updateTimer, 1000)
+    
+    return () => clearInterval(interval)
+  }, [activityEndTime])
+
+  // Update activity state based on conversation/movement
+  useEffect(() => {
+    if (inConversationWith) {
+      setPlayerActivityState('talking')
+      setCurrentLocationId(null)
+    } else if (isWalkingToConversation) {
+      setPlayerActivityState('walking')
+      setCurrentLocationId(null)
+    } else if (!currentLocationId) {
+      // Only set to idle if not at a location
+      setPlayerActivityState('idle')
+    }
+  }, [inConversationWith, isWalkingToConversation, currentLocationId])
+
+  // Handle starting an activity at a location
+  const startLocationActivity = useCallback((location: WorldLocation) => {
+    const activity = LOCATION_TO_ACTIVITY[location.location_type]
+    setPlayerActivityState(activity)
+    setCurrentLocationId(location.id)
+    
+    // Set auto-leave timer
+    const endTime = Date.now() + location.duration_seconds * 1000
+    setActivityEndTime(endTime)
+    
+    // Clear any existing timer
+    if (activityTimerRef.current) {
+      clearTimeout(activityTimerRef.current)
+    }
+    
+    // Set timer to auto-leave after duration
+    activityTimerRef.current = setTimeout(() => {
+      completeLocationActivity(location)
+    }, location.duration_seconds * 1000)
+    
+    console.log(`[GameView] Started ${activity} at ${location.name} for ${location.duration_seconds}s`)
+  }, [])
+
+  // Handle completing/leaving a location activity
+  const completeLocationActivity = useCallback(async (location?: WorldLocation) => {
+    // Apply stat boost based on location effects
+    if (location && myEntityId) {
+      console.log(`[GameView] Completed activity at ${location.name}, effects:`, location.effects)
+      
+      // Call API to update user stats based on location type
+      try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/agent/${myEntityId}/complete-activity`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location_type: location.location_type,
+            location_id: location.id,
+            effects: location.effects
+          })
+        })
+        const data = await response.json()
+        if (data.ok) {
+          console.log(`[GameView] Stats updated successfully:`, data.updated_stats)
+        }
+      } catch (err) {
+        console.error('[GameView] Failed to update stats:', err)
+      }
+    }
+    
+    setPlayerActivityState('idle')
+    setCurrentLocationId(null)
+    setActivityEndTime(null)
+    
+    if (activityTimerRef.current) {
+      clearTimeout(activityTimerRef.current)
+      activityTimerRef.current = null
+    }
+  }, [myEntityId])
+
+  // Leave current location early
+  const leaveCurrentLocation = useCallback(() => {
+    const currentLocation = worldLocations.find(l => l.id === currentLocationId)
+    completeLocationActivity(currentLocation)
+  }, [currentLocationId, worldLocations, completeLocationActivity])
   
   // Handle direction changes from Phaser
   const handleDirectionChange = useCallback((dx: -1 | 0 | 1, dy: -1 | 0 | 1) => {
@@ -77,8 +238,8 @@ export default function GameView() {
     })
   }
 
-  // Determine if input should be enabled
-  const inputEnabled = connected && !inConversationWith && !isWalkingToConversation
+  // Determine if input should be enabled (disable when at a location or in conversation)
+  const inputEnabled = connected && !inConversationWith && !isWalkingToConversation && !currentLocationId
 
   // Calculate nearby entities (within conversation initiation radius)
   const nearbyEntities = useMemo(() => {
@@ -107,6 +268,31 @@ export default function GameView() {
     }
     return nearby
   }, [entities, myEntityId])
+
+  // Calculate nearby locations (within interaction radius)
+  const nearbyLocations = useMemo(() => {
+    if (!myEntityId) return []
+    const me = entities.get(myEntityId)
+    if (!me) return []
+    
+    const LOCATION_INTERACTION_RADIUS = 5 // Tiles
+    
+    const nearby: WorldLocation[] = []
+    for (const location of worldLocations) {
+      // Calculate distance from player center to location
+      const centerX = me.x + 1
+      const centerY = me.y + 0.5
+      const distance = Math.sqrt(
+        Math.pow(location.x - centerX, 2) + 
+        Math.pow(location.y - centerY, 2)
+      )
+      
+      if (distance <= LOCATION_INTERACTION_RADIUS) {
+        nearby.push(location)
+      }
+    }
+    return nearby
+  }, [entities, myEntityId, worldLocations])
 
   // Check if my entity can start a conversation
   const myEntity = myEntityId ? entities.get(myEntityId) : null
@@ -152,6 +338,9 @@ export default function GameView() {
         chatMessages={chatMessages}
         allEntityMessages={allEntityMessages}
         followEntityId={null}
+        worldLocations={worldLocations}
+        playerActivityState={playerActivityState}
+        currentLocationId={currentLocationId}
       />
 
       {/* Agent Sidebar */}
@@ -161,6 +350,8 @@ export default function GameView() {
         onFollowAgent={() => {}} // No follow in play mode
         followingAgentId={null}
         entities={entities}
+        myEntityId={myEntityId}
+        myActivityState={playerActivityState}
       />
 
       {/* Incoming Conversation Requests */}
@@ -184,42 +375,121 @@ export default function GameView() {
         />
       )}
 
-      {/* Nearby Entities Panel - Show when near someone and not in conversation */}
-      {nearbyEntities.length > 0 && canStartConversation && !inConversationWith && !isWalkingToConversation && (
+      {/* Nearby Panels Container */}
+      {(nearbyEntities.length > 0 || nearbyLocations.length > 0) && canStartConversation && !inConversationWith && !isWalkingToConversation && !currentLocationId && (
+        <div className="fixed bottom-6 right-6 z-50 flex gap-3">
+          {/* Nearby Events Panel */}
+          {nearbyLocations.length > 0 && (
+            <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-4 py-3">
+              <div className="text-black text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                <MapPin size={12} /> Nearby Events
+              </div>
+              <div className="flex flex-col gap-2 min-w-[180px]">
+                {nearbyLocations.slice(0, 5).map(location => (
+                  <button
+                    key={location.id}
+                    onClick={() => startLocationActivity(location)}
+                    className="px-3 py-2 text-sm font-medium transition-all border-2 border-black shadow-[2px_2px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] flex items-center gap-2"
+                    style={{ 
+                      backgroundColor: LOCATION_COLORS[location.location_type],
+                      color: 'white'
+                    }}
+                  >
+                    {LOCATION_ICONS[location.location_type]}
+                    {location.name}
+                  </button>
+                ))}
+              </div>
+              {nearbyLocations.length > 5 && (
+                <div className="text-black/60 text-xs mt-2">
+                  +{nearbyLocations.length - 5} more nearby
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Nearby People Panel */}
+          {nearbyEntities.length > 0 && (
+            <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-4 py-3">
+              <div className="text-black text-xs font-bold uppercase tracking-wider mb-2">
+                Nearby People
+              </div>
+              <div className="flex flex-col gap-2 min-w-[180px]">
+                {nearbyEntities.slice(0, 5).map(entity => {
+                  const isBusy = entity.conversationState === 'IN_CONVERSATION' || 
+                                 entity.conversationState === 'WALKING_TO_CONVERSATION' ||
+                                 entity.conversationState === 'PENDING_REQUEST'
+                  return (
+                    <button
+                      key={entity.entityId}
+                      onClick={() => !isBusy && requestConversation(entity.entityId)}
+                      disabled={isBusy}
+                      className={`
+                        px-3 py-2 text-sm font-medium transition-all border-2 border-black
+                        ${isBusy 
+                          ? 'bg-black/10 text-black/40 cursor-not-allowed' 
+                          : 'btn-primary text-white shadow-[2px_2px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px]'
+                        }
+                      `}
+                    >
+                      {entity.displayName}
+                      {isBusy && <span className="ml-1 text-xs">(busy)</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              {nearbyEntities.length > 5 && (
+                <div className="text-black/60 text-xs mt-2">
+                  +{nearbyEntities.length - 5} more nearby
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Current Activity Panel - Show when doing an activity at a location */}
+      {currentLocationId && (
         <div className="fixed bottom-6 right-6 z-50">
           <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-4 py-3">
-            <div className="text-black text-xs font-bold uppercase tracking-wider mb-2">
-              Nearby People
-            </div>
-            <div className="flex flex-col gap-2 min-w-[180px]">
-              {nearbyEntities.slice(0, 5).map(entity => {
-                const isBusy = entity.conversationState === 'IN_CONVERSATION' || 
-                               entity.conversationState === 'WALKING_TO_CONVERSATION' ||
-                               entity.conversationState === 'PENDING_REQUEST'
-                return (
+            {(() => {
+              const location = worldLocations.find(l => l.id === currentLocationId)
+              if (!location) return null
+              const progress = activityEndTime ? Math.max(0, ((activityEndTime - Date.now()) / (location.duration_seconds * 1000)) * 100) : 0
+              return (
+                <>
+                  <div className="text-black text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <span style={{ color: LOCATION_COLORS[location.location_type] }}>
+                      {LOCATION_ICONS[location.location_type]}
+                    </span>
+                    {playerActivityState === 'eating' && 'Eating...'}
+                    {playerActivityState === 'resting' && 'Resting...'}
+                    {playerActivityState === 'socializing' && 'Socializing...'}
+                    {playerActivityState === 'singing' && 'Singing...'}
+                    {playerActivityState === 'wandering' && 'Exploring...'}
+                  </div>
+                  <div className="text-sm text-black mb-2">{location.name}</div>
+                  <div className="text-xs text-black/60 mb-3">
+                    {activityTimeLeft > 0 ? `${activityTimeLeft}s remaining` : 'Finishing...'}
+                  </div>
+                  <div className="w-full bg-black/10 border border-black h-2 mb-3">
+                    <div 
+                      className="h-full transition-all duration-300"
+                      style={{ 
+                        width: `${progress}%`,
+                        backgroundColor: LOCATION_COLORS[location.location_type]
+                      }}
+                    />
+                  </div>
                   <button
-                    key={entity.entityId}
-                    onClick={() => !isBusy && requestConversation(entity.entityId)}
-                    disabled={isBusy}
-                    className={`
-                      px-3 py-2 text-sm font-medium transition-all border-2 border-black
-                      ${isBusy 
-                        ? 'bg-black/10 text-black/40 cursor-not-allowed' 
-                        : 'btn-primary text-white shadow-[2px_2px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px]'
-                      }
-                    `}
+                    onClick={leaveCurrentLocation}
+                    className="w-full px-3 py-2 text-sm font-medium bg-black/10 hover:bg-black/20 text-black border-2 border-black transition-all flex items-center justify-center gap-2"
                   >
-                    {entity.displayName}
-                    {isBusy && <span className="ml-1 text-xs">(busy)</span>}
+                    <X size={14} /> Leave Early
                   </button>
-                )
-              })}
-            </div>
-            {nearbyEntities.length > 5 && (
-              <div className="text-black/60 text-xs mt-2">
-                +{nearbyEntities.length - 5} more nearby
-              </div>
-            )}
+                </>
+              )
+            })()}
           </div>
         </div>
       )}

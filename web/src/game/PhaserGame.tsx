@@ -24,7 +24,10 @@ export default function PhaserGame({
   allEntityMessages = new Map(),
   watchZoom,
   watchPan,
-  followEntityId = null
+  followEntityId = null,
+  worldLocations = [],
+  playerActivityState = 'idle',
+  currentLocationId = null
 }: GameProps) {
   const gameRef = useRef<Phaser.Game | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -44,7 +47,10 @@ export default function PhaserGame({
     allEntityMessages,
     watchZoom,
     watchPan,
-    followEntityId
+    followEntityId,
+    worldLocations,
+    playerActivityState,
+    currentLocationId
   })
 
   // Use layout effect to set size before paint
@@ -80,7 +86,10 @@ export default function PhaserGame({
       allEntityMessages,
       watchZoom,
       watchPan,
-      followEntityId
+      followEntityId,
+      worldLocations,
+      playerActivityState,
+      currentLocationId
     }
     
     // Update the running scene with new data
@@ -101,8 +110,12 @@ export default function PhaserGame({
       if (scene && scene.updateWatchCamera && mode === 'watch') {
         scene.updateWatchCamera(watchZoom, watchPan)
       }
+      // Update world locations
+      if (scene && scene.updateWorldLocations) {
+        scene.updateWorldLocations(worldLocations)
+      }
     }
-  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages, watchZoom, watchPan, followEntityId])
+  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages, watchZoom, watchPan, followEntityId, worldLocations, playerActivityState, currentLocationId])
 
   // Handle follow entity changes
   useEffect(() => {

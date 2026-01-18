@@ -16,6 +16,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -1261,6 +1262,83 @@ def get_relationship(from_id: str, to_id: str):
 # ============================================================================
 # AGENT MONITORING ENDPOINTS
 # ============================================================================
+
+class CompleteActivityRequest(BaseModel):
+    location_type: Optional[str] = None
+    location_id: Optional[str] = None
+    effects: Optional[dict] = None
+
+@app.post("/agent/{avatar_id}/complete-activity")
+def complete_activity(avatar_id: str, request: CompleteActivityRequest):
+    """
+    Complete a location activity and update agent stats.
+    
+    Based on the location type, the relevant stat is boosted:
+    - food: hunger -> 0 (fully fed)
+    - rest_area: energy -> 1 (fully rested)
+    - social_hub: loneliness -> 0 (fully social)
+    - karaoke: mood -> 1 (max happy)
+    - wander_point: applies effects or small mood boost
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    location_type = request.location_type
+    effects = request.effects
+    
+    try:
+        state = agent_db.get_state(client, avatar_id)
+        if not state:
+            # Initialize if doesn't exist
+            personality, state = agent_db.initialize_agent(client, avatar_id)
+        
+        # Apply effects based on location type
+        if location_type == 'food':
+            state.hunger = 0.0  # Fully fed
+            state.mood = min(1.0, state.mood + 0.1)
+        elif location_type == 'rest_area':
+            state.energy = 1.0  # Fully rested
+            state.mood = min(1.0, state.mood + 0.1)
+        elif location_type == 'social_hub':
+            state.loneliness = 0.0  # Fully social
+            state.mood = min(1.0, state.mood + 0.1)
+        elif location_type == 'karaoke':
+            state.mood = 1.0  # Max happy
+            state.loneliness = max(0.0, state.loneliness - 0.3)
+        elif location_type == 'wander_point':
+            state.mood = min(1.0, state.mood + 0.1)
+            state.energy = max(0.0, state.energy - 0.05)
+        
+        # If custom effects are provided, apply them
+        if effects:
+            for stat_name, delta in effects.items():
+                if stat_name == 'hunger':
+                    state.hunger = max(0.0, min(1.0, state.hunger + delta))
+                elif stat_name == 'energy':
+                    state.energy = max(0.0, min(1.0, state.energy + delta))
+                elif stat_name == 'loneliness':
+                    state.loneliness = max(0.0, min(1.0, state.loneliness + delta))
+                elif stat_name == 'mood':
+                    state.mood = max(-1.0, min(1.0, state.mood + delta))
+        
+        # Save updated state
+        agent_db.update_state(client, state)
+        
+        return {
+            "ok": True,
+            "updated_stats": {
+                "energy": state.energy,
+                "hunger": state.hunger,
+                "loneliness": state.loneliness,
+                "mood": state.mood
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error completing activity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/agents/all")
 def get_all_agents():

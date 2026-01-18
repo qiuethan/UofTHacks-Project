@@ -7,6 +7,24 @@ export interface SpriteUrls {
   right?: string
 }
 
+// World Location types
+export type LocationType = 'food' | 'karaoke' | 'rest_area' | 'social_hub' | 'wander_point'
+
+export interface WorldLocation {
+  id: string
+  name: string
+  location_type: LocationType
+  x: number
+  y: number
+  description?: string
+  effects?: Record<string, number>  // e.g., { hunger: -0.4, mood: 0.1 }
+  cooldown_seconds: number
+  duration_seconds: number
+}
+
+// Player activity state at locations
+export type PlayerActivityState = 'idle' | 'walking' | 'talking' | 'eating' | 'resting' | 'socializing' | 'singing' | 'wandering'
+
 export interface Entity {
   entityId: string
   kind: 'PLAYER' | 'WALL' | 'ROBOT'

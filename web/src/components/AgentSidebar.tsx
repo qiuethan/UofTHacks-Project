@@ -68,6 +68,9 @@ function getActionName(action: string | ActionObject): string {
   return action.action || 'idle'
 }
 
+// Player activity state type
+type PlayerActivityState = 'idle' | 'walking' | 'talking' | 'eating' | 'resting' | 'socializing' | 'singing' | 'wandering'
+
 interface AgentSidebarProps {
   isOpen: boolean
   onToggle: () => void
@@ -75,6 +78,9 @@ interface AgentSidebarProps {
   followingAgentId?: string | null
   // Real-time entity data from WebSocket
   entities?: Map<string, GameEntity>
+  // Current user's activity state (for showing in the sidebar)
+  myEntityId?: string | null
+  myActivityState?: PlayerActivityState
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003'
@@ -356,7 +362,7 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
   )
 }
 
-export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followingAgentId, entities }: AgentSidebarProps) {
+export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followingAgentId, entities, myEntityId, myActivityState }: AgentSidebarProps) {
   // Agent metadata from API (personality, current_action) - fetched less frequently
   const [agentMetadata, setAgentMetadata] = useState<Map<string, AgentMetadata>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -481,6 +487,20 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
     return () => clearInterval(interval)
   }, [isOpen, entities])
   
+  // Map player activity state to action string for display
+  const activityToAction = (activity: PlayerActivityState): string => {
+    switch (activity) {
+      case 'eating': return 'interact_food'
+      case 'resting': return 'interact_rest'
+      case 'socializing': return 'interact_social_hub'
+      case 'singing': return 'interact_karaoke'
+      case 'wandering': return 'interact_wander_point'
+      case 'walking': return 'wander'
+      case 'talking': return 'in_conversation'
+      default: return 'idle'
+    }
+  }
+
   // Combine real-time entity data with agent metadata
   const agents = useMemo<AgentData[]>(() => {
     if (!entities) return []
@@ -492,6 +512,13 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       
       const metadata = agentMetadata.get(entityId)
       const isMoving = movingAgents.has(entityId)
+      const isMe = entityId === myEntityId
+      
+      // For the current user, use their activity state if provided
+      let currentAction = metadata?.current_action ?? 'idle'
+      if (isMe && myActivityState) {
+        currentAction = activityToAction(myActivityState)
+      }
       
       result.push({
         avatar_id: entityId,
@@ -512,13 +539,13 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
           curiosity: 0.5,
           agreeableness: 0.5,
         },
-        current_action: metadata?.current_action ?? 'idle',
+        current_action: currentAction,
         last_action_time: metadata?.last_action_time ?? null,
       })
     }
     
     return result
-  }, [entities, agentMetadata, movingAgents])
+  }, [entities, agentMetadata, movingAgents, myEntityId, myActivityState])
   
   const toggleAgent = (avatarId: string) => {
     setExpandedAgents(prev => {
