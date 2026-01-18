@@ -165,6 +165,15 @@ def calculate_social_bias(
         # Very negative sentiment discourages interaction
         if social_memory.sentiment < -0.5:
             score -= 0.5
+        
+        # AVOID action - score based on how much we dislike them
+        if action == ActionType.AVOID_AVATAR:
+            # The more negative the sentiment, the higher the avoid score
+            # sentiment of -1.0 gives score of 1.5, sentiment of -0.3 gives 0.45
+            score += abs(social_memory.sentiment) * 1.5
+            # Extra urgency if they're very close
+            if target_avatar.distance <= 3:
+                score += 0.5
     else:
         # Unknown avatars get curiosity bonus
         score += 0.1
@@ -299,7 +308,37 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
     # Social actions - only if not in conversation
     if not context.in_conversation:
         for nearby in context.nearby_avatars:
-            if nearby.distance <= DecisionConfig.CONVERSATION_RADIUS:
+            # Check social memory for this avatar
+            memory = next(
+                (m for m in context.social_memories if m.to_avatar_id == nearby.avatar_id),
+                None
+            )
+            
+            # If we dislike them (sentiment < -0.3), consider avoiding
+            if memory and memory.sentiment < -0.3 and nearby.distance <= DecisionConfig.CONVERSATION_RADIUS + 4:
+                # Calculate position to move away from them
+                dx = context.x - nearby.x
+                dy = context.y - nearby.y
+                # Normalize and move 5 units away
+                dist = max(1, (dx**2 + dy**2) ** 0.5)
+                flee_x = int(context.x + (dx / dist) * 5)
+                flee_y = int(context.y + (dy / dist) * 5)
+                # Clamp to map bounds (assuming 75x56)
+                flee_x = max(1, min(73, flee_x))
+                flee_y = max(1, min(54, flee_y))
+                
+                actions.append(CandidateAction(
+                    action_type=ActionType.AVOID_AVATAR,
+                    target=ActionTarget(
+                        target_type="avatar",
+                        target_id=nearby.avatar_id,
+                        name=f"away from {nearby.avatar_id[:8]}",
+                        x=flee_x,
+                        y=flee_y
+                    )
+                ))
+            # If we like them or neutral, consider talking
+            elif nearby.distance <= DecisionConfig.CONVERSATION_RADIUS:
                 actions.append(CandidateAction(
                     action_type=ActionType.INITIATE_CONVERSATION,
                     target=ActionTarget(

@@ -24,6 +24,7 @@ class ActionType(str, Enum):
     INITIATE_CONVERSATION = "initiate_conversation"
     JOIN_CONVERSATION = "join_conversation"
     LEAVE_CONVERSATION = "leave_conversation"
+    AVOID_AVATAR = "avoid_avatar"  # Move away from disliked avatars
     # Movement
     MOVE = "move"
     STAND_STILL = "stand_still"
