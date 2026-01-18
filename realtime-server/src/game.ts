@@ -445,7 +445,12 @@ export async function processAgentAgentConversations() {
             });
           }
           
-          const result = world.endConversation(convData.participant1);
+          // Pass reason and who ended it for notifications
+          const result = world.endConversation(
+            convData.participant1, 
+            speaker.displayName || 'Agent', 
+            shouldEnd.reason
+          );
           if (result.ok) {
             broadcast({ type: 'EVENTS', events: result.value });
           }

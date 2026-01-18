@@ -67,6 +67,10 @@ export interface WorldEvent {
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
+  // Conversation end fields
+  endedBy?: string
+  endedByName?: string
+  reason?: string
   // Stats update fields
   stats?: {
     energy?: number

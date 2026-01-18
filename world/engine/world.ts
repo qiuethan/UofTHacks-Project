@@ -853,8 +853,11 @@ export class World {
 
   /**
    * End an active conversation.
+   * @param entityId - The entity ending the conversation
+   * @param endedByName - Optional name of who ended it (for notification)
+   * @param reason - Optional reason for ending (if agent-initiated)
    */
-  endConversation(entityId: string): Result<WorldEvent[]> {
+  endConversation(entityId: string, endedByName?: string, reason?: string): Result<WorldEvent[]> {
     const entity = this.state.entities.get(entityId);
     if (!entity) return err('ENTITY_NOT_FOUND', 'Entity not found');
     if (entity.conversationState !== 'IN_CONVERSATION') {
@@ -904,7 +907,10 @@ export class World {
         type: 'CONVERSATION_ENDED',
         conversationId: conversationId || 'unknown',
         participant1Id: entityId,
-        participant2Id: partnerId
+        participant2Id: partnerId,
+        endedBy: entityId,
+        endedByName: endedByName || entity.displayName,
+        reason: reason
       },
       {
         type: 'ENTITY_STATE_CHANGED',

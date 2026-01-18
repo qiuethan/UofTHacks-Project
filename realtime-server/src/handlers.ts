@@ -402,8 +402,12 @@ export async function handleChatMessage(client: Client, content: string): Promis
             });
           }
           
-          // End the conversation
-          const endResult = world.endConversation(partnerId);
+          // End the conversation - pass reason and agent name for notifications
+          const endResult = world.endConversation(
+            partnerId,
+            partnerEntity.displayName || 'Agent',
+            shouldEndResult.reason
+          );
           if (endResult.ok) {
             broadcast({ type: 'EVENTS', events: endResult.value });
           }

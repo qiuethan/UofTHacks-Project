@@ -1142,6 +1142,152 @@ def get_all_agents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# USER RELATIONSHIPS AND CONVERSATION HISTORY
+# ============================================================================
+
+@app.get("/user/{user_id}/relationships")
+def get_user_relationships(user_id: str):
+    """
+    Get all relationships for a user.
+    
+    Returns a list of people they've interacted with, including:
+    - Sentiment (how they feel about each person)
+    - Familiarity (how well they know them)
+    - Interaction count (number of conversations)
+    - Last interaction time
+    - Relationship notes
+    """
+    try:
+        client = agent_db.get_supabase_client()
+        if not client:
+            raise HTTPException(status_code=500, detail="Database unavailable")
+        
+        # Get all social memories FROM this user (how they feel about others)
+        response = client.table("agent_social_memory").select(
+            "to_avatar_id, sentiment, familiarity, interaction_count, last_interaction, last_conversation_topic, mutual_interests, conversation_history_summary, relationship_notes"
+        ).eq("from_avatar_id", user_id).order("last_interaction", desc=True).execute()
+        
+        relationships = []
+        for row in response.data or []:
+            # Get the other person's display name
+            partner_id = row["to_avatar_id"]
+            partner_info = client.table("user_positions").select("display_name, sprite_front").eq("user_id", partner_id).execute()
+            partner_name = "Unknown"
+            partner_sprite = None
+            if partner_info.data and len(partner_info.data) > 0:
+                partner_name = partner_info.data[0].get("display_name", "Unknown")
+                partner_sprite = partner_info.data[0].get("sprite_front")
+            
+            # Parse mutual interests if it's a string
+            mutual_interests = row.get("mutual_interests", [])
+            if isinstance(mutual_interests, str):
+                try:
+                    import json
+                    mutual_interests = json.loads(mutual_interests)
+                except:
+                    mutual_interests = []
+            
+            relationships.append({
+                "partner_id": partner_id,
+                "partner_name": partner_name,
+                "partner_sprite": partner_sprite,
+                "sentiment": row.get("sentiment", 0.5),
+                "familiarity": row.get("familiarity", 0),
+                "interaction_count": row.get("interaction_count", 0),
+                "last_interaction": row.get("last_interaction"),
+                "last_topic": row.get("last_conversation_topic"),
+                "mutual_interests": mutual_interests,
+                "conversation_summary": row.get("conversation_history_summary"),
+                "relationship_notes": row.get("relationship_notes")
+            })
+        
+        return {"ok": True, "data": relationships}
+        
+    except Exception as e:
+        print(f"Error fetching relationships: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/user/{user_id}/conversations")
+def get_user_conversations(user_id: str):
+    """
+    Get all conversations for a user.
+    
+    Returns a list of conversations with:
+    - Partner info
+    - Transcript
+    - Timestamps
+    - Memory/summary of the conversation
+    """
+    try:
+        client = agent_db.get_supabase_client()
+        if not client:
+            raise HTTPException(status_code=500, detail="Database unavailable")
+        
+        # Get conversations where user is a participant
+        convs_a = client.table("conversations").select(
+            "id, participant_a, participant_b, transcript, created_at, ended_at"
+        ).eq("participant_a", user_id).eq("is_onboarding", False).order("created_at", desc=True).limit(50).execute()
+        
+        convs_b = client.table("conversations").select(
+            "id, participant_a, participant_b, transcript, created_at, ended_at"
+        ).eq("participant_b", user_id).eq("is_onboarding", False).order("created_at", desc=True).limit(50).execute()
+        
+        # Combine and deduplicate
+        all_convs = []
+        seen_ids = set()
+        
+        for conv in (convs_a.data or []) + (convs_b.data or []):
+            if conv["id"] in seen_ids:
+                continue
+            seen_ids.add(conv["id"])
+            
+            # Determine partner
+            partner_id = conv["participant_b"] if conv["participant_a"] == user_id else conv["participant_a"]
+            
+            # Get partner info
+            partner_info = client.table("user_positions").select("display_name, sprite_front").eq("user_id", partner_id).execute()
+            partner_name = "Unknown"
+            partner_sprite = None
+            if partner_info.data and len(partner_info.data) > 0:
+                partner_name = partner_info.data[0].get("display_name", "Unknown")
+                partner_sprite = partner_info.data[0].get("sprite_front")
+            
+            # Get memory for this conversation
+            memory = client.table("memories").select("summary, conversation_score").eq("conversation_id", conv["id"]).eq("owner_id", user_id).execute()
+            summary = None
+            score = None
+            if memory.data and len(memory.data) > 0:
+                summary = memory.data[0].get("summary")
+                score = memory.data[0].get("conversation_score")
+            
+            transcript = conv.get("transcript", [])
+            message_count = len(transcript) if isinstance(transcript, list) else 0
+            
+            all_convs.append({
+                "id": conv["id"],
+                "partner_id": partner_id,
+                "partner_name": partner_name,
+                "partner_sprite": partner_sprite,
+                "created_at": conv.get("created_at"),
+                "ended_at": conv.get("ended_at"),
+                "message_count": message_count,
+                "summary": summary,
+                "score": score,
+                "transcript": transcript  # Full transcript for display
+            })
+        
+        # Sort by created_at descending
+        all_convs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        
+        return {"ok": True, "data": all_convs[:50]}
+        
+    except Exception as e:
+        print(f"Error fetching conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3003)

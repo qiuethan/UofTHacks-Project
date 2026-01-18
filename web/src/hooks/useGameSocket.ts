@@ -232,14 +232,17 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
             const partner = current.get(inConversationWith)
             // Check if we were a participant but didn't initiate the end
             const wasParticipant = event.participant1Id === myEntityId || event.participant2Id === myEntityId
-            const endedByOther = wasParticipant && (
-              (event.participant1Id === inConversationWith) || 
-              (event.participant2Id === inConversationWith)
-            )
+            const endedByOther = wasParticipant && event.endedBy && event.endedBy !== myEntityId
             
-            if (wasParticipant && partner) {
-              setNotification(`${partner.displayName || 'Partner'} ended the conversation.`)
-              setTimeout(() => setNotification(null), 5000)
+            if (wasParticipant && (partner || event.endedByName)) {
+              const enderName = event.endedByName || partner?.displayName || 'Partner'
+              // Include reason if provided (agent-initiated end)
+              if (event.reason) {
+                setNotification(`${enderName} ended the conversation: "${event.reason}"`)
+              } else {
+                setNotification(`${enderName} ended the conversation.`)
+              }
+              setTimeout(() => setNotification(null), 6000)
             }
             return current
           })
