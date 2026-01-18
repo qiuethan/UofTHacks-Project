@@ -103,6 +103,17 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         score += state.loneliness * 0.8
         score += (1.0 - state.mood) * 0.5  # More appealing when mood is low
     
+    # Social hub addresses loneliness
+    if action == ActionType.INTERACT_SOCIAL_HUB:
+        score += state.loneliness * 1.0
+        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
+            score += 0.3
+    
+    # Wander point satisfies curiosity and improves mood
+    if action == ActionType.INTERACT_WANDER_POINT:
+        score += 0.3  # Base exploration appeal
+        score += (1.0 - state.mood) * 0.3  # More appealing when mood is low
+    
     # Wander satisfies curiosity need (implicit)
     if action == ActionType.WANDER:
         score += 0.2  # Base wander appeal
@@ -138,8 +149,16 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
         score += (1.0 - personality.energy_baseline) * 0.4
     
     # High energy baseline = prefers active actions
-    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE]:
+    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_WANDER_POINT]:
         score += personality.energy_baseline * 0.3
+    
+    # Sociable personalities prefer social hubs
+    if action == ActionType.INTERACT_SOCIAL_HUB:
+        score += personality.sociability * 0.6
+    
+    # Curious personalities prefer wander points
+    if action == ActionType.INTERACT_WANDER_POINT:
+        score += personality.curiosity * 0.5
     
     return score
 
@@ -228,7 +247,8 @@ def calculate_world_affinity(
     affinity = personality.world_affinities.get(location.location_type.value, 0.5)
     
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD, 
-                  ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST]:
+                  ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST,
+                  ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
         return affinity * 0.8
     
     return 0.0
@@ -432,6 +452,10 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
                 action_type = ActionType.INTERACT_KARAOKE
             elif location.location_type == LocationType.REST_AREA:
                 action_type = ActionType.INTERACT_REST
+            elif location.location_type == LocationType.SOCIAL_HUB:
+                action_type = ActionType.INTERACT_SOCIAL_HUB
+            elif location.location_type == LocationType.WANDER_POINT:
+                action_type = ActionType.INTERACT_WANDER_POINT
             else:
                 continue
         else:
@@ -637,11 +661,20 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
         if food_locations:
             # Pick closest food location
             closest = min(food_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            return SelectedAction(
-                action_type=ActionType.WALK_TO_LOCATION,
-                target=ActionTarget(target_type="location", target_id=closest.id, x=closest.x, y=closest.y),
-                utility_score=10.0  # High priority
-            )
+            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
+            # If already at location, interact; otherwise walk there
+            if distance <= 2:
+                return SelectedAction(
+                    action_type=ActionType.INTERACT_FOOD,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
+            else:
+                return SelectedAction(
+                    action_type=ActionType.WALK_TO_LOCATION,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0  # High priority
+                )
     
     # Critical energy - must rest
     if state.energy < DecisionConfig.CRITICAL_ENERGY:
@@ -650,11 +683,20 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
                          and l.id not in context.active_cooldowns]
         if rest_locations:
             closest = min(rest_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            return SelectedAction(
-                action_type=ActionType.WALK_TO_LOCATION,
-                target=ActionTarget(target_type="location", target_id=closest.id, x=closest.x, y=closest.y),
-                utility_score=10.0
-            )
+            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
+            # If already at location, interact; otherwise walk there
+            if distance <= 2:
+                return SelectedAction(
+                    action_type=ActionType.INTERACT_REST,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
+            else:
+                return SelectedAction(
+                    action_type=ActionType.WALK_TO_LOCATION,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
         else:
             # No rest area available, just idle
             return SelectedAction(

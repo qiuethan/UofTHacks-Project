@@ -3,7 +3,7 @@ import type { GameEntity } from '../game/types'
 import { 
   Moon, Footprints, MapPin, MessageCircle, Utensils, Sofa, Mic, 
   User, Clock, Zap, Apple, Users, Smile, Search, Heart,
-  ChevronDown, ChevronRight, X, Crosshair, Bot, Radio
+  ChevronDown, ChevronRight, X, Crosshair, Bot, Radio, Compass
 } from 'lucide-react'
 
 interface ActionObject {
@@ -88,6 +88,8 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   interact_food: <Utensils size={16} />,
   interact_rest: <Sofa size={16} />,
   interact_karaoke: <Mic size={16} />,
+  interact_social_hub: <Users size={16} />,
+  interact_wander_point: <Compass size={16} />,
   stand_still: <User size={16} />,
 }
 
@@ -183,6 +185,26 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
     statusColor = 'text-[#7a5224]'
+  } else if (actionName === 'interact_food') {
+    statusIcon = <Utensils size={16} className="text-[#007a28]" />
+    statusText = 'Eating...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'interact_karaoke') {
+    statusIcon = <Mic size={16} className="text-[#007a28]" />
+    statusText = 'Singing karaoke...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'interact_rest') {
+    statusIcon = <Sofa size={16} className="text-[#7a5224]" />
+    statusText = 'Resting...'
+    statusColor = 'text-[#7a5224]'
+  } else if (actionName === 'interact_social_hub') {
+    statusIcon = <Users size={16} className="text-[#007a28]" />
+    statusText = 'Socializing...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'interact_wander_point') {
+    statusIcon = <Compass size={16} className="text-[#007a28]" />
+    statusText = 'Exploring...'
+    statusColor = 'text-[#007a28]'
   } else if (agent.is_moving) {
     // Detected from real-time position changes
     statusIcon = <Footprints size={16} className="text-[#007a28]" />

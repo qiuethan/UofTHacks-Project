@@ -132,7 +132,7 @@ def execute_action(
                     state = apply_interaction_effects(state, {"energy": -0.02})
                     logger.info(f"Avatar {context.avatar_id} walking to {location.name} ({new_x}, {new_y})")
     
-    elif action.action_type in [ActionType.INTERACT_FOOD, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST]:
+    elif action.action_type in [ActionType.INTERACT_FOOD, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST, ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
         if action.target and action.target.target_id:
             location = next(
                 (l for l in context.world_locations if l.id == action.target.target_id),
@@ -141,7 +141,9 @@ def execute_action(
             if location:
                 state = apply_interaction_effects(state, location.effects)
                 agent_db.record_world_interaction(client, context.avatar_id, location)
-                logger.info(f"Avatar {context.avatar_id} performed {action.action_type.value} at {location.name}")
+                # Set action duration based on location's duration_seconds
+                action.duration_seconds = location.duration_seconds
+                logger.info(f"Avatar {context.avatar_id} performing {action.action_type.value} at {location.name} for {location.duration_seconds}s")
     
     elif action.action_type == ActionType.INITIATE_CONVERSATION:
         if action.target and action.target.target_id:
