@@ -869,6 +869,39 @@ def agent_respond(request: conv.AgentRespondRequest):
         return conv.AgentRespondResponse(ok=False, error=str(e))
 
 
+@app.post("/conversation/analyze-message")
+def analyze_message(request: conv.MessageSentimentRequest):
+    """
+    Analyze a single message for sentiment and apply real-time mood updates.
+    
+    Called after each message to:
+    - Detect rude/positive messages
+    - Update receiver's mood immediately if message is rude/positive
+    - Update social memory sentiment
+    
+    This enables real-time mood changes during conversations.
+    """
+    try:
+        result = conv.process_message_sentiment(
+            message=request.message,
+            sender_id=request.sender_id,
+            sender_name=request.sender_name,
+            receiver_id=request.receiver_id,
+            receiver_name=request.receiver_name
+        )
+        return conv.MessageSentimentResponse(
+            ok=True,
+            sender_mood_change=result.get("sender_mood_change", 0),
+            receiver_mood_change=result.get("receiver_mood_change", 0),
+            sentiment=result.get("sentiment", 0),
+            is_rude=result.get("is_rude", False),
+            is_positive=result.get("is_positive", False)
+        )
+    except Exception as e:
+        print(f"Error in analyze-message: {e}")
+        return conv.MessageSentimentResponse(ok=False)
+
+
 @app.post("/conversation/end-process")
 def end_process(request: conv.ConversationEndRequest):
     """

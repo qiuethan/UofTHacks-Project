@@ -250,14 +250,15 @@ export async function handleChatMessage(client: Client, content: string): Promis
     activeConversations.set(partnerId, convData);
   }
   
-  // Create the chat message
+  // Create the chat message - marked as player controlled since it's from a real user
   const message: ChatMessage = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     senderId: client.userId,
     senderName: client.displayName,
     content,
     timestamp: Date.now(),
-    conversationId: convData.conversationId
+    conversationId: convData.conversationId,
+    isPlayerControlled: true  // Message from real human player
   };
   
   // Add to local tracking
@@ -269,6 +270,26 @@ export async function handleChatMessage(client: Client, content: string): Promis
     await addMessageToConversation(convData.conversationId, client.userId, client.displayName, content);
   } catch (e) {
     console.error('Error storing message:', e);
+  }
+  
+  // Analyze message sentiment in real-time (updates mood if rude/positive)
+  try {
+    analyzeMessageSentiment(
+      content, 
+      client.userId, 
+      client.displayName, 
+      partnerId, 
+      partnerEntity.displayName || 'Partner'
+    ).then(async (sentimentResult) => {
+      if (sentimentResult && (sentimentResult.is_rude || sentimentResult.is_positive)) {
+        console.log(`[Sentiment] Message analyzed: rude=${sentimentResult.is_rude}, positive=${sentimentResult.is_positive}`);
+        // Force sync stats to show mood change in UI
+        const { syncAgentStats } = await import('./game');
+        await syncAgentStats(true);
+      }
+    }).catch(e => console.error('Sentiment analysis error:', e));
+  } catch (e) {
+    console.error('Error starting sentiment analysis:', e);
   }
   
   // Broadcast to both participants
@@ -305,14 +326,15 @@ export async function handleChatMessage(client: Client, content: string): Promis
       );
       
       if (agentResponse) {
-        // Create agent's message
+        // Create agent's message - marked as NOT player controlled since it's LLM-generated
         const agentMessage: ChatMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           senderId: partnerId,
           senderName: partnerEntity.displayName || 'Agent',
           content: agentResponse,
           timestamp: Date.now(),
-          conversationId: convData.conversationId
+          conversationId: convData.conversationId,
+          isPlayerControlled: false  // Message from LLM automation
         };
         
         // Add to tracking
@@ -439,6 +461,42 @@ async function generateAgentResponse(
   }
 }
 
+interface SentimentResult {
+  ok: boolean;
+  sender_mood_change: number;
+  receiver_mood_change: number;
+  sentiment: number;
+  is_rude: boolean;
+  is_positive: boolean;
+}
+
+async function analyzeMessageSentiment(
+  message: string,
+  senderId: string,
+  senderName: string,
+  receiverId: string,
+  receiverName: string
+): Promise<SentimentResult | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/analyze-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        sender_id: senderId,
+        sender_name: senderName,
+        receiver_id: receiverId,
+        receiver_name: receiverName
+      })
+    });
+    const data = await response.json();
+    return data as SentimentResult;
+  } catch (e) {
+    console.error('Error analyzing message sentiment:', e);
+    return null;
+  }
+}
+
 async function processConversationEnd(
   conversationId: string,
   participantA: string,
@@ -467,7 +525,8 @@ async function processConversationEnd(
           senderId: m.senderId,
           senderName: m.senderName,
           content: m.content,
-          timestamp: m.timestamp
+          timestamp: m.timestamp,
+          isPlayerControlled: m.isPlayerControlled ?? false  // Pass the player control flag
         })),
         participant_a_is_online: participantAIsOnline,
         participant_b_is_online: participantBIsOnline

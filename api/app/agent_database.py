@@ -120,24 +120,70 @@ def create_personality(client: Client, personality: AgentPersonality) -> AgentPe
 
 def generate_default_personality(avatar_id: str) -> AgentPersonality:
     """
-    Generate a personality with neutral defaults for a new avatar.
+    Generate a personality for a new avatar.
     
-    TODO: These values should come from an intro survey.
-          For now, all values are set to 0.5 (neutral).
-          Call update_personality_from_survey() after user completes survey.
+    First tries to load from agent_personality table (populated from onboarding).
+    Only uses neutral defaults if no onboarding data exists.
     """
+    # First, try to get existing personality from database (from onboarding)
+    try:
+        from .supabase_client import supabase
+        result = supabase.table("agent_personality").select("*").eq("avatar_id", avatar_id).execute()
+        if result.data and len(result.data) > 0:
+            row = result.data[0]
+            print(f"[Personality] Found existing personality for {avatar_id[:8]} from onboarding")
+            
+            # Parse JSON fields
+            interests = row.get("interests")
+            if isinstance(interests, str):
+                try:
+                    import json
+                    interests = json.loads(interests)
+                except:
+                    interests = []
+            
+            conversation_topics = row.get("conversation_topics")
+            if isinstance(conversation_topics, str):
+                try:
+                    import json
+                    conversation_topics = json.loads(conversation_topics)
+                except:
+                    conversation_topics = []
+            
+            return AgentPersonality(
+                avatar_id=avatar_id,
+                sociability=row.get("sociability", 0.7),
+                curiosity=row.get("curiosity", 0.7),
+                agreeableness=row.get("agreeableness", 0.7),
+                energy_baseline=row.get("energy_baseline", 0.7),
+                world_affinities=row.get("world_affinities", {
+                    "food": 0.5, "karaoke": 0.5, "rest_area": 0.5, 
+                    "social_hub": 0.5, "wander_point": 0.5
+                }),
+                profile_summary=row.get("profile_summary"),
+                communication_style=row.get("communication_style"),
+                interests=interests,
+                conversation_topics=conversation_topics,
+                personality_notes=row.get("personality_notes"),
+            )
+    except Exception as e:
+        print(f"[Personality] Error loading personality for {avatar_id[:8]}: {e}")
+    
+    # Fallback: use slightly positive defaults (not 0.5 neutral)
+    # These are higher because most people are reasonably friendly
+    print(f"[Personality] No onboarding data for {avatar_id[:8]}, using friendly defaults")
     return AgentPersonality(
         avatar_id=avatar_id,
-        sociability=0.5,       # TODO: from survey
-        curiosity=0.5,         # TODO: from survey
-        agreeableness=0.5,     # TODO: from survey
-        energy_baseline=0.5,   # TODO: from survey
+        sociability=0.7,        # Reasonably social
+        curiosity=0.7,          # Reasonably curious
+        agreeableness=0.8,      # Generally agreeable
+        energy_baseline=0.8,    # Generally energetic
         world_affinities={
-            "food": 0.5,       # TODO: from survey
-            "karaoke": 0.5,    # TODO: from survey
-            "rest_area": 0.5,  # TODO: from survey
-            "social_hub": 0.5, # TODO: from survey
-            "wander_point": 0.5,  # TODO: from survey
+            "food": 0.5,
+            "karaoke": 0.5,
+            "rest_area": 0.5,
+            "social_hub": 0.7,   # Slightly prefer social areas
+            "wander_point": 0.5,
         }
     )
 
@@ -247,13 +293,17 @@ def update_state(client: Client, state: AgentState) -> AgentState:
 
 
 def generate_random_state(avatar_id: str) -> AgentState:
-    """Generate random initial state for an avatar."""
+    """Generate healthy initial state for an avatar.
+    
+    All users start with optimal stats (100%) so they don't complain
+    about being tired/hungry/lonely immediately.
+    """
     return AgentState(
         avatar_id=avatar_id,
-        energy=0.7 + random.random() * 0.2,
-        hunger=0.2 + random.random() * 0.2,
-        loneliness=0.3 + random.random() * 0.2,
-        mood=0.3 + random.random() * 0.4,
+        energy=1.0,       # Fully rested - 100%
+        hunger=0.0,       # Not hungry - 0%
+        loneliness=0.0,   # Not lonely - 0%
+        mood=1.0,         # Great mood - 100%
         current_action="idle",
     )
 

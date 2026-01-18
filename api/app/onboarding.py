@@ -34,7 +34,8 @@ if OPENROUTER_API_KEY:
     except Exception as e:
         print(f"Failed to init OpenAI/OpenRouter client: {e}")
 
-MODEL_NAME = "x-ai/grok-4.1-fast"
+# Use Grok-4-fast for good quality with better speed
+MODEL_NAME = "x-ai/grok-4-fast"
 
 async def get_current_user(request: Request):
     auth_header = request.headers.get("Authorization")
@@ -406,18 +407,28 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         print(f"[onboarding] Interests: {interests}")
         print(f"[onboarding] Conversation topics: {conversation_topics}")
         
-        # Also initialize agent_state if it doesn't exist
+        # Also initialize agent_state with HEALTHY defaults (100% stats)
+        # All users start fully rested, not hungry, social, and happy
         existing_state = supabase.table("agent_state").select("*").eq("avatar_id", user.id).execute()
         if not existing_state.data:
             supabase.table("agent_state").insert({
                 "avatar_id": user.id,
-                "energy": 0.7,
-                "hunger": 0.2,
-                "loneliness": 0.5,
-                "mood": 0.5,
+                "energy": 1.0,      # Fully rested - 100%
+                "hunger": 0.0,      # Not hungry at all - 0%
+                "loneliness": 0.0,  # Not lonely at all - 0%
+                "mood": 1.0,        # Great mood - 100%
                 "current_action": "idle"
             }).execute()
-            print(f"[onboarding] Initialized agent state for {user.id}")
+            print(f"[onboarding] Initialized agent state for {user.id} (100% healthy)")
+        else:
+            # Reset existing state to healthy defaults as well
+            supabase.table("agent_state").update({
+                "energy": 1.0,
+                "hunger": 0.0,
+                "loneliness": 0.0,
+                "mood": 1.0
+            }).eq("avatar_id", user.id).execute()
+            print(f"[onboarding] Reset agent state to healthy for {user.id}")
         
     except Exception as e:
         print(f"[onboarding] Error saving personality data: {e}")

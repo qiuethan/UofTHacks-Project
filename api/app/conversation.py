@@ -37,7 +37,8 @@ if OPENROUTER_API_KEY and OPENAI_AVAILABLE:
     except Exception as e:
         print(f"Failed to init OpenRouter client for conversations: {e}")
 
-MODEL_NAME = "x-ai/grok-4.1-fast"
+# Use Grok-4-fast for good quality with better speed
+MODEL_NAME = "x-ai/grok-4-fast"
 
 
 # ============================================================================
@@ -78,6 +79,195 @@ class ConversationEndResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MessageSentimentRequest(BaseModel):
+    """Request for real-time message sentiment analysis."""
+    message: str
+    sender_id: str
+    sender_name: str
+    receiver_id: str
+    receiver_name: str
+
+
+class MessageSentimentResponse(BaseModel):
+    """Response with real-time state changes."""
+    ok: bool
+    sender_mood_change: float = 0.0
+    receiver_mood_change: float = 0.0
+    sentiment: float = 0.0
+    is_rude: bool = False
+    is_positive: bool = False
+
+
+# ============================================================================
+# REAL-TIME PER-MESSAGE SENTIMENT ANALYSIS
+# ============================================================================
+
+def analyze_message_sentiment(message: str, sender_name: str, receiver_name: str) -> Dict[str, Any]:
+    """
+    Quickly analyze a single message for sentiment and emotional impact.
+    
+    This is called in real-time as messages are sent to update mood immediately.
+    - Rude messages decrease the receiver's mood
+    - Positive messages increase both moods
+    - Neutral messages have minimal effect
+    """
+    if not client:
+        # Simple keyword-based fallback
+        message_lower = message.lower()
+        
+        # Check for rude words
+        rude_words = ["hate", "stupid", "idiot", "dumb", "ugly", "loser", "shut up", 
+                      "suck", "terrible", "worst", "annoying", "boring", "lame"]
+        is_rude = any(word in message_lower for word in rude_words)
+        
+        # Check for positive words
+        positive_words = ["love", "amazing", "awesome", "great", "wonderful", "fantastic",
+                         "beautiful", "fun", "happy", "thanks", "appreciate", "nice", "cool"]
+        is_positive = any(word in message_lower for word in positive_words)
+        
+        if is_rude:
+            return {
+                "sentiment": -0.5,
+                "is_rude": True,
+                "is_positive": False,
+                "receiver_mood_change": -0.10,  # Receiver's mood drops
+                "sender_mood_change": 0.0
+            }
+        elif is_positive:
+            return {
+                "sentiment": 0.5,
+                "is_rude": False,
+                "is_positive": True,
+                "receiver_mood_change": 0.05,
+                "sender_mood_change": 0.03
+            }
+        else:
+            return {
+                "sentiment": 0.0,
+                "is_rude": False,
+                "is_positive": False,
+                "receiver_mood_change": 0.0,
+                "sender_mood_change": 0.0
+            }
+    
+    # Use LLM for more nuanced analysis
+    try:
+        prompt = f"""Quickly analyze this message for emotional tone:
+
+Message from {sender_name} to {receiver_name}: "{message}"
+
+Return JSON:
+{{
+  "sentiment": (float -1.0 to 1.0, overall tone of message),
+  "is_rude": (bool, is this message rude, mean, insulting, or hurtful?),
+  "is_positive": (bool, is this message kind, supportive, or encouraging?),
+  "receiver_mood_change": (float -0.15 to +0.10, how does this message affect {receiver_name}'s mood?),
+  "sender_mood_change": (float -0.05 to +0.05, how does sending this affect {sender_name}'s mood?)
+}}
+
+IMPORTANT:
+- Rude/insulting messages should give receiver_mood_change of -0.08 to -0.15
+- Very nice/supportive messages give receiver_mood_change of +0.05 to +0.10
+- Neutral messages give close to 0
+"""
+        
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You analyze message sentiment. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=200
+        )
+        
+        result = json.loads(completion.choices[0].message.content)
+        return {
+            "sentiment": float(result.get("sentiment", 0)),
+            "is_rude": bool(result.get("is_rude", False)),
+            "is_positive": bool(result.get("is_positive", False)),
+            "receiver_mood_change": float(result.get("receiver_mood_change", 0)),
+            "sender_mood_change": float(result.get("sender_mood_change", 0))
+        }
+    except Exception as e:
+        print(f"[Sentiment] Error analyzing message: {e}")
+        return {
+            "sentiment": 0.0,
+            "is_rude": False,
+            "is_positive": False,
+            "receiver_mood_change": 0.0,
+            "sender_mood_change": 0.0
+        }
+
+
+def apply_realtime_mood_update(avatar_id: str, mood_change: float, name: str) -> bool:
+    """Apply a real-time mood update to an avatar."""
+    if abs(mood_change) < 0.001:
+        return True  # No significant change
+    
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return False
+    
+    state = agent_db.get_state(db_client, avatar_id)
+    if not state:
+        return False
+    
+    old_mood = state.mood
+    state.mood = max(-1.0, min(1.0, state.mood + mood_change))
+    
+    try:
+        agent_db.update_state(db_client, state)
+        print(f"[Realtime] {name} mood: {old_mood:.2f} → {state.mood:.2f} (Δ{mood_change:+.2f})")
+        return True
+    except Exception as e:
+        print(f"[Realtime] Error updating mood for {name}: {e}")
+        return False
+
+
+def process_message_sentiment(
+    message: str,
+    sender_id: str,
+    sender_name: str,
+    receiver_id: str,
+    receiver_name: str
+) -> Dict[str, Any]:
+    """
+    Process a message for sentiment and apply real-time mood updates.
+    
+    Called after each message to:
+    1. Analyze the message sentiment
+    2. Update receiver's mood if message is rude/positive
+    3. Update sender's mood slightly
+    4. Update social memory sentiment
+    """
+    analysis = analyze_message_sentiment(message, sender_name, receiver_name)
+    
+    # Apply mood changes
+    if analysis["receiver_mood_change"] != 0:
+        apply_realtime_mood_update(receiver_id, analysis["receiver_mood_change"], receiver_name)
+    
+    if analysis["sender_mood_change"] != 0:
+        apply_realtime_mood_update(sender_id, analysis["sender_mood_change"], sender_name)
+    
+    # If rude, update social memory sentiment immediately
+    if analysis["is_rude"]:
+        db_client = agent_db.get_supabase_client()
+        if db_client:
+            # Decrease sentiment from receiver toward sender
+            agent_db.update_social_memory(
+                db_client,
+                receiver_id,
+                sender_id,
+                sentiment_delta=-0.1,  # They like the sender less now
+                familiarity_delta=0.01,
+                conversation_topic="received rude message"
+            )
+            print(f"[Realtime] {receiver_name}'s sentiment toward {sender_name} decreased due to rude message")
+    
+    return analysis
+
+
 # ============================================================================
 # AGENT RESPONSE GENERATION
 # ============================================================================
@@ -110,6 +300,27 @@ def generate_agent_response(
     state = agent_db.get_state(db_client, agent_id)
     social_memory = agent_db.get_social_memory(db_client, agent_id, partner_id)
     
+    # If no personality, try to initialize (this pulls from onboarding data)
+    if not personality:
+        print(f"[AgentResponse] No personality found for {agent_id[:8]}, trying to initialize...")
+        try:
+            personality = agent_db.generate_default_personality(agent_id)
+            if personality and personality.profile_summary:
+                print(f"[AgentResponse] Loaded personality from onboarding data")
+            else:
+                print(f"[AgentResponse] Using default personality (no onboarding data)")
+        except Exception as e:
+            print(f"[AgentResponse] Error loading personality: {e}")
+    
+    # If no state, try to initialize with healthy defaults
+    if not state:
+        print(f"[AgentResponse] No state found for {agent_id[:8]}, creating healthy defaults...")
+        try:
+            state = agent_db.generate_random_state(agent_id)
+            agent_db.create_state(db_client, state)
+        except Exception as e:
+            print(f"[AgentResponse] Error creating state: {e}")
+    
     # Load past memories/conversations with this partner
     past_memories = get_past_memories(agent_id, partner_id)
     
@@ -120,6 +331,11 @@ def generate_agent_response(
     # Log context being used
     print(f"[AgentResponse] Generating response for {agent_name} ({agent_id[:8]})")
     print(f"[AgentResponse] Has personality: {personality is not None}")
+    if personality:
+        print(f"[AgentResponse] Profile summary: {(personality.profile_summary or 'None')[:100]}...")
+        print(f"[AgentResponse] Communication style: {personality.communication_style}")
+        print(f"[AgentResponse] Interests: {personality.interests}")
+        print(f"[AgentResponse] Topics: {personality.conversation_topics}")
     print(f"[AgentResponse] Has state: {state is not None}")
     if state:
         print(f"[AgentResponse] State: E:{state.energy:.2f} H:{state.hunger:.2f} L:{state.loneliness:.2f} M:{state.mood:.2f}")
@@ -146,28 +362,34 @@ def generate_agent_response(
             content = msg.get("content", "")
             history_text += f"{sender}: {content}\n"
     
-    # Create the prompt
-    system_prompt = f"""You are {agent_name}, a real person in a virtual world having a casual conversation.
+    # Create the prompt - emphasize personality matching
+    system_prompt = f"""You are {agent_name}, a real person having a casual text conversation.
 
-=== YOUR PERSONALITY & BACKGROUND ===
+=== WHO YOU ARE ===
 {personality_desc}
-
-=== YOUR CURRENT STATE ===
-{state_desc}
 
 === YOUR RELATIONSHIP WITH {partner_name} ===
 {relationship_desc}
 
-=== HOW TO RESPOND ===
-1. BE AUTHENTIC: Respond as {agent_name} would based on your personality, interests, and communication style above. If you have specific interests or topics you enjoy, naturally bring them up when relevant.
-2. USE YOUR PERSONALITY: Your sociability, curiosity, and agreeableness should shape how you engage. If you're curious, ask questions. If you're social, be warm and engaging.
-3. MATCH YOUR MOOD: Your current energy and mood affect your responses. Low energy = brief. Good mood = more enthusiastic.
-4. BUILD ON TOPICS: If you have conversation topics you enjoy, steer toward them naturally. Share your interests when appropriate.
-5. REMEMBER CONTEXT: Use what you know about {partner_name} from past conversations and your relationship with them.
-6. STAY IN CHARACTER: Never break character or mention being an AI.
-7. COMMUNICATION STYLE: Follow your communication style (formal/casual, emoji usage, response length) from your profile.
-8. FORMAT: Use plain text only. No bold, italics, bullet points, or markdown. Write naturally like texting a friend.
-9. ONE MESSAGE: Only respond with ONE message. Do not continue the conversation yourself.
+=== CRITICAL RULES ===
+1. MIMIC THEIR EXACT COMMUNICATION STYLE: If your profile says you text casually with abbreviations and slang, DO THAT. If it says you're formal, be formal. Match the exact texting patterns from your personality profile.
+
+2. USE YOUR INTERESTS: Naturally bring up your interests and hobbies. Reference things you've talked about before. Show genuine curiosity about shared interests.
+
+3. DO NOT MENTION TIREDNESS/ENERGY: Never say you're "wiped", "tired", "exhausted", "low on energy" or similar UNLESS specifically asked. This is not a normal conversation topic.
+
+4. BE NATURAL AND BRIEF: Keep responses short and natural like real texts (1-3 sentences usually). Don't over-explain or be too formal.
+
+5. STAY IN CHARACTER: You are {agent_name}, not an AI. Never break character.
+
+6. USE YOUR RELATIONSHIP HISTORY: If you've chatted with {partner_name} before, reference it naturally. Build on your shared history and inside jokes.
+
+7. FORMAT: Plain text only. No markdown, no formatting. Just natural texting.
+
+8. ONE MESSAGE ONLY: Respond with exactly one message. Don't continue the conversation yourself.
+
+{f"=== CURRENT VIBE ===" if state_desc else ""}
+{state_desc}
 """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -207,55 +429,26 @@ def generate_agent_response(
 
 def build_personality_description(personality) -> str:
     """
-    Build a comprehensive text description using ALL personality columns:
-    - sociability, curiosity, agreeableness, energy_baseline (core traits)
-    - profile_summary (detailed description of the person)
-    - communication_style (how they communicate)
-    - interests (hobbies and things they like)
-    - conversation_topics (topics they enjoy discussing)
-    - personality_notes (observed traits from conversations)
+    Build a comprehensive text description using ALL personality columns.
+    PRIORITIZE communication style and profile summary - these are what make
+    the agent sound like the real person from their onboarding.
     """
     if not personality:
-        return "You are friendly and approachable."
+        return "You are a friendly, casual person who texts like a normal friend."
     
     parts = []
     
-    # Core personality traits from scores
-    traits = []
-    
-    if personality.sociability > 0.7:
-        traits.append("very social and outgoing, loves talking to people")
-    elif personality.sociability < 0.3:
-        traits.append("introverted and reserved, prefers shorter conversations")
-    else:
-        traits.append("moderately social")
-    
-    if personality.agreeableness > 0.7:
-        traits.append("very agreeable and supportive")
-    elif personality.agreeableness < 0.3:
-        traits.append("can be blunt or direct at times")
-    
-    if personality.curiosity > 0.7:
-        traits.append("very curious, loves asking questions and exploring new topics")
-    elif personality.curiosity < 0.3:
-        traits.append("prefers familiar topics and routines")
-    
-    if personality.energy_baseline > 0.7:
-        traits.append("naturally energetic and enthusiastic")
-    elif personality.energy_baseline < 0.3:
-        traits.append("naturally calm and laid-back")
-    
-    parts.append("CORE TRAITS: You are " + ", ".join(traits) + ".")
-    
-    # Profile summary - the detailed description of who this person is
+    # MOST IMPORTANT: Profile summary from onboarding (who this person IS)
     if hasattr(personality, 'profile_summary') and personality.profile_summary:
-        parts.append(f"\n\nWHO YOU ARE: {personality.profile_summary[:800]}")
+        parts.append(f"WHO YOU ARE:\n{personality.profile_summary[:1000]}")
     
-    # Communication style - how they talk
+    # SECOND MOST IMPORTANT: Communication style - how they actually text
     if hasattr(personality, 'communication_style') and personality.communication_style:
-        parts.append(f"\n\nHOW YOU COMMUNICATE: {personality.communication_style}")
+        parts.append(f"\n\nYOUR TEXTING STYLE (MUST FOLLOW):\n{personality.communication_style}")
+    else:
+        parts.append("\n\nYOUR TEXTING STYLE: Casual, friendly, like texting a friend.")
     
-    # Interests - things they like
+    # Interests - things they like to talk about
     if hasattr(personality, 'interests') and personality.interests:
         interests = personality.interests
         if isinstance(interests, str):
@@ -264,9 +457,9 @@ def build_personality_description(personality) -> str:
             except:
                 interests = []
         if interests and len(interests) > 0:
-            parts.append(f"\n\nYOUR INTERESTS: {', '.join(interests[:10])}")
+            parts.append(f"\n\nYOUR INTERESTS & HOBBIES: {', '.join(interests[:10])}")
     
-    # Conversation topics - what they like to talk about
+    # Conversation topics - what they enjoy discussing
     if hasattr(personality, 'conversation_topics') and personality.conversation_topics:
         topics = personality.conversation_topics
         if isinstance(topics, str):
@@ -275,93 +468,137 @@ def build_personality_description(personality) -> str:
             except:
                 topics = []
         if topics and len(topics) > 0:
-            parts.append(f"\n\nTOPICS YOU ENJOY DISCUSSING: {', '.join(topics[:10])}")
+            parts.append(f"\n\nTOPICS YOU LOVE TO DISCUSS: {', '.join(topics[:10])}")
     
-    # Personality notes - additional observations
+    # Personality notes - quirks and traits
     if hasattr(personality, 'personality_notes') and personality.personality_notes:
-        parts.append(f"\n\nADDITIONAL NOTES ABOUT YOU: {personality.personality_notes[:500]}")
+        parts.append(f"\n\nPERSONALITY QUIRKS: {personality.personality_notes[:500]}")
     
-    return "".join(parts)
+    # Core traits from scores (secondary importance)
+    traits = []
+    if personality.sociability > 0.7:
+        traits.append("very social and chatty")
+    elif personality.sociability < 0.3:
+        traits.append("more introverted, keeps responses shorter")
+    
+    if personality.agreeableness > 0.7:
+        traits.append("super friendly and supportive")
+    elif personality.agreeableness < 0.3:
+        traits.append("can be blunt or sarcastic")
+    
+    if personality.curiosity > 0.7:
+        traits.append("loves asking questions")
+    
+    if personality.energy_baseline > 0.7:
+        traits.append("high energy and enthusiastic")
+    elif personality.energy_baseline < 0.3:
+        traits.append("chill and laid-back")
+    
+    if traits:
+        parts.append(f"\n\nVIBE: {', '.join(traits)}")
+    
+    return "".join(parts) if parts else "You are a friendly, casual person."
 
 
 def build_state_description(state) -> str:
-    """Build a text description of current state."""
+    """Build a text description of current state.
+    
+    IMPORTANT: Only mention negative states (tired, hungry, etc.) when they are
+    at CRITICAL levels. We don't want agents constantly complaining about being
+    tired/wiped when their stats are reasonably normal.
+    """
     if not state:
-        return ""
+        return "You're feeling great and ready to chat!"
     
     descriptions = []
     
-    if state.energy < 0.3:
-        descriptions.append("You're feeling tired and low on energy")
-    elif state.energy > 0.8:
-        descriptions.append("You're feeling energetic and alert")
+    # Only mention tiredness at CRITICAL levels (<15%)
+    if state.energy < 0.15:
+        descriptions.append("You're exhausted and really need rest")
+    elif state.energy >= 0.7:
+        descriptions.append("You're feeling energized")
+    # Note: Don't mention energy for normal levels (0.15-0.7)
     
-    if state.mood < -0.3:
-        descriptions.append("Your mood is a bit down")
-    elif state.mood > 0.3:
-        descriptions.append("You're in a good mood")
+    # Mood affects enthusiasm
+    if state.mood < -0.5:
+        descriptions.append("You're in a bad mood")
+    elif state.mood > 0.5:
+        descriptions.append("You're in a great mood")
     
-    if state.loneliness > 0.7:
-        descriptions.append("You've been feeling lonely and really enjoy having someone to talk to")
+    # Only mention loneliness at extreme levels
+    if state.loneliness > 0.85:
+        descriptions.append("You've been quite isolated and appreciate the company")
     
-    if state.hunger > 0.7:
-        descriptions.append("You're quite hungry")
+    # Only mention hunger at critical levels
+    if state.hunger > 0.85:
+        descriptions.append("You're really hungry")
     
-    return ". ".join(descriptions) + "." if descriptions else ""
+    if descriptions:
+        return ". ".join(descriptions) + "."
+    else:
+        return "You're feeling normal and ready to chat."
 
 
 def build_relationship_description(social_memory, past_memories: List[Dict], partner_name: str) -> str:
-    """Build a description of the relationship with the conversation partner."""
+    """Build a description of the relationship with the conversation partner.
+    
+    Uses ALL social memory columns:
+    - sentiment, familiarity, interaction_count (basic metrics)
+    - last_conversation_topic (recent context)
+    - mutual_interests (shared hobbies/topics)
+    - conversation_history_summary (full relationship history)
+    - relationship_notes (dynamic/chemistry description)
+    """
     if not social_memory:
         if past_memories:
-            return f"You've talked to {partner_name} before but don't remember much. Be friendly and try to get to know them again."
-        return f"This is your first time meeting {partner_name}. Be curious and introduce yourself."
+            return f"You've talked to {partner_name} before. Be friendly and pick up where you left off."
+        return f"This is your first time meeting {partner_name}. Be friendly and get to know them!"
     
     desc_parts = []
     
-    # Sentiment
+    # RELATIONSHIP NOTES FIRST (most important - describes the dynamic)
+    if hasattr(social_memory, 'relationship_notes') and social_memory.relationship_notes:
+        desc_parts.append(f"Your dynamic with {partner_name}: {social_memory.relationship_notes}")
+    
+    # Sentiment and familiarity
+    relationship_type = ""
     if social_memory.sentiment > 0.5:
-        desc_parts.append(f"You really like {partner_name}")
+        if social_memory.familiarity > 0.5:
+            relationship_type = f"You're good friends with {partner_name}"
+        else:
+            relationship_type = f"You really like {partner_name}"
     elif social_memory.sentiment > 0.2:
-        desc_parts.append(f"You have positive feelings toward {partner_name}")
+        relationship_type = f"You get along well with {partner_name}"
     elif social_memory.sentiment < -0.5:
-        desc_parts.append(f"You don't really like {partner_name}")
+        relationship_type = f"You have tension with {partner_name}"
     elif social_memory.sentiment < -0.2:
-        desc_parts.append(f"You have some negative feelings toward {partner_name}")
+        relationship_type = f"You're a bit wary of {partner_name}"
     else:
-        desc_parts.append(f"You feel neutral about {partner_name}")
+        relationship_type = f"You're acquainted with {partner_name}"
     
-    # Familiarity
-    if social_memory.familiarity > 0.7:
-        desc_parts.append("and know them quite well")
-    elif social_memory.familiarity > 0.3:
-        desc_parts.append("and are getting to know them")
-    else:
-        desc_parts.append("but don't know them very well yet")
-    
-    # Interaction count
-    if social_memory.interaction_count > 5:
-        desc_parts.append(f". You've had many conversations ({social_memory.interaction_count} times)")
+    # Add interaction history
+    if social_memory.interaction_count > 10:
+        relationship_type += f" (you've chatted {social_memory.interaction_count} times!)"
+    elif social_memory.interaction_count > 3:
+        relationship_type += f" (you've chatted {social_memory.interaction_count} times)"
     elif social_memory.interaction_count > 1:
-        desc_parts.append(f". You've talked a few times before")
+        relationship_type += f" (talked a couple times before)"
     
-    # Last topic
-    if social_memory.last_conversation_topic:
-        desc_parts.append(f". Last time you talked about: {social_memory.last_conversation_topic}")
+    desc_parts.append(f"\n\n{relationship_type}")
     
-    # Add mutual interests if available
+    # MUTUAL INTERESTS - very important for conversation topics
     if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
         interests = social_memory.mutual_interests if isinstance(social_memory.mutual_interests, list) else []
         if interests:
-            desc_parts.append(f"\n\nYou both share interests in: {', '.join(interests[:5])}")
+            desc_parts.append(f"\n\nTHINGS YOU BOTH ENJOY: {', '.join(interests[:5])} - bring these up naturally!")
     
-    # Add conversation history summary if available
+    # CONVERSATION HISTORY - context from past chats
     if hasattr(social_memory, 'conversation_history_summary') and social_memory.conversation_history_summary:
-        desc_parts.append(f"\n\nHistory of your relationship:\n{social_memory.conversation_history_summary[:500]}")
+        desc_parts.append(f"\n\nPAST CONVERSATIONS WITH {partner_name.upper()}:\n{social_memory.conversation_history_summary[:600]}")
     
-    # Add relationship notes if available (dynamics between the two)
-    if hasattr(social_memory, 'relationship_notes') and social_memory.relationship_notes:
-        desc_parts.append(f"\n\nRelationship dynamic: {social_memory.relationship_notes[:300]}")
+    # Last topic for continuity
+    if social_memory.last_conversation_topic:
+        desc_parts.append(f"\n\nLast time you talked about: {social_memory.last_conversation_topic}")
     
     # Add past memory context
     if past_memories:
@@ -448,25 +685,41 @@ def process_conversation_end(
     
     # ========================================================================
     # UPDATE AGENT_PERSONALITY with detailed profile for EACH participant
+    # ONLY learn from messages that were player-controlled (real human input)
     # ========================================================================
+    
+    # Check if there are any player-controlled messages for each participant
+    player_controlled_messages_a = [m for m in transcript if m.get("senderId") == participant_a and m.get("isPlayerControlled", False)]
+    player_controlled_messages_b = [m for m in transcript if m.get("senderId") == participant_b and m.get("isPlayerControlled", False)]
+    
+    print(f"[Learning] Player-controlled messages from {participant_a_name}: {len(player_controlled_messages_a)}")
+    print(f"[Learning] Player-controlled messages from {participant_b_name}: {len(player_controlled_messages_b)}")
+    
     try:
-        # Update participant A's personality profile
-        if person_a_profile:
+        # Only update participant A's personality profile if they had player-controlled messages
+        # This means we only LEARN about someone from their REAL human input, not LLM-generated text
+        if person_a_profile and len(player_controlled_messages_a) > 0:
+            print(f"[Learning] Learning from {participant_a_name}'s player-controlled messages")
             update_personality_profile(
                 db_client, 
                 participant_a, 
                 person_a_profile,
                 participant_a_name
             )
+        elif person_a_profile:
+            print(f"[Learning] Skipping learning for {participant_a_name} - no player-controlled messages")
         
-        # Update participant B's personality profile
-        if person_b_profile:
+        # Only update participant B's personality profile if they had player-controlled messages
+        if person_b_profile and len(player_controlled_messages_b) > 0:
+            print(f"[Learning] Learning from {participant_b_name}'s player-controlled messages")
             update_personality_profile(
                 db_client, 
                 participant_b, 
                 person_b_profile,
                 participant_b_name
             )
+        elif person_b_profile:
+            print(f"[Learning] Skipping learning for {participant_b_name} - no player-controlled messages")
     except Exception as e:
         print(f"Error updating personality profiles: {e}")
     

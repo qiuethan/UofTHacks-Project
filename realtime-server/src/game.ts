@@ -207,7 +207,8 @@ async function processConversationEndAsync(convData: ActiveConversation) {
           senderId: m.senderId,
           senderName: m.senderName,
           content: m.content,
-          timestamp: m.timestamp
+          timestamp: m.timestamp,
+          isPlayerControlled: m.isPlayerControlled ?? false  // Pass the player control flag
         })),
         participant_a_is_online: userConnections.has(convData.participant1),
         participant_b_is_online: userConnections.has(convData.participant2)
@@ -297,13 +298,15 @@ export async function processAgentAgentConversations() {
       );
       
       if (response) {
+        // Agent-agent messages are NOT player controlled (all LLM generated)
         const message: ChatMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           senderId: nextSpeakerId,
           senderName: speaker.displayName || 'Agent',
           content: response,
           timestamp: Date.now(),
-          conversationId: convData.conversationId
+          conversationId: convData.conversationId,
+          isPlayerControlled: false  // Agent-to-agent is all LLM
         };
         
         convData.messages.push(message);
