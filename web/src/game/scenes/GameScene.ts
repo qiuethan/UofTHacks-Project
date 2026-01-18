@@ -259,8 +259,38 @@ export class GameScene extends Phaser.Scene {
       new Phaser.Geom.Rectangle(-SPRITE_WIDTH / 2, -SPRITE_HEIGHT + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT),
       Phaser.Geom.Rectangle.Contains
     )
-    container.on('pointerover', () => hoverBanner.setVisible(true))
-    container.on('pointerout', () => hoverBanner.setVisible(false))
+    
+    // Track hover state to keep banner visible when hovering over banner itself
+    let isHoveringSprite = false
+    let isHoveringBanner = false
+    
+    const updateBannerVisibility = () => {
+      hoverBanner.setVisible(isHoveringSprite || isHoveringBanner)
+    }
+    
+    container.on('pointerover', () => {
+      isHoveringSprite = true
+      updateBannerVisibility()
+    })
+    container.on('pointerout', () => {
+      isHoveringSprite = false
+      // Delay hiding to allow transition to banner
+      this.time.delayedCall(50, updateBannerVisibility)
+    })
+    
+    // Make banner interactive so it can detect hover
+    hoverBanner.setInteractive(
+      new Phaser.Geom.Rectangle(-100, -40, 200, 80),
+      Phaser.Geom.Rectangle.Contains
+    )
+    hoverBanner.on('pointerover', () => {
+      isHoveringBanner = true
+      updateBannerVisibility()
+    })
+    hoverBanner.on('pointerout', () => {
+      isHoveringBanner = false
+      updateBannerVisibility()
+    })
 
     // Player highlight and camera setup
     if (isMe) {
