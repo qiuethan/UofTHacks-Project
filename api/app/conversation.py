@@ -1737,8 +1737,8 @@ def decide_initiate_conversation(
     
     print(f"[InitiateDecision] {agent_name} considering conversation with {target_name}")
     
-    # Check if agent is too tired
-    if state and state.energy < 0.15:
+    # Check if agent is too tired - only block at very low energy
+    if state and state.energy < 0.08:
         print(f"[InitiateDecision] Too tired to start conversation")
         return {"should_initiate": False, "reason": "Too tired"}
     
@@ -1758,9 +1758,9 @@ def decide_initiate_conversation(
                 "should_initiate": True,
                 "reason": f"Hi {target_name}! Thought I'd say hello."
             }
-        # Random chance for new acquaintances
+        # High random chance for new acquaintances - meeting new people is fun!
         import random
-        if random.random() < 0.4:
+        if random.random() < 0.5:  # 50% base chance for strangers
             return {
                 "should_initiate": True,
                 "reason": f"Hey {target_name}, what's up?"
@@ -1838,13 +1838,21 @@ def decide_initiate_conversation(
             "reason": f"Hey {target_name}! Got a minute to chat?"
         }
     
-    # Default: random chance based on sociability
+    # Default: HIGH random chance - agents are social creatures!
+    # Base 40% + sociability bonus (up to 20% more)
     import random
     sociability = personality.sociability if personality else 0.5
-    if random.random() < sociability * 0.5:
+    initiate_chance = 0.40 + (sociability * 0.2)  # 40-60% chance based on sociability
+    if random.random() < initiate_chance:
+        greetings = [
+            f"Hey {target_name}, what's going on?",
+            f"Yo {target_name}! What's up?",
+            f"Hey {target_name}! Got a sec?",
+            f"Hi {target_name}! How's it going?",
+        ]
         return {
             "should_initiate": True,
-            "reason": f"Hey {target_name}, what's going on?"
+            "reason": random.choice(greetings)
         }
     
     return {"should_initiate": False, "reason": "Not feeling chatty right now"}

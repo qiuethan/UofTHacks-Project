@@ -57,6 +57,7 @@ class DecisionConfig:
     
     # Social parameters
     CONVERSATION_RADIUS = 15  # Must be CLOSE to start conversation (5 tiles)
+    SOCIAL_APPROACH_RADIUS = 25  # Agents will move towards others in this range
     RECENT_INTERACTION_HOURS = 0.5  # Can talk again very soon (30 mins)
     
     # Time decay rates (per tick) - VERY SLOW decay
@@ -130,6 +131,14 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         # Bonus when very lonely
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
             score += 0.5
+    
+    # Moving towards other avatars is appealing - agents are social!
+    if action == ActionType.MOVE:
+        # Base social movement appeal
+        score += 1.2  # High appeal - agents want to be near others
+        score += state.loneliness * 0.8  # More when lonely
+        if state.energy > 0.2:  # Has energy to move
+            score += 0.3
     
     # Karaoke is FUN - agents should want to sing!
     if action == ActionType.INTERACT_KARAOKE:
@@ -591,7 +600,7 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
                         y=flee_y
                     )
                 ))
-            # If we like them or neutral, consider talking (must be CLOSE - within 5 tiles)
+            # If we like them or neutral, consider talking (must be CLOSE - within conversation radius)
             elif nearby.distance <= DecisionConfig.CONVERSATION_RADIUS:
                 actions.append(CandidateAction(
                     action_type=ActionType.INITIATE_CONVERSATION,
@@ -599,6 +608,19 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
                         target_type="avatar",
                         target_id=nearby.avatar_id,
                         name=nearby.display_name or f"avatar {nearby.avatar_id[:8]}",
+                        x=nearby.x,
+                        y=nearby.y
+                    )
+                ))
+            # If they're nearby but not close enough for conversation, consider moving towards them
+            elif nearby.distance <= DecisionConfig.SOCIAL_APPROACH_RADIUS:
+                # Move towards this avatar for potential conversation
+                actions.append(CandidateAction(
+                    action_type=ActionType.MOVE,
+                    target=ActionTarget(
+                        target_type="avatar",
+                        target_id=nearby.avatar_id,
+                        name=f"towards {nearby.display_name or nearby.avatar_id[:8]}",
                         x=nearby.x,
                         y=nearby.y
                     )
