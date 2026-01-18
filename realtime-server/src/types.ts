@@ -47,4 +47,6 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   conversationId?: string;
+  // Flag to track if this message was from a human player (true) or LLM automation (false)
+  isPlayerControlled?: boolean;
 }

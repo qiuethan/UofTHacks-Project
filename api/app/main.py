@@ -879,6 +879,39 @@ def agent_respond(request: conv.AgentRespondRequest):
         return conv.AgentRespondResponse(ok=False, error=str(e))
 
 
+@app.post("/conversation/analyze-message")
+def analyze_message(request: conv.MessageSentimentRequest):
+    """
+    Analyze a single message for sentiment and apply real-time mood updates.
+    
+    Called after each message to:
+    - Detect rude/positive messages
+    - Update receiver's mood immediately if message is rude/positive
+    - Update social memory sentiment
+    
+    This enables real-time mood changes during conversations.
+    """
+    try:
+        result = conv.process_message_sentiment(
+            message=request.message,
+            sender_id=request.sender_id,
+            sender_name=request.sender_name,
+            receiver_id=request.receiver_id,
+            receiver_name=request.receiver_name
+        )
+        return conv.MessageSentimentResponse(
+            ok=True,
+            sender_mood_change=result.get("sender_mood_change", 0),
+            receiver_mood_change=result.get("receiver_mood_change", 0),
+            sentiment=result.get("sentiment", 0),
+            is_rude=result.get("is_rude", False),
+            is_positive=result.get("is_positive", False)
+        )
+    except Exception as e:
+        print(f"Error in analyze-message: {e}")
+        return conv.MessageSentimentResponse(ok=False)
+
+
 @app.post("/conversation/end-process")
 def end_process(request: conv.ConversationEndRequest):
     """
@@ -887,6 +920,11 @@ def end_process(request: conv.ConversationEndRequest):
     Updates sentiment, mood, energy, and creates memory records.
     Called by the realtime server when a conversation ends.
     """
+    print(f"[API] /conversation/end-process called")
+    print(f"[API] Participants: {request.participant_a_name} ({request.participant_a[:8]}...) & {request.participant_b_name} ({request.participant_b[:8]}...)")
+    print(f"[API] Transcript length: {len(request.transcript)} messages")
+    print(f"[API] Online status: A={request.participant_a_is_online}, B={request.participant_b_is_online}")
+    
     try:
         result = conv.process_conversation_end(
             conversation_id=request.conversation_id,
@@ -898,9 +936,12 @@ def end_process(request: conv.ConversationEndRequest):
             participant_a_is_online=request.participant_a_is_online,
             participant_b_is_online=request.participant_b_is_online
         )
+        print(f"[API] /conversation/end-process completed: {result}")
         return conv.ConversationEndResponse(**result)
     except Exception as e:
-        print(f"Error in end-process: {e}")
+        import traceback
+        print(f"[API] Error in end-process: {e}")
+        traceback.print_exc()
         return conv.ConversationEndResponse(ok=False, error=str(e))
 
 
@@ -927,6 +968,334 @@ def get_transcript(conversation_id: str):
     """Get the transcript of a conversation."""
     transcript = conv.get_conversation_transcript(conversation_id)
     return {"ok": True, "transcript": transcript}
+
+
+@app.post("/conversation/should-accept")
+def should_accept_conversation(request: conv.AcceptConversationRequest):
+    """
+    Decide whether an agent should accept a conversation request.
+    
+    Based on:
+    - Social memory sentiment (negative = reject)
+    - Agent's current mood and energy
+    - Familiarity with the requester
+    
+    If no prior relationship, defaults to accepting.
+    """
+    try:
+        result = conv.decide_accept_conversation(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            requester_id=request.requester_id,
+            requester_name=request.requester_name
+        )
+        return conv.AcceptConversationResponse(
+            ok=True,
+            should_accept=result.get("should_accept", True),
+            reason=result.get("reason")
+        )
+    except Exception as e:
+        print(f"Error in should-accept: {e}")
+        return conv.AcceptConversationResponse(ok=False, should_accept=True)
+
+
+@app.post("/conversation/should-end")
+def should_end_conversation(request: conv.ShouldEndConversationRequest):
+    """
+    Decide whether an agent should end a conversation.
+    
+    LLM analyzes:
+    - Conversation flow (natural ending point?)
+    - Sentiment of recent messages
+    - Agent's personality and mood
+    - Length of conversation
+    
+    Returns decision and optional farewell message.
+    """
+    try:
+        result = conv.decide_end_conversation(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            partner_id=request.partner_id,
+            partner_name=request.partner_name,
+            conversation_history=request.conversation_history,
+            last_message=request.last_message
+        )
+        return conv.ShouldEndConversationResponse(
+            ok=True,
+            should_end=result.get("should_end", False),
+            farewell_message=result.get("farewell_message"),
+            reason=result.get("reason")
+        )
+    except Exception as e:
+        print(f"Error in should-end: {e}")
+        return conv.ShouldEndConversationResponse(ok=False, should_end=False)
+
+
+# ============================================================================
+# RELATIONSHIP STATS ENDPOINT
+# ============================================================================
+
+@app.get("/relationship/{from_id}/{to_id}")
+def get_relationship(from_id: str, to_id: str):
+    """
+    Get relationship stats between two avatars.
+    
+    Returns sentiment, familiarity, and interaction_count.
+    - sentiment: 0.5 = neutral, <0.5 = dislike, >0.5 = like
+    - familiarity: 0 = strangers, 1 = very familiar
+    - interaction_count: number of conversations
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        return {
+            "ok": True,
+            "sentiment": 0.5,
+            "familiarity": 0.0,
+            "interaction_count": 0,
+            "is_new": True
+        }
+    
+    social_memory = agent_db.get_social_memory(client, from_id, to_id)
+    
+    if not social_memory:
+        return {
+            "ok": True,
+            "sentiment": 0.5,  # Neutral default
+            "familiarity": 0.0,
+            "interaction_count": 0,
+            "is_new": True
+        }
+    
+    return {
+        "ok": True,
+        "sentiment": social_memory.sentiment,
+        "familiarity": social_memory.familiarity,
+        "interaction_count": social_memory.interaction_count,
+        "last_topic": social_memory.last_conversation_topic,
+        "is_new": False
+    }
+
+
+# ============================================================================
+# AGENT MONITORING ENDPOINTS
+# ============================================================================
+
+@app.get("/agents/all")
+def get_all_agents():
+    """
+    Get all agents with their current state and last action.
+    Used for the agent monitoring sidebar.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        # Get all agent states
+        states_resp = client.table("agent_state").select("*").execute()
+        states = {s["avatar_id"]: s for s in (states_resp.data or [])}
+        
+        # Get all agent personalities
+        personalities_resp = client.table("agent_personality").select("*").execute()
+        personalities = {p["avatar_id"]: p for p in (personalities_resp.data or [])}
+        
+        # Get user positions to get display names and current positions
+        positions_resp = client.table("user_positions").select(
+            "user_id, display_name, x, y, is_online, conversation_state"
+        ).execute()
+        positions = {p["user_id"]: p for p in (positions_resp.data or [])}
+        
+        # Get latest decision for each agent
+        decisions_resp = client.table("agent_decisions").select(
+            "avatar_id, selected_action, action_result, tick_timestamp"
+        ).order("tick_timestamp", desc=True).execute()
+        
+        # Group by avatar_id and take first (most recent)
+        latest_decisions = {}
+        for d in (decisions_resp.data or []):
+            if d["avatar_id"] not in latest_decisions:
+                latest_decisions[d["avatar_id"]] = d
+        
+        # Combine all data
+        agents = []
+        for avatar_id, state in states.items():
+            position = positions.get(avatar_id, {})
+            personality = personalities.get(avatar_id, {})
+            decision = latest_decisions.get(avatar_id, {})
+            
+            agents.append({
+                "avatar_id": avatar_id,
+                "display_name": position.get("display_name", "Unknown"),
+                "position": {"x": position.get("x", 0), "y": position.get("y", 0)},
+                "is_online": position.get("is_online", False),
+                "conversation_state": position.get("conversation_state"),
+                "state": {
+                    "energy": state.get("energy", 0.5),
+                    "hunger": state.get("hunger", 0.5),
+                    "loneliness": state.get("loneliness", 0.5),
+                    "mood": state.get("mood", 0.5),
+                },
+                "personality": {
+                    "sociability": personality.get("sociability", 0.5),
+                    "curiosity": personality.get("curiosity", 0.5),
+                    "agreeableness": personality.get("agreeableness", 0.5),
+                },
+                "current_action": decision.get("selected_action", "idle"),
+                "last_action_time": decision.get("tick_timestamp"),
+            })
+        
+        return {"ok": True, "data": agents}
+        
+    except Exception as e:
+        print(f"Error fetching all agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# USER RELATIONSHIPS AND CONVERSATION HISTORY
+# ============================================================================
+
+@app.get("/user/{user_id}/relationships")
+def get_user_relationships(user_id: str):
+    """
+    Get all relationships for a user.
+    
+    Returns a list of people they've interacted with, including:
+    - Sentiment (how they feel about each person)
+    - Familiarity (how well they know them)
+    - Interaction count (number of conversations)
+    - Last interaction time
+    - Relationship notes
+    """
+    try:
+        client = agent_db.get_supabase_client()
+        if not client:
+            raise HTTPException(status_code=500, detail="Database unavailable")
+        
+        # Get all social memories FROM this user (how they feel about others)
+        response = client.table("agent_social_memory").select(
+            "to_avatar_id, sentiment, familiarity, interaction_count, last_interaction, last_conversation_topic, mutual_interests, conversation_history_summary, relationship_notes"
+        ).eq("from_avatar_id", user_id).order("last_interaction", desc=True).execute()
+        
+        relationships = []
+        for row in response.data or []:
+            # Get the other person's display name
+            partner_id = row["to_avatar_id"]
+            partner_info = client.table("user_positions").select("display_name, sprite_front").eq("user_id", partner_id).execute()
+            partner_name = "Unknown"
+            partner_sprite = None
+            if partner_info.data and len(partner_info.data) > 0:
+                partner_name = partner_info.data[0].get("display_name", "Unknown")
+                partner_sprite = partner_info.data[0].get("sprite_front")
+            
+            # Parse mutual interests if it's a string
+            mutual_interests = row.get("mutual_interests", [])
+            if isinstance(mutual_interests, str):
+                try:
+                    import json
+                    mutual_interests = json.loads(mutual_interests)
+                except:
+                    mutual_interests = []
+            
+            relationships.append({
+                "partner_id": partner_id,
+                "partner_name": partner_name,
+                "partner_sprite": partner_sprite,
+                "sentiment": row.get("sentiment", 0.5),
+                "familiarity": row.get("familiarity", 0),
+                "interaction_count": row.get("interaction_count", 0),
+                "last_interaction": row.get("last_interaction"),
+                "last_topic": row.get("last_conversation_topic"),
+                "mutual_interests": mutual_interests,
+                "conversation_summary": row.get("conversation_history_summary"),
+                "relationship_notes": row.get("relationship_notes")
+            })
+        
+        return {"ok": True, "data": relationships}
+        
+    except Exception as e:
+        print(f"Error fetching relationships: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/user/{user_id}/conversations")
+def get_user_conversations(user_id: str):
+    """
+    Get all conversations for a user.
+    
+    Returns a list of conversations with:
+    - Partner info
+    - Transcript
+    - Timestamps
+    - Memory/summary of the conversation
+    """
+    try:
+        client = agent_db.get_supabase_client()
+        if not client:
+            raise HTTPException(status_code=500, detail="Database unavailable")
+        
+        # Get conversations where user is a participant
+        convs_a = client.table("conversations").select(
+            "id, participant_a, participant_b, transcript, created_at, ended_at"
+        ).eq("participant_a", user_id).eq("is_onboarding", False).order("created_at", desc=True).limit(50).execute()
+        
+        convs_b = client.table("conversations").select(
+            "id, participant_a, participant_b, transcript, created_at, ended_at"
+        ).eq("participant_b", user_id).eq("is_onboarding", False).order("created_at", desc=True).limit(50).execute()
+        
+        # Combine and deduplicate
+        all_convs = []
+        seen_ids = set()
+        
+        for conv in (convs_a.data or []) + (convs_b.data or []):
+            if conv["id"] in seen_ids:
+                continue
+            seen_ids.add(conv["id"])
+            
+            # Determine partner
+            partner_id = conv["participant_b"] if conv["participant_a"] == user_id else conv["participant_a"]
+            
+            # Get partner info
+            partner_info = client.table("user_positions").select("display_name, sprite_front").eq("user_id", partner_id).execute()
+            partner_name = "Unknown"
+            partner_sprite = None
+            if partner_info.data and len(partner_info.data) > 0:
+                partner_name = partner_info.data[0].get("display_name", "Unknown")
+                partner_sprite = partner_info.data[0].get("sprite_front")
+            
+            # Get memory for this conversation
+            memory = client.table("memories").select("summary, conversation_score").eq("conversation_id", conv["id"]).eq("owner_id", user_id).execute()
+            summary = None
+            score = None
+            if memory.data and len(memory.data) > 0:
+                summary = memory.data[0].get("summary")
+                score = memory.data[0].get("conversation_score")
+            
+            transcript = conv.get("transcript", [])
+            message_count = len(transcript) if isinstance(transcript, list) else 0
+            
+            all_convs.append({
+                "id": conv["id"],
+                "partner_id": partner_id,
+                "partner_name": partner_name,
+                "partner_sprite": partner_sprite,
+                "created_at": conv.get("created_at"),
+                "ended_at": conv.get("ended_at"),
+                "message_count": message_count,
+                "summary": summary,
+                "score": score,
+                "transcript": transcript  # Full transcript for display
+            })
+        
+        # Sort by created_at descending
+        all_convs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        
+        return {"ok": True, "data": all_convs[:50]}
+        
+    except Exception as e:
+        print(f"Error fetching conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

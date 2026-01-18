@@ -150,6 +150,18 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
             }
           }
           break
+        case 'ENTITY_STATS_UPDATED':
+          // Update agent stats (energy, hunger, loneliness, mood)
+          if (event.entityId && event.stats) {
+            const entity = next.get(event.entityId)
+            if (entity) {
+              next.set(event.entityId, { 
+                ...entity, 
+                stats: event.stats
+              })
+            }
+          }
+          break
       }
       return next
     })
@@ -197,17 +209,44 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
         if (event.initiatorId === myEntityId) {
           setEntities(current => {
             const target = current.get(event.targetId!)
-            setNotification(`Conversation request to ${target?.displayName || 'target'} was rejected.`)
+            const targetName = target?.displayName || 'They'
+            setNotification(`${targetName} declined your conversation request.`)
             return current
           })
-          setTimeout(() => setNotification(null), 5000)
+          setTimeout(() => setNotification(null), 6000)
         } else if (event.targetId === myEntityId) {
-          setNotification('You rejected the conversation request.')
-          setTimeout(() => setNotification(null), 5000)
+          setEntities(current => {
+            const initiator = current.get(event.initiatorId!)
+            setNotification(`You declined ${initiator?.displayName || 'their'}'s request.`)
+            return current
+          })
+          setTimeout(() => setNotification(null), 4000)
         }
         break
       case 'CONVERSATION_ENDED':
-        // No manual sync needed, useEffect handles it from entity state
+        // Show notification if the OTHER person ended the conversation
+        // We can determine this by checking if we're still in a conversation state
+        if (inConversationWith) {
+          // Get the partner's name from entities
+          setEntities(current => {
+            const partner = current.get(inConversationWith)
+            // Check if we were a participant but didn't initiate the end
+            const wasParticipant = event.participant1Id === myEntityId || event.participant2Id === myEntityId
+            const endedByOther = wasParticipant && event.endedBy && event.endedBy !== myEntityId
+            
+            if (wasParticipant && (partner || event.endedByName)) {
+              const enderName = event.endedByName || partner?.displayName || 'Partner'
+              // Include reason if provided (agent-initiated end)
+              if (event.reason) {
+                setNotification(`${enderName} ended the conversation: "${event.reason}"`)
+              } else {
+                setNotification(`${enderName} ended the conversation.`)
+              }
+              setTimeout(() => setNotification(null), 6000)
+            }
+            return current
+          })
+        }
         break
     }
   }, [myEntityId])

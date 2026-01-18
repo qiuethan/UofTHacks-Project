@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { ConnectionStatus, GameLoading } from '../components'
+import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 import type { GameEntity } from '../game/types'
@@ -21,6 +22,8 @@ interface Entity {
     loneliness?: number
     mood?: number
   }
+  conversationState?: string
+  conversationPartnerId?: string
 }
 
 interface WorldSnapshot {
@@ -29,12 +32,18 @@ interface WorldSnapshot {
 }
 
 interface WorldEvent {
-  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED'
+  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED' | 'ENTITY_STATS_UPDATED'
   entityId?: string
   entity?: Entity
   x?: number
   y?: number
   facing?: { x: number; y: number }
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 
@@ -46,11 +55,18 @@ export default function WatchView() {
   const [zoom, setZoom] = useState<number | undefined>(undefined)
   const [pan, setPan] = useState<{ x: number; y: number } | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
   const mountedRef = useRef(false)
   const shouldReconnectRef = useRef(true)
+
+  // Handle follow agent toggle
+  const handleFollowAgent = (agentId: string) => {
+    setFollowingAgentId(prev => prev === agentId ? null : agentId)
+  }
 
   const connect = useCallback(() => {
     if (connectingRef.current || wsRef.current?.readyState === WebSocket.OPEN) {
@@ -139,6 +155,14 @@ export default function WatchView() {
                       }
                     }
                     break
+                  case 'ENTITY_STATS_UPDATED':
+                    if (event.entityId && event.stats) {
+                      const entity = next.get(event.entityId)
+                      if (entity) {
+                        next.set(event.entityId, { ...entity, stats: event.stats })
+                      }
+                    }
+                    break
                 }
               }
               return next
@@ -192,6 +216,8 @@ export default function WatchView() {
       color: entity.color,
       facing: entity.facing,
       sprites: entity.sprites,
+      conversationState: entity.conversationState,
+      conversationPartnerId: entity.conversationPartnerId,
       stats: entity.stats
     })
   }
@@ -262,6 +288,15 @@ export default function WatchView() {
           Drag to pan<br/>when zoomed
         </div>
       </div>
+
+      {/* Agent Monitoring Sidebar */}
+      <AgentSidebar 
+        isOpen={sidebarOpen} 
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onFollowAgent={handleFollowAgent}
+        followingAgentId={followingAgentId}
+        entities={gameEntities}
+      />
       
       {/* Phaser Game Canvas - Watch mode (no input) */}
       <PhaserGame
@@ -271,6 +306,7 @@ export default function WatchView() {
         inputEnabled={false}
         watchZoom={zoom}
         watchPan={pan}
+        followEntityId={followingAgentId}
       />
     </div>
   )

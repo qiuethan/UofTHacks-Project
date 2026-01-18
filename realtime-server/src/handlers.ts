@@ -194,6 +194,12 @@ export async function handleEndConversation(client: Client): Promise<void> {
         isClientOnline,
         isPartnerOnline
       );
+      
+      // Force sync stats immediately so UI updates for both participants
+      const { syncAgentStats } = await import('./game');
+      console.log(`[EndConv] Forcing stats sync for UI update`);
+      await syncAgentStats(true);
+      
     } catch (e) {
       console.error('Error processing conversation end:', e);
     }
@@ -244,14 +250,15 @@ export async function handleChatMessage(client: Client, content: string): Promis
     activeConversations.set(partnerId, convData);
   }
   
-  // Create the chat message
+  // Create the chat message - marked as player controlled since it's from a real user
   const message: ChatMessage = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     senderId: client.userId,
     senderName: client.displayName,
     content,
     timestamp: Date.now(),
-    conversationId: convData.conversationId
+    conversationId: convData.conversationId,
+    isPlayerControlled: true  // Message from real human player
   };
   
   // Add to local tracking
@@ -263,6 +270,26 @@ export async function handleChatMessage(client: Client, content: string): Promis
     await addMessageToConversation(convData.conversationId, client.userId, client.displayName, content);
   } catch (e) {
     console.error('Error storing message:', e);
+  }
+  
+  // Analyze message sentiment in real-time (updates mood if rude/positive)
+  try {
+    analyzeMessageSentiment(
+      content, 
+      client.userId, 
+      client.displayName, 
+      partnerId, 
+      partnerEntity.displayName || 'Partner'
+    ).then(async (sentimentResult) => {
+      if (sentimentResult && (sentimentResult.is_rude || sentimentResult.is_positive)) {
+        console.log(`[Sentiment] Message analyzed: rude=${sentimentResult.is_rude}, positive=${sentimentResult.is_positive}`);
+        // Force sync stats to show mood change in UI
+        const { syncAgentStats } = await import('./game');
+        await syncAgentStats(true);
+      }
+    }).catch(e => console.error('Sentiment analysis error:', e));
+  } catch (e) {
+    console.error('Error starting sentiment analysis:', e);
   }
   
   // Broadcast to both participants
@@ -283,8 +310,12 @@ export async function handleChatMessage(client: Client, content: string): Promis
   sendToUser(partnerId, chatEvent);
   
   // If partner is offline (ROBOT), generate AI response
+  // This is the ONLY place where player-agent conversation responses are generated
+  // The agent-agent loop in game.ts will skip this conversation because the player is online
   const isPartnerOnline = userConnections.has(partnerId);
   if (!isPartnerOnline && partnerEntity.kind === 'ROBOT') {
+    console.log(`[Player→Agent] ${client.displayName} → ${partnerEntity.displayName}: ${content.substring(0, 50)}...`);
+    
     try {
       const agentResponse = await generateAgentResponse(
         partnerId,
@@ -295,14 +326,15 @@ export async function handleChatMessage(client: Client, content: string): Promis
       );
       
       if (agentResponse) {
-        // Create agent's message
+        // Create agent's message - marked as NOT player controlled since it's LLM-generated
         const agentMessage: ChatMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           senderId: partnerId,
           senderName: partnerEntity.displayName || 'Agent',
           content: agentResponse,
           timestamp: Date.now(),
-          conversationId: convData.conversationId
+          conversationId: convData.conversationId,
+          isPlayerControlled: false  // Message from LLM automation
         };
         
         // Add to tracking
@@ -317,7 +349,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
           agentResponse
         );
         
-        // Broadcast agent's response
+        // Send agent's response ONLY to the player (the agent is offline)
         const agentChatEvent = {
           type: 'CHAT_MESSAGE' as const,
           messageId: agentMessage.id,
@@ -328,7 +360,64 @@ export async function handleChatMessage(client: Client, content: string): Promis
           conversationId: convData.conversationId
         };
         
+        console.log(`[Agent→Player] ${partnerEntity.displayName} → ${client.displayName}: ${agentResponse.substring(0, 50)}...`);
+        
+        // Only send to the player, not broadcast (agent is offline, no need to send to them)
         send(client.ws, agentChatEvent);
+        
+        // Check if the agent wants to end the conversation
+        const shouldEndResult = await checkAgentWantsToEnd(
+          partnerId,
+          partnerEntity.displayName || 'Agent',
+          client.userId,
+          client.displayName,
+          convData.messages,
+          agentResponse
+        );
+        
+        if (shouldEndResult.should_end) {
+          console.log(`[Agent→Player] Agent ${partnerEntity.displayName} chose to END conversation: ${shouldEndResult.reason}`);
+          
+          // Send farewell message if provided
+          if (shouldEndResult.farewell_message && shouldEndResult.farewell_message !== agentResponse) {
+            const farewellMsg: ChatMessage = {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              senderId: partnerId,
+              senderName: partnerEntity.displayName || 'Agent',
+              content: shouldEndResult.farewell_message,
+              timestamp: Date.now(),
+              conversationId: convData.conversationId,
+              isPlayerControlled: false
+            };
+            convData.messages.push(farewellMsg);
+            
+            send(client.ws, {
+              type: 'CHAT_MESSAGE' as const,
+              messageId: farewellMsg.id,
+              senderId: farewellMsg.senderId,
+              senderName: farewellMsg.senderName,
+              content: farewellMsg.content,
+              timestamp: farewellMsg.timestamp,
+              conversationId: convData.conversationId
+            });
+          }
+          
+          // End the conversation - pass reason and agent name for notifications
+          const endResult = world.endConversation(
+            partnerId,
+            partnerEntity.displayName || 'Agent',
+            shouldEndResult.reason
+          );
+          if (endResult.ok) {
+            broadcast({ type: 'EVENTS', events: endResult.value });
+          }
+          
+          // Process conversation end
+          const { processConversationEndAsync } = await import('./game');
+          await processConversationEndAsync(convData);
+          activeConversations.delete(client.userId);
+          activeConversations.delete(partnerId);
+        }
       }
     } catch (e) {
       console.error('Error generating agent response:', e);
@@ -426,6 +515,90 @@ async function generateAgentResponse(
   }
 }
 
+interface SentimentResult {
+  ok: boolean;
+  sender_mood_change: number;
+  receiver_mood_change: number;
+  sentiment: number;
+  is_rude: boolean;
+  is_positive: boolean;
+}
+
+async function analyzeMessageSentiment(
+  message: string,
+  senderId: string,
+  senderName: string,
+  receiverId: string,
+  receiverName: string
+): Promise<SentimentResult | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/analyze-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        sender_id: senderId,
+        sender_name: senderName,
+        receiver_id: receiverId,
+        receiver_name: receiverName
+      })
+    });
+    const data = await response.json();
+    return data as SentimentResult;
+  } catch (e) {
+    console.error('Error analyzing message sentiment:', e);
+    return null;
+  }
+}
+
+interface ShouldEndResult {
+  should_end: boolean;
+  farewell_message?: string;
+  reason?: string;
+}
+
+/**
+ * Check if an agent wants to end a conversation with a player.
+ * Based on conversation flow, sentiment, rudeness, and agent state.
+ */
+async function checkAgentWantsToEnd(
+  agentId: string,
+  agentName: string,
+  partnerId: string,
+  partnerName: string,
+  conversationHistory: ChatMessage[],
+  lastMessage: string
+): Promise<ShouldEndResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/should-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_id: agentId,
+        agent_name: agentName,
+        partner_id: partnerId,
+        partner_name: partnerName,
+        conversation_history: conversationHistory.map(m => ({
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp
+        })),
+        last_message: lastMessage
+      })
+    });
+    const data = await response.json();
+    return {
+      should_end: data.should_end || false,
+      farewell_message: data.farewell_message,
+      reason: data.reason
+    };
+  } catch (e) {
+    console.error('Error checking if agent wants to end:', e);
+    return { should_end: false }; // Default to continue on error
+  }
+}
+
 async function processConversationEnd(
   conversationId: string,
   participantA: string,
@@ -436,8 +609,12 @@ async function processConversationEnd(
   participantAIsOnline: boolean,
   participantBIsOnline: boolean
 ): Promise<void> {
+  console.log(`[ConvEnd] Processing conversation end: ${conversationId}`);
+  console.log(`[ConvEnd] Participants: ${participantAName} (${participantA.substring(0, 8)}) & ${participantBName} (${participantB.substring(0, 8)})`);
+  console.log(`[ConvEnd] Transcript: ${transcript.length} messages`);
+  
   try {
-    await fetch(`${API_BASE_URL}/conversation/end-process`, {
+    const response = await fetch(`${API_BASE_URL}/conversation/end-process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -450,14 +627,22 @@ async function processConversationEnd(
           senderId: m.senderId,
           senderName: m.senderName,
           content: m.content,
-          timestamp: m.timestamp
+          timestamp: m.timestamp,
+          isPlayerControlled: m.isPlayerControlled ?? false  // Pass the player control flag
         })),
         participant_a_is_online: participantAIsOnline,
         participant_b_is_online: participantBIsOnline
       })
     });
+    
+    const result = await response.json();
+    console.log(`[ConvEnd] API response:`, result);
+    
+    if (!result.ok) {
+      console.error(`[ConvEnd] API returned error:`, result.error);
+    }
   } catch (e) {
-    console.error('Error processing conversation end:', e);
+    console.error('[ConvEnd] Error processing conversation end:', e);
   }
 }
 

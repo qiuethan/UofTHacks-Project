@@ -5,6 +5,7 @@ import {
   ConversationChat,
   GameLoading
 } from '../components'
+import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
@@ -18,6 +19,13 @@ export default function GameView() {
   console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
+
+  // Handle follow agent toggle
+  const handleFollowAgent = (agentId: string) => {
+    setFollowingAgentId(prev => prev === agentId ? null : agentId)
+  }
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -70,7 +78,8 @@ export default function GameView() {
       facing: entity.facing,
       sprites: entity.sprites,
       conversationState: entity.conversationState,
-      conversationPartnerId: entity.conversationPartnerId
+      conversationPartnerId: entity.conversationPartnerId,
+      stats: entity.stats
     })
   }
 
@@ -123,11 +132,27 @@ export default function GameView() {
 
       {notification && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 text-sm bg-[#FFF8F0] text-black border-2 border-black shadow-[4px_4px_0_#000] flex justify-between items-center min-w-[300px]">
-          <span>{notification}</span>
+          <span className="flex items-center gap-2">
+            <span>
+              {notification.includes('declined') ? '🚫' : 
+               notification.includes('ended') ? '👋' : 
+               notification.includes('rejected') ? '❌' : 'ℹ️'}
+            </span>
+            {notification}
+          </span>
           <button onClick={clearNotification} className="ml-4 text-xs underline hover:no-underline">Dismiss</button>
         </div>
       )}
       
+      {/* Agent Monitoring Sidebar */}
+      <AgentSidebar 
+        isOpen={sidebarOpen} 
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onFollowAgent={handleFollowAgent}
+        followingAgentId={followingAgentId}
+        entities={gameEntities}
+      />
+
       {/* Phaser Game Canvas */}
       <PhaserGame
         entities={gameEntities}
@@ -140,6 +165,7 @@ export default function GameView() {
         inConversationWith={inConversationWith}
         chatMessages={chatMessages}
         allEntityMessages={allEntityMessages}
+        followEntityId={followingAgentId}
       />
 
       {/* Incoming Conversation Requests */}
@@ -156,6 +182,7 @@ export default function GameView() {
           partnerName={entities.get(inConversationWith)?.displayName || 'someone'}
           partnerSpriteUrl={entities.get(inConversationWith)?.sprites?.front}
           myEntityId={myEntityId}
+          partnerId={inConversationWith}
           isWaitingForResponse={isWaitingForResponse}
           onSendMessage={sendChatMessage}
           onEndConversation={endConversation}

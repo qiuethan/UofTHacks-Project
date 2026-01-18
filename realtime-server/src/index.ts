@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
-import { startGameLoop, startAiLoop, loadExistingUsers, world, startConversationTimeoutLoop, startAgentAgentConversationLoop } from './game';
+import { startGameLoop, startAiLoop, loadExistingUsers, world, startConversationTimeoutLoop, startAgentAgentConversationLoop, startStatsSyncLoop } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
 import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation, handleChatMessage } from './handlers';
 import { send } from './network';
@@ -13,6 +13,7 @@ async function initialize() {
   startAiLoop();
   startConversationTimeoutLoop();
   startAgentAgentConversationLoop();
+  startStatsSyncLoop();
   
   console.log('Game world initialized - users will appear when they join');
 }

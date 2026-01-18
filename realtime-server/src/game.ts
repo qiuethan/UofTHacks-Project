@@ -2,7 +2,7 @@ import { World, createMapDef, createWall, createAvatar, CONVERSATION_CONFIG } fr
 import { MAP_WIDTH, MAP_HEIGHT, TICK_RATE, AI_TICK_RATE, API_URL, CONVERSATION_TIMEOUT_MS, API_BASE_URL } from './config';
 import { broadcast } from './network';
 import { generateWallPositions, INDIVIDUAL_WALLS } from './walls';
-import { getAllUsers } from './db';
+import { getAllUsers, getAllAgentStats } from './db';
 import type { ChatMessage } from './types';
 
 export const world = new World(createMapDef(MAP_WIDTH, MAP_HEIGHT));
@@ -20,6 +20,88 @@ export const activeConversations = new Map<string, ActiveConversation>();
 
 // Lock to prevent concurrent processing of the same conversation
 const conversationsBeingProcessed = new Set<string>();
+
+// ============================================================================
+// AGENT DECISION HELPERS
+// ============================================================================
+
+interface ShouldEndResult {
+  should_end: boolean;
+  farewell_message?: string;
+  reason?: string;
+}
+
+/**
+ * Check if an agent should accept a conversation request.
+ * Based on sentiment, mood, energy, and relationship with requester.
+ */
+async function checkShouldAcceptConversation(
+  agentId: string,
+  agentName: string,
+  requesterId: string,
+  requesterName: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/should-accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_id: agentId,
+        agent_name: agentName,
+        requester_id: requesterId,
+        requester_name: requesterName
+      })
+    });
+    const data = await response.json();
+    console.log(`[AcceptCheck] ${agentName} → ${requesterName}: ${data.should_accept ? 'ACCEPT' : 'REJECT'} (${data.reason || 'no reason'})`);
+    return data.should_accept !== false; // Default to accept if API fails
+  } catch (e) {
+    console.error('Error checking should-accept:', e);
+    return true; // Default to accept on error
+  }
+}
+
+/**
+ * Check if an agent wants to end a conversation.
+ * Based on conversation flow, sentiment, rudeness, and agent state.
+ */
+async function checkShouldEndConversation(
+  agentId: string,
+  agentName: string,
+  partnerId: string,
+  partnerName: string,
+  conversationHistory: ChatMessage[],
+  lastMessage: string
+): Promise<ShouldEndResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/should-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_id: agentId,
+        agent_name: agentName,
+        partner_id: partnerId,
+        partner_name: partnerName,
+        conversation_history: conversationHistory.map(m => ({
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp
+        })),
+        last_message: lastMessage
+      })
+    });
+    const data = await response.json();
+    return {
+      should_end: data.should_end || false,
+      farewell_message: data.farewell_message,
+      reason: data.reason
+    };
+  } catch (e) {
+    console.error('Error checking should-end:', e);
+    return { should_end: false }; // Default to continue on error
+  }
+}
 
 // Add perimeter walls (1x1 entities)
 // Top and Bottom edges
@@ -105,6 +187,48 @@ export function startGameLoop() {
   }, TICK_RATE);
 }
 
+// Track previous stats to only send updates when changed
+const previousStats = new Map<string, { energy: number; hunger: number; loneliness: number; mood: number }>();
+
+/**
+ * Sync agent stats from database and broadcast any changes to clients.
+ * This runs periodically to keep clients updated with stats from the AI engine.
+ */
+export async function syncAgentStats(force: boolean = false) {
+  const currentStats = await getAllAgentStats();
+  const events: any[] = [];
+  
+  for (const [avatarId, stats] of currentStats) {
+    const prev = previousStats.get(avatarId);
+    
+    // Check if stats changed (with some tolerance for floating point)
+    const changed = force || !prev || 
+      Math.abs(prev.energy - stats.energy) > 0.001 ||
+      Math.abs(prev.hunger - stats.hunger) > 0.001 ||
+      Math.abs(prev.loneliness - stats.loneliness) > 0.001 ||
+      Math.abs(prev.mood - stats.mood) > 0.001;
+    
+    if (changed) {
+      previousStats.set(avatarId, stats);
+      events.push({
+        type: 'ENTITY_STATS_UPDATED',
+        entityId: avatarId,
+        stats
+      });
+    }
+  }
+  
+  if (events.length > 0) {
+    console.log(`[StatsSync] Broadcasting ${events.length} stat updates`);
+    broadcast({ type: 'EVENTS', events });
+  }
+}
+
+export function startStatsSyncLoop() {
+  // Sync stats every 2 seconds
+  setInterval(syncAgentStats, 2000);
+}
+
 /**
  * Check for timed out conversations and end them automatically.
  * Called periodically to clean up stale conversations.
@@ -145,14 +269,17 @@ export function checkConversationTimeouts() {
   }
 }
 
-async function processConversationEndAsync(convData: ActiveConversation) {
+export async function processConversationEndAsync(convData: ActiveConversation) {
   const { API_BASE_URL } = await import('./config');
   const entity1 = world.getEntity(convData.participant1);
   const entity2 = world.getEntity(convData.participant2);
   const { userConnections } = await import('./state');
   
+  console.log(`[ConvEndAsync] Processing: ${entity1?.displayName || 'Unknown'} & ${entity2?.displayName || 'Unknown'}`);
+  console.log(`[ConvEndAsync] Messages: ${convData.messages.length}`);
+  
   try {
-    await fetch(`${API_BASE_URL}/conversation/end-process`, {
+    const response = await fetch(`${API_BASE_URL}/conversation/end-process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -165,14 +292,23 @@ async function processConversationEndAsync(convData: ActiveConversation) {
           senderId: m.senderId,
           senderName: m.senderName,
           content: m.content,
-          timestamp: m.timestamp
+          timestamp: m.timestamp,
+          isPlayerControlled: m.isPlayerControlled ?? false  // Pass the player control flag
         })),
         participant_a_is_online: userConnections.has(convData.participant1),
         participant_b_is_online: userConnections.has(convData.participant2)
       })
     });
+    
+    const result = await response.json();
+    console.log(`[ConvEndAsync] API response:`, result);
+    
+    // Force sync stats immediately so UI updates
+    console.log(`[ConvEndAsync] Forcing stats sync for UI update`);
+    await syncAgentStats(true);
+    
   } catch (e) {
-    console.error('Error processing timed-out conversation end:', e);
+    console.error('[ConvEndAsync] Error processing conversation end:', e);
   }
 }
 
@@ -182,12 +318,15 @@ export function startConversationTimeoutLoop() {
 }
 
 /**
- * Handle agent-agent conversations.
- * When two robots are in a conversation, they generate messages to each other.
+ * Handle agent-agent conversations ONLY.
+ * When two offline robots are in a conversation, they generate messages to each other.
+ * 
+ * IMPORTANT: This does NOT handle player-agent conversations.
+ * Player-agent conversations are handled in handleChatMessage (handlers.ts)
+ * where the player sends a message and gets ONE response from the agent.
  */
 export async function processAgentAgentConversations() {
   const { userConnections } = await import('./state');
-  const { sendToUser } = await import('./network');
   
   // Process each active conversation
   const processedConversations = new Set<string>();
@@ -211,16 +350,16 @@ export async function processAgentAgentConversations() {
     const isEntity1Online = userConnections.has(convData.participant1);
     const isEntity2Online = userConnections.has(convData.participant2);
     
-    // Process conversations where at least one is a ROBOT
-    // This allows agent-agent AND agent-player-offline conversations
-    const isEntity1Robot = entity1.kind === 'ROBOT' && !isEntity1Online;
-    const isEntity2Robot = entity2.kind === 'ROBOT' && !isEntity2Online;
+    // CRITICAL: If ANY participant is an online player, skip this conversation entirely.
+    // Player-agent conversations are turn-based and handled via handleChatMessage.
+    // This loop ONLY handles agent-agent (both offline robots) conversations.
+    if (isEntity1Online || isEntity2Online) continue;
     
-    // Skip if both are online players (they chat via handleChatMessage)
-    if (isEntity1Online && isEntity2Online) continue;
+    // Both must be offline ROBOTs for this loop to generate messages
+    const isEntity1Robot = entity1.kind === 'ROBOT';
+    const isEntity2Robot = entity2.kind === 'ROBOT';
     
-    // At least one must be an offline robot for us to generate messages
-    if (!isEntity1Robot && !isEntity2Robot) continue;
+    if (!isEntity1Robot || !isEntity2Robot) continue;
     
     // Rate limit: only send messages every 3-5 seconds
     const timeSinceLastMessage = Date.now() - convData.lastMessageAt;
@@ -245,7 +384,7 @@ export async function processAgentAgentConversations() {
     // Mark conversation as being processed to prevent duplicate API calls
     conversationsBeingProcessed.add(convData.conversationId);
     
-    // Generate response from the speaker
+    // Generate response from the speaker (agent only)
     try {
       const response = await generateAgentMessage(
         nextSpeakerId,
@@ -255,13 +394,15 @@ export async function processAgentAgentConversations() {
       );
       
       if (response) {
+        // Agent-agent messages are NOT player controlled (all LLM generated)
         const message: ChatMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           senderId: nextSpeakerId,
           senderName: speaker.displayName || 'Agent',
           content: response,
           timestamp: Date.now(),
-          conversationId: convData.conversationId
+          conversationId: convData.conversationId,
+          isPlayerControlled: false  // Agent-to-agent is all LLM
         };
         
         convData.messages.push(message);
@@ -281,17 +422,68 @@ export async function processAgentAgentConversations() {
         
         console.log(`[Agent-Agent] ${speaker.displayName} → ${listener.displayName}: ${response.substring(0, 50)}...`);
         
-        // End conversation after a few exchanges (5-10 messages)
-        const maxMessages = 5 + Math.floor(Math.random() * 5);
-        if (convData.messages.length >= maxMessages) {
-          console.log(`[Agent-Agent] Conversation ending after ${convData.messages.length} messages`);
-          const result = world.endConversation(convData.participant1);
+        // Check if the speaker wants to end the conversation
+        // (based on sentiment, conversation flow, rudeness, etc.)
+        const shouldEnd = await checkShouldEndConversation(
+          nextSpeakerId,
+          speaker.displayName || 'Agent',
+          listenerId,
+          listener.displayName || 'Agent',
+          convData.messages,
+          response
+        );
+        
+        if (shouldEnd.should_end) {
+          console.log(`[Agent-Agent] ${speaker.displayName} chose to END conversation: ${shouldEnd.reason}`);
+          
+          // Send farewell message if provided
+          if (shouldEnd.farewell_message) {
+            const farewellMsg: ChatMessage = {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              senderId: nextSpeakerId,
+              senderName: speaker.displayName || 'Agent',
+              content: shouldEnd.farewell_message,
+              timestamp: Date.now(),
+              conversationId: convData.conversationId,
+              isPlayerControlled: false
+            };
+            convData.messages.push(farewellMsg);
+            broadcast({
+              type: 'CHAT_MESSAGE' as const,
+              messageId: farewellMsg.id,
+              senderId: farewellMsg.senderId,
+              senderName: farewellMsg.senderName,
+              content: farewellMsg.content,
+              timestamp: farewellMsg.timestamp,
+              conversationId: convData.conversationId
+            });
+          }
+          
+          // Pass reason and who ended it for notifications
+          const result = world.endConversation(
+            convData.participant1, 
+            speaker.displayName || 'Agent', 
+            shouldEnd.reason
+          );
           if (result.ok) {
             broadcast({ type: 'EVENTS', events: result.value });
           }
           processConversationEndAsync(convData);
           activeConversations.delete(convData.participant1);
           activeConversations.delete(convData.participant2);
+        } else {
+          // Fallback: End conversation after many exchanges (15-20 messages)
+          const maxMessages = 15 + Math.floor(Math.random() * 5);
+          if (convData.messages.length >= maxMessages) {
+            console.log(`[Agent-Agent] Conversation ending after ${convData.messages.length} messages (max reached)`);
+            const result = world.endConversation(convData.participant1);
+            if (result.ok) {
+              broadcast({ type: 'EVENTS', events: result.value });
+            }
+            processConversationEndAsync(convData);
+            activeConversations.delete(convData.participant1);
+            activeConversations.delete(convData.participant2);
+          }
         }
       }
     } catch (e) {
@@ -439,6 +631,28 @@ export function startAiLoop() {
                 
               case 'ACCEPT_CONVERSATION':
                 if (data.request_id) {
+                  // First, check if the agent WANTS to accept based on sentiment
+                  const pendingReq = pendingRequests.find(r => r.requestId === data.request_id);
+                  if (pendingReq) {
+                    const initiatorEntity = world.getEntity(pendingReq.initiatorId);
+                    const shouldAccept = await checkShouldAcceptConversation(
+                      robot.entityId,
+                      robot.displayName || 'Agent',
+                      pendingReq.initiatorId,
+                      initiatorEntity?.displayName || 'Unknown'
+                    );
+                    
+                    if (!shouldAccept) {
+                      // Agent decided to reject based on sentiment/mood
+                      console.log(`[Agent] ${robot.displayName} REJECTED conversation from ${initiatorEntity?.displayName} (negative sentiment)`);
+                      const rejectResult = world.rejectConversation(robot.entityId, data.request_id);
+                      if (rejectResult.ok) {
+                        broadcast({ type: 'EVENTS', events: rejectResult.value });
+                      }
+                      break;
+                    }
+                  }
+                  
                   const result = world.acceptConversation(robot.entityId, data.request_id);
                   if (result.ok) {
                     broadcast({ type: 'EVENTS', events: result.value });

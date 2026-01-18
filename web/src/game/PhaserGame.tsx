@@ -23,7 +23,8 @@ export default function PhaserGame({
   chatMessages = [],
   allEntityMessages = new Map(),
   watchZoom,
-  watchPan
+  watchPan,
+  followEntityId = null
 }: GameProps) {
   const gameRef = useRef<Phaser.Game | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -42,7 +43,8 @@ export default function PhaserGame({
     chatMessages,
     allEntityMessages,
     watchZoom,
-    watchPan
+    watchPan,
+    followEntityId
   })
 
   // Use layout effect to set size before paint
@@ -77,7 +79,8 @@ export default function PhaserGame({
       chatMessages,
       allEntityMessages,
       watchZoom,
-      watchPan
+      watchPan,
+      followEntityId
     }
     
     // Update the running scene with new data
@@ -99,7 +102,17 @@ export default function PhaserGame({
         scene.updateWatchCamera(watchZoom, watchPan)
       }
     }
-  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages, watchZoom, watchPan])
+  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages, watchZoom, watchPan, followEntityId])
+
+  // Handle follow entity changes
+  useEffect(() => {
+    if (gameRef.current) {
+      const scene = gameRef.current.scene.getScene('GameScene') as GameScene
+      if (scene && scene.followEntity) {
+        scene.followEntity(followEntityId ?? null)
+      }
+    }
+  }, [followEntityId])
 
   // Listen for conversation initiation events from Phaser
   useEffect(() => {

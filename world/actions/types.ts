@@ -130,6 +130,12 @@ export interface ConversationEndedEvent {
   readonly conversationId: string;
   readonly participant1Id: string;
   readonly participant2Id: string;
+  /** Who ended the conversation (their ID) */
+  readonly endedBy?: string;
+  /** Name of who ended the conversation */
+  readonly endedByName?: string;
+  /** Reason for ending (if agent-initiated) */
+  readonly reason?: string;
 }
 
 /** Emitted when entity state changes (for real-time sync) */
@@ -139,6 +145,18 @@ export interface EntityStateChangedEvent {
   readonly conversationState?: 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION';
   readonly conversationTargetId?: string;
   readonly conversationPartnerId?: string;
+}
+
+/** Emitted when entity stats change (energy, hunger, etc.) */
+export interface EntityStatsUpdatedEvent {
+  readonly type: 'ENTITY_STATS_UPDATED';
+  readonly entityId: string;
+  readonly stats: {
+    energy?: number;
+    hunger?: number;
+    loneliness?: number;
+    mood?: number;
+  };
 }
 
 /** Discriminated union of all world events */
@@ -152,7 +170,8 @@ export type WorldEvent =
   | ConversationRejectedEvent
   | ConversationStartedEvent
   | ConversationEndedEvent
-  | EntityStateChangedEvent;
+  | EntityStateChangedEvent
+  | EntityStatsUpdatedEvent;
 
 // ============================================================================
 // RESULT TYPE - World never throws, returns Result instead
