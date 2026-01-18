@@ -1722,6 +1722,136 @@ def get_user_conversations(user_id: str):
 
 
 # ============================================================================
+# AGENT ACTIVITY SUMMARY ENDPOINT
+# ============================================================================
+
+@app.get("/agent/{avatar_id}/activity-summary")
+async def get_agent_activity_summary(avatar_id: str):
+    """
+    Get a summary of what the agent did while the user was offline.
+    Returns recent conversations, movements, and activities.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    try:
+        summary_parts = []
+        
+        # Get agent's current action
+        state_result = supabase.table("agent_state").select(
+            "current_action, current_action_target, action_started_at"
+        ).eq("avatar_id", avatar_id).execute()
+        
+        if state_result.data and len(state_result.data) > 0:
+            state = state_result.data[0]
+            current_action = state.get("current_action", "idle")
+            
+            # Translate action to readable text
+            action_descriptions = {
+                "idle": "standing around",
+                "wander": "walking around exploring",
+                "walk_to_location": "heading somewhere",
+                "interact_food": "grabbing some food",
+                "interact_rest": "taking a rest",
+                "interact_karaoke": "singing karaoke",
+                "interact_social_hub": "hanging out at the social hub",
+                "interact_wander_point": "exploring the area",
+                "initiate_conversation": "chatting with someone",
+                "join_conversation": "in a conversation",
+            }
+            
+            if current_action and current_action != "idle":
+                desc = action_descriptions.get(current_action, current_action.replace("_", " "))
+                summary_parts.append(f"was {desc}")
+        
+        # Get recent conversations (last 24 hours)
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        
+        conv_result = supabase.table("conversations").select(
+            "id, participant_a, participant_b, created_at, ended_at, summary"
+        ).or_(f"participant_a.eq.{avatar_id},participant_b.eq.{avatar_id}").gte(
+            "created_at", since
+        ).order("created_at", desc=True).limit(5).execute()
+        
+        if conv_result.data and len(conv_result.data) > 0:
+            # Get partner names
+            partner_ids = set()
+            for conv in conv_result.data:
+                partner_id = conv["participant_b"] if conv["participant_a"] == avatar_id else conv["participant_a"]
+                partner_ids.add(partner_id)
+            
+            # Fetch partner names
+            partner_names = {}
+            if partner_ids:
+                names_result = supabase.table("user_positions").select(
+                    "user_id, display_name"
+                ).in_("user_id", list(partner_ids)).execute()
+                
+                if names_result.data:
+                    for row in names_result.data:
+                        partner_names[row["user_id"]] = row.get("display_name", "someone")
+            
+            # Build conversation summary
+            conv_count = len(conv_result.data)
+            if conv_count == 1:
+                partner_id = conv_result.data[0]["participant_b"] if conv_result.data[0]["participant_a"] == avatar_id else conv_result.data[0]["participant_a"]
+                partner_name = partner_names.get(partner_id, "someone")
+                summary_parts.append(f"had a conversation with {partner_name}")
+            else:
+                # List unique partners
+                unique_partners = []
+                for conv in conv_result.data:
+                    partner_id = conv["participant_b"] if conv["participant_a"] == avatar_id else conv["participant_a"]
+                    name = partner_names.get(partner_id, "someone")
+                    if name not in unique_partners:
+                        unique_partners.append(name)
+                
+                if len(unique_partners) <= 3:
+                    summary_parts.append(f"chatted with {', '.join(unique_partners)}")
+                else:
+                    summary_parts.append(f"had {conv_count} conversations with various people")
+        
+        # Get user's position to describe location
+        pos_result = supabase.table("user_positions").select("x, y").eq("user_id", avatar_id).execute()
+        
+        if pos_result.data and len(pos_result.data) > 0:
+            pos = pos_result.data[0]
+            x = pos.get("x", 30)
+            
+            # Describe general area
+            if x < 20:
+                area = "the west side"
+            elif x > 40:
+                area = "the east side"
+            else:
+                area = "the center area"
+            
+            summary_parts.append(f"ended up in {area}")
+        
+        # Build final summary
+        if summary_parts:
+            summary = "While you were away, your character " + ", ".join(summary_parts) + "."
+        else:
+            summary = "Your character was just hanging around while you were away."
+        
+        return {
+            "ok": True,
+            "summary": summary,
+            "conversation_count": len(conv_result.data) if conv_result.data else 0
+        }
+        
+    except Exception as e:
+        print(f"Error getting activity summary: {e}")
+        # Return a default summary on error
+        return {
+            "ok": True,
+            "summary": "Welcome back! Your character explored while you were away.",
+            "conversation_count": 0
+        }
+
+
+# ============================================================================
 # RESPAWN ENDPOINT
 # ============================================================================
 

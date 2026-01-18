@@ -155,9 +155,15 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         if state.energy > 0.4:  # Has energy to explore
             score += 0.3
     
-    # Wander has low base appeal - agents should prefer activities or conversations
+    # Wander has moderate appeal - agents should explore and move around!
     if action == ActionType.WANDER:
-        score += 0.05  # Very low - almost never choose to just wander
+        score += 0.35  # Base wandering appeal - movement is natural
+        # More likely to wander when energy is good
+        if state.energy > 0.5:
+            score += 0.2
+        # More likely to wander when not too hungry
+        if state.hunger < 0.6:
+            score += 0.15
     
     # Idle has very low appeal - only when really tired or no other options
     if action == ActionType.IDLE:
@@ -182,9 +188,10 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
         score += personality.sociability * 1.2  # Increased from 0.8
     
-    # Curious personalities prefer exploration
+    # Curious personalities prefer exploration and wandering
     if action == ActionType.WANDER:
-        score += personality.curiosity * 0.6
+        score += personality.curiosity * 0.8  # Increased - curious agents love to explore
+        score += 0.2  # Everyone enjoys a bit of wandering
     
     # Agreeable personalities more likely to accept conversations
     if action == ActionType.JOIN_CONVERSATION:

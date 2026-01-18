@@ -52,6 +52,11 @@ export default function GameView() {
   // World locations state
   const [worldLocations, setWorldLocations] = useState<WorldLocation[]>([])
   
+  // Activity summary banner state
+  const [activitySummary, setActivitySummary] = useState<string | null>(null)
+  const [showSummaryBanner, setShowSummaryBanner] = useState(false)
+  const summaryFetchedRef = useRef(false)
+  
   // Player activity state
   const [playerActivityState, setPlayerActivityState] = useState<PlayerActivityState>('idle')
   const [currentLocationId, setCurrentLocationId] = useState<string | null>(null)
@@ -109,6 +114,34 @@ export default function GameView() {
     }
     fetchLocations()
   }, [])
+
+  // Fetch activity summary when connected (only once per session)
+  useEffect(() => {
+    if (connected && myEntityId && !summaryFetchedRef.current) {
+      summaryFetchedRef.current = true
+      
+      const fetchSummary = async () => {
+        try {
+          const response = await fetch(`${API_CONFIG.BASE_URL}/agent/${myEntityId}/activity-summary`)
+          const data = await response.json()
+          if (data.ok && data.summary) {
+            setActivitySummary(data.summary)
+            setShowSummaryBanner(true)
+            
+            // Hide banner after 5 seconds
+            setTimeout(() => {
+              setShowSummaryBanner(false)
+            }, 5000)
+          }
+        } catch (err) {
+          console.error('[GameView] Failed to fetch activity summary:', err)
+        }
+      }
+      
+      // Small delay to let the game load first
+      setTimeout(fetchSummary, 500)
+    }
+  }, [connected, myEntityId])
 
   // Cleanup activity timer on unmount
   useEffect(() => {
@@ -350,7 +383,35 @@ export default function GameView() {
           <button onClick={clearNotification} className="ml-4 text-xs underline hover:no-underline">Dismiss</button>
         </div>
       )}
+
+      {/* Activity Summary Banner - shows what agent did while away */}
+      {showSummaryBanner && activitySummary && (
+        <div 
+          className="fixed top-1/3 left-1/2 -translate-x-1/2 z-[100] max-w-lg w-full mx-4 animate-fade-in"
+          style={{
+            animation: 'fadeInDown 0.5s ease-out'
+          }}
+        >
+          <div className="bg-[#FFF8F0] border-2 border-black shadow-[6px_6px_0_#000] px-6 py-4 text-center">
+            <p className="text-black text-sm font-medium leading-relaxed">
+              {activitySummary}
+            </p>
+          </div>
+        </div>
+      )}
       
+      <style>{`
+        @keyframes fadeInDown {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -20px);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+          }
+        }
+      `}</style>
 
       {/* Phaser Game Canvas */}
       <PhaserGame
