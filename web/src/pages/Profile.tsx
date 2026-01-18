@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { API_CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
-import { Users, MessageCircle, User, Heart, Meh, Frown, Star, ThumbsUp, X } from 'lucide-react'
+import { Users, MessageCircle, User, Heart, Meh, Frown, Star, ThumbsUp, X, RefreshCw } from 'lucide-react'
 
 interface UserProfile {
   display_name: string | null
@@ -108,6 +108,13 @@ export default function Profile() {
       if (response.ok) {
         const data = await response.json()
         if (data && data.length > 0) {
+          console.log('[Profile] Loaded profile data:', {
+            hasSpriteFront: !!data[0].sprite_front,
+            hasSpriteBack: !!data[0].sprite_back,
+            hasSpriteLeft: !!data[0].sprite_left,
+            hasSpriteRight: !!data[0].sprite_right,
+            frontUrl: data[0].sprite_front?.substring(0, 50) + '...'
+          })
           setProfile(data[0])
           setEditName(data[0].display_name || '')
         }
@@ -269,16 +276,34 @@ export default function Profile() {
     setRegeneratedSprites(null)
   }
 
+  // Add cache-busting timestamp to prevent stale images
+  const addCacheBuster = (url: string | null | undefined): string | null => {
+    if (!url) return null
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}t=${Date.now()}`
+  }
+
   const getCurrentSprite = () => {
-    const sprites = regeneratedSprites || profile
-    if (!sprites) return null
+    // For regenerated sprites, use the new URLs directly (they're fresh)
+    if (regeneratedSprites) {
+      switch (previewDirection) {
+        case 'front': return regeneratedSprites.front
+        case 'back': return regeneratedSprites.back
+        case 'left': return regeneratedSprites.left
+        case 'right': return regeneratedSprites.right
+        default: return regeneratedSprites.front
+      }
+    }
+    
+    // For profile sprites, add cache buster to ensure fresh images
+    if (!profile) return null
     
     switch (previewDirection) {
-      case 'front': return sprites.sprite_front
-      case 'back': return sprites.sprite_back
-      case 'left': return sprites.sprite_left
-      case 'right': return sprites.sprite_right
-      default: return sprites.sprite_front
+      case 'front': return addCacheBuster(profile.sprite_front)
+      case 'back': return addCacheBuster(profile.sprite_back)
+      case 'left': return addCacheBuster(profile.sprite_left)
+      case 'right': return addCacheBuster(profile.sprite_right)
+      default: return addCacheBuster(profile.sprite_front)
     }
   }
 
@@ -390,7 +415,16 @@ export default function Profile() {
 
         {/* Avatar Preview Section */}
         <div className="panel-fun p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4 text-black">Your Avatar</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-black">Your Avatar</h2>
+            <button
+              onClick={() => loadProfile()}
+              className="p-2 text-black/60 hover:text-black transition-colors"
+              title="Refresh sprites"
+            >
+              <RefreshCw size={18} />
+            </button>
+          </div>
           
           {/* Main Preview */}
           <div className="flex justify-center mb-6">
@@ -430,8 +464,15 @@ export default function Profile() {
           {/* All Sprites Preview */}
           <div className="flex justify-center gap-4">
             {directions.map(dir => {
-              const sprites = regeneratedSprites || profile
-              const spriteUrl = sprites?.[`sprite_${dir}` as keyof typeof sprites] as string | null
+              // Get the correct sprite URL based on whether we have regenerated sprites or not
+              let spriteUrl: string | null = null
+              if (regeneratedSprites) {
+                spriteUrl = regeneratedSprites[dir] || null
+              } else if (profile) {
+                const rawUrl = profile[`sprite_${dir}` as keyof typeof profile] as string | null
+                spriteUrl = addCacheBuster(rawUrl)
+              }
+              
               return (
                 <div
                   key={dir}

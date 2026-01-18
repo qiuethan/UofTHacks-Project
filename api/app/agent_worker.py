@@ -118,8 +118,8 @@ def execute_action(
                 dy = location.y - context.y
                 distance = (dx**2 + dy**2) ** 0.5
                 
-                if distance <= 2:
-                    # Arrived at location! Now switch to the INTERACT action
+                if distance <= 1:
+                    # Arrived at location (touching)! IMMEDIATELY start the activity
                     # This locks the agent at the location for the activity duration
                     interact_action_map = {
                         'food': ActionType.INTERACT_FOOD,
@@ -149,10 +149,16 @@ def execute_action(
                     # Record the interaction (creates cooldown)
                     agent_db.record_world_interaction(client, context.avatar_id, location)
                     
-                    # Log in the same format as player activities for consistency
+                    # Log prominent activity start
                     short_id = context.avatar_id[:8]
-                    print(f"[Activity] {short_id} started {interact_action.value} at {location.name}")
-                    logger.info(f"Avatar {context.avatar_id} ARRIVED at '{location.name}' - starting {interact_action.value} for {chosen_duration}s")
+                    activity_emoji = {
+                        'interact_food': '🍽️',
+                        'interact_rest': '😴',
+                        'interact_karaoke': '🎤',
+                        'interact_social_hub': '💬',
+                        'interact_wander_point': '🧭',
+                    }.get(interact_action.value, '📍')
+                    print(f"{activity_emoji} {short_id} | ARRIVED & STARTED {interact_action.value.upper()} at '{location.name}' for {chosen_duration}s")
                     result = "arrived_started_activity"
                 else:
                     # Move towards location (up to 3 units per tick)
@@ -237,7 +243,15 @@ def execute_action(
                     agent_db.record_world_interaction(client, context.avatar_id, location)
                     
                     short_id = context.avatar_id[:8]
-                    print(f"[Activity] {short_id} started {action.action_type.value} at {location.name} for {chosen_duration}s")
+                    # Log prominent activity start
+                    activity_emoji = {
+                        'interact_food': '🍽️',
+                        'interact_rest': '😴',
+                        'interact_karaoke': '🎤',
+                        'interact_social_hub': '💬',
+                        'interact_wander_point': '🧭',
+                    }.get(action.action_type.value, '📍')
+                    print(f"{activity_emoji} {short_id} | STARTED {action.action_type.value.upper()} at '{location.name}' for {chosen_duration}s")
                     result = "arrived_started_activity"
     
     elif action.action_type == ActionType.INITIATE_CONVERSATION:
@@ -409,7 +423,7 @@ def process_agent_tick(
                     dy = location.y - context.y
                     distance = (dx**2 + dy**2) ** 0.5
                     
-                    if distance > 2:
+                    if distance > 1:
                         # Still walking - continue to destination
                         action = SelectedAction(
                             action_type=ActionType.WALK_TO_LOCATION,

@@ -289,8 +289,8 @@ export async function syncAgentStats(force: boolean = false) {
 }
 
 export function startStatsSyncLoop() {
-  // Sync stats every 2 seconds
-  setInterval(syncAgentStats, 2000);
+  // Sync stats every 1 second for immediate activity updates
+  setInterval(syncAgentStats, 1000);
 }
 
 /**

@@ -214,14 +214,14 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusText = 'Exploring...'
     statusColor = 'text-[#007a28]'
   } 
-  // Movement states - walking or wandering
-  else if (actionName === 'walk_to_location' || actionName === 'wander' || agent.is_moving) {
-    // Any movement is just "Walking"
+  // Movement states - ONLY if action is explicitly walking (not just position change)
+  else if (actionName === 'walk_to_location' || actionName === 'wander') {
+    // Explicitly walking to somewhere
     statusIcon = <Footprints size={16} className="text-black/60" />
     statusText = 'Walking...'
     statusColor = 'text-black/60'
   } 
-  // Idle states - not doing anything specific
+  // Idle states - not doing anything specific (ignore is_moving - use action state)
   else {
     // Default to idling when not doing any other action
     statusIcon = <Moon size={16} className="text-black/40" />

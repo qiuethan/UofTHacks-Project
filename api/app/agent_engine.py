@@ -42,23 +42,23 @@ class DecisionConfig:
     # Activity base bonus - agents are generally attracted to activities
     ACTIVITY_BASE_BONUS = 0.8  # HIGH base attractiveness for any activity
     
-    # Conversation base bonus - agents WANT to talk to each other!
-    # This makes conversation the PREFERRED action unless needs are critical
-    CONVERSATION_BASE_BONUS = 2.0  # VERY HIGH - agents strongly prefer conversation!
+    # Conversation base bonus - agents LOVE talking to each other!
+    # This makes conversation the MOST PREFERRED action
+    CONVERSATION_BASE_BONUS = 3.0  # EXTREMELY HIGH - agents are very social!
     
     # Softmax temperature (lower = more deterministic)
-    SOFTMAX_TEMPERATURE = 0.3  # Lower = more likely to pick best action
+    SOFTMAX_TEMPERATURE = 0.25  # Lower = more likely to pick best action (conversations)
     
-    # Thresholds
-    CRITICAL_HUNGER = 0.85  # Higher - only interrupt for critical needs
-    CRITICAL_ENERGY = 0.1   # Lower - only interrupt for critical needs
-    HIGH_LONELINESS = 0.5   # Lower - seek conversation earlier
-    LOW_MOOD = 0.3  # When mood is low, prefer fun activities
+    # Thresholds - matching conversation system thresholds
+    CRITICAL_HUNGER = 0.8  # High hunger = seek food
+    CRITICAL_ENERGY = 0.15  # Match conversation system - below 15% = too tired to talk, go rest!
+    HIGH_LONELINESS = 0.4  # Seek conversation when moderately lonely
+    LOW_MOOD = 0.3  # Prefer fun activities when mood is low
     
     # Social parameters
-    CONVERSATION_RADIUS = 15  # Must be CLOSE to start conversation (5 tiles)
+    CONVERSATION_RADIUS = 15  # Can start conversation from up to 15 tiles away
     SOCIAL_APPROACH_RADIUS = 25  # Agents will move towards others in this range
-    RECENT_INTERACTION_HOURS = 0.5  # Can talk again very soon (30 mins)
+    RECENT_INTERACTION_HOURS = 0.1  # Can talk again VERY soon (6 mins)
     
     # Time decay rates (per tick) - VERY SLOW decay
     ENERGY_DECAY = 0.002  # 10x slower - energy lasts much longer
@@ -103,34 +103,43 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
             if state.hunger > DecisionConfig.CRITICAL_HUNGER:
                 score += 1.5
     
-    # Rest-related actions - ONLY when actually tired!
+    # Rest-related actions - CRITICAL when energy is very low!
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
         if action == ActionType.IDLE:
             score += (1.0 - state.energy) * 0.1  # Very small boost for idle when tired
         elif location and location.location_type == LocationType.REST_AREA:
-            # Only attractive when actually tired - otherwise NEGATIVE!
-            if state.energy < 0.2:
-                # Really tired - rest is attractive
-                score += (1.0 - state.energy) * 1.5
-                if state.energy < DecisionConfig.CRITICAL_ENERGY:
-                    score += 1.5
-            elif state.energy < 0.4:
+            # When critically tired (< 15%), REST is MANDATORY - huge bonus!
+            if state.energy < DecisionConfig.CRITICAL_ENERGY:
+                score += 5.0  # VERY HIGH - must rest when exhausted!
+            elif state.energy < 0.3:
+                # Tired - rest is attractive
+                score += (1.0 - state.energy) * 2.0
+            elif state.energy < 0.5:
                 # Somewhat tired - small bonus
-                score += 0.2
+                score += 0.3
             else:
                 # Not tired - resting is BORING, do something fun!
-                score -= 0.5
+                score -= 0.3
     
-    # Social actions - conversations are ALWAYS appealing (with base bonus)
-    # Agents are social creatures and WANT to talk, not just when lonely
+    # Social actions - conversations are appealing BUT NOT when exhausted!
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        # High base appeal - agents enjoy conversations even when not lonely!
-        score += DecisionConfig.CONVERSATION_BASE_BONUS
-        # Additional appeal based on loneliness
-        score += state.loneliness * 1.0
-        # Bonus when very lonely
-        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.5
+        # If too tired to talk (< 15%), DON'T try to initiate - go rest instead!
+        if state.energy < DecisionConfig.CRITICAL_ENERGY:
+            score -= 2.0  # PENALTY - too tired to socialize, go rest!
+        else:
+            # High base appeal when not exhausted
+            score += DecisionConfig.CONVERSATION_BASE_BONUS
+            # Additional appeal based on loneliness
+            score += state.loneliness * 1.0
+            # Bonus when lonely
+            if state.loneliness > DecisionConfig.HIGH_LONELINESS:
+                score += 0.5
+            # Bonus when mood is good - happy people chat more!
+            if state.mood > 0.3:
+                score += 0.3
+            # Bonus when we have good energy to socialize
+            if state.energy > 0.3:
+                score += 0.3
     
     # Moving towards other avatars is appealing - agents are social!
     if action == ActionType.MOVE:
@@ -190,11 +199,10 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     """
     score = 0.0
     
-    # Sociable personalities STRONGLY prefer social actions
-    # Everyone wants to chat - this is the core of the experience!
+    # Sociable personalities LOVE social actions - this is the CORE experience!
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += personality.sociability * 1.5  # VERY HIGH - agents love talking!
-        score += 0.5  # Base bonus - everyone enjoys chatting
+        score += personality.sociability * 2.0  # EXTREMELY HIGH - agents LOVE talking!
+        score += 1.0  # Everyone enjoys chatting - big bonus!
     
     # Curious personalities prefer exploration and wandering
     if action == ActionType.WANDER:
@@ -202,9 +210,11 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
         score += personality.energy_baseline * 0.3  # More energy = more wandering
         score += 0.4  # Everyone enjoys wandering around!
     
-    # Agreeable personalities more likely to accept conversations
+    # Agreeable personalities more likely to accept AND initiate conversations
     if action == ActionType.JOIN_CONVERSATION:
-        score += personality.agreeableness * 0.6  # Very agreeable
+        score += personality.agreeableness * 0.8  # Very agreeable = loves joining chats
+    if action == ActionType.INITIATE_CONVERSATION:
+        score += personality.agreeableness * 0.5  # Agreeable = friendly initiator
     
     # Energy baseline affects rest preference (LOWER scores for rest)
     if action in [ActionType.IDLE, ActionType.INTERACT_REST]:
