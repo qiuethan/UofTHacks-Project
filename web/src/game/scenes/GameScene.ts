@@ -27,6 +27,8 @@ interface EntitySprite {
   loadAttempts: number
   isLoading: boolean
   lastMessageId?: string
+  lastPosition?: { x: number; y: number }
+  rockingTween?: Phaser.Tweens.Tween
 }
 
 export class GameScene extends Phaser.Scene {
@@ -547,8 +549,13 @@ export class GameScene extends Phaser.Scene {
     const targetY = entity.y * GRID_SIZE + GRID_SIZE / 2  // Center of 1-tall hitbox
 
     if (existing) {
+      // Check if entity's grid position has changed (works for player and AI)
+      const positionChanged = !existing.lastPosition || 
+        existing.lastPosition.x !== targetX || 
+        existing.lastPosition.y !== targetY
+      
       // Smooth movement with tween
-      if (existing.container.x !== targetX || existing.container.y !== targetY) {
+      if (positionChanged) {
         this.tweens.add({
           targets: existing.container,
           x: targetX,
@@ -556,7 +563,28 @@ export class GameScene extends Phaser.Scene {
           duration: 100,
           ease: 'Linear'
         })
+        
+        // Start rocking animation if not already rocking
+        if (!existing.rockingTween || !existing.rockingTween.isPlaying()) {
+          this.startRockingAnimation(existing)
+        }
+      } else {
+        // Stop rocking animation when grid position hasn't changed
+        if (existing.rockingTween) {
+          existing.rockingTween.remove()
+          existing.rockingTween = undefined
+          // Quickly tween back to 0 rotation
+          this.tweens.add({
+            targets: existing.sprite,
+            angle: 0,
+            duration: 20,
+            ease: 'Quad.easeOut'
+          })
+        }
       }
+      
+      // Update last position after checking
+      existing.lastPosition = { x: targetX, y: targetY }
 
       // Update sprite facing
       this.updateEntitySprite(existing, entity)
@@ -696,7 +724,8 @@ export class GameScene extends Phaser.Scene {
       loadingIndicator,
       lastFacing: entity.facing,
       loadAttempts: 0,
-      isLoading: Boolean(hasValidSprite) && !this.textures.exists(textureKey)
+      isLoading: Boolean(hasValidSprite) && !this.textures.exists(textureKey),
+      lastPosition: { x, y }
     })
   }
 
@@ -1013,6 +1042,23 @@ export class GameScene extends Phaser.Scene {
     if (facing.x === 0 && facing.y === 1) return '↓'
     if (facing.x === -1 && facing.y === 0) return '←'
     return '↓'
+  }
+
+  private startRockingAnimation(entitySprite: EntitySprite) {
+    // Stop any existing rocking animation
+    if (entitySprite.rockingTween) {
+      entitySprite.rockingTween.stop()
+    }
+    
+    // Create a rocking animation (rotate side to side)
+    entitySprite.rockingTween = this.tweens.add({
+      targets: entitySprite.sprite,
+      angle: { from: -5, to: 5 },
+      duration: 200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    })
   }
 
   update(time: number) {
