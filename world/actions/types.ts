@@ -97,6 +97,8 @@ export interface ConversationRequestedEvent {
   readonly initiatorType: 'PLAYER' | 'ROBOT';
   readonly targetType: 'PLAYER' | 'ROBOT';
   readonly expiresAt: number;
+  readonly initiatorName?: string;
+  readonly reason?: string;  // Why the agent wants to talk
 }
 
 /** Emitted when a conversation request is accepted */
@@ -105,6 +107,8 @@ export interface ConversationAcceptedEvent {
   readonly requestId: string;
   readonly initiatorId: string;
   readonly targetId: string;
+  readonly acceptorName?: string;
+  readonly reason?: string;  // Why the agent accepted
 }
 
 /** Emitted when a conversation request is rejected */
@@ -114,6 +118,8 @@ export interface ConversationRejectedEvent {
   readonly initiatorId: string;
   readonly targetId: string;
   readonly cooldownUntil: number;
+  readonly rejectorName?: string;
+  readonly reason?: string;  // Why the agent rejected
 }
 
 /** Emitted when a conversation starts (both parties are adjacent) */

@@ -530,27 +530,27 @@ export default function Profile() {
         </div>
 
         {/* Relationships & Conversations Section */}
-        <div className="bg-gray-800 rounded-2xl p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-300">Your Connections</h2>
+        <div className="panel-fun p-6 mb-6">
+          <h2 className="text-xl font-bold mb-4 text-black">Your Connections</h2>
           
           {/* Tab Switcher */}
           <div className="flex gap-2 mb-4">
             <button
               onClick={() => setActiveTab('relationships')}
-              className={`px-4 py-2 rounded-lg transition ${
+              className={`px-4 py-2 font-medium transition border-2 border-black ${
                 activeTab === 'relationships' 
-                  ? 'bg-green-500 text-white' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'btn-primary text-white' 
+                  : 'bg-white text-black hover:bg-gray-100'
               }`}
             >
               👥 People ({relationships.length})
             </button>
             <button
               onClick={() => setActiveTab('conversations')}
-              className={`px-4 py-2 rounded-lg transition ${
+              className={`px-4 py-2 font-medium transition border-2 border-black ${
                 activeTab === 'conversations' 
-                  ? 'bg-green-500 text-white' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'btn-primary text-white' 
+                  : 'bg-white text-black hover:bg-gray-100'
               }`}
             >
               💬 Conversations ({conversations.length})
@@ -561,9 +561,9 @@ export default function Profile() {
           {activeTab === 'relationships' && (
             <div className="space-y-3">
               {loadingRelationships ? (
-                <div className="text-center text-gray-400 py-8">Loading relationships...</div>
+                <div className="text-center text-black/60 py-8">Loading relationships...</div>
               ) : relationships.length === 0 ? (
-                <div className="text-center text-gray-400 py-8">
+                <div className="text-center text-black/60 py-8">
                   <p className="text-lg mb-2">No connections yet</p>
                   <p className="text-sm">Start conversations with others to build relationships!</p>
                 </div>
@@ -572,13 +572,15 @@ export default function Profile() {
                   <div 
                     key={rel.partner_id}
                     onClick={() => setSelectedRelationship(selectedRelationship?.partner_id === rel.partner_id ? null : rel)}
-                    className={`bg-gray-900/50 rounded-xl p-4 cursor-pointer transition hover:bg-gray-700/50 border ${
-                      selectedRelationship?.partner_id === rel.partner_id ? 'border-green-500' : 'border-transparent'
+                    className={`bg-white border-2 p-4 cursor-pointer transition hover:shadow-md ${
+                      selectedRelationship?.partner_id === rel.partner_id 
+                        ? 'border-[#007a28] shadow-[3px_3px_0_#007a28]' 
+                        : 'border-black'
                     }`}
                   >
                     <div className="flex items-center gap-4">
                       {/* Partner Avatar */}
-                      <div className="w-14 h-14 bg-gray-700 rounded-lg overflow-hidden flex-shrink-0">
+                      <div className="w-14 h-14 bg-[#FFF8F0] border-2 border-black overflow-hidden flex-shrink-0">
                         {rel.partner_sprite ? (
                           <img 
                             src={rel.partner_sprite} 
@@ -593,8 +595,8 @@ export default function Profile() {
                       
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white truncate">{rel.partner_name}</div>
-                        <div className="text-sm text-gray-400">
+                        <div className="font-bold text-black truncate">{rel.partner_name}</div>
+                        <div className="text-sm text-black/60">
                           {rel.interaction_count} conversation{rel.interaction_count !== 1 ? 's' : ''}
                         </div>
                       </div>
@@ -604,9 +606,9 @@ export default function Profile() {
                         <span className="text-2xl">
                           {rel.sentiment > 0.7 ? '💚' : rel.sentiment > 0.3 ? '😊' : rel.sentiment > -0.3 ? '😐' : '😠'}
                         </span>
-                        <span className={`text-xs ${
-                          rel.sentiment > 0.5 ? 'text-green-400' : 
-                          rel.sentiment > 0 ? 'text-gray-400' : 'text-red-400'
+                        <span className={`text-xs font-medium ${
+                          rel.sentiment > 0.5 ? 'text-[#007a28]' : 
+                          rel.sentiment > 0 ? 'text-black/60' : 'text-red-600'
                         }`}>
                           {rel.sentiment > 0.7 ? 'Great' : rel.sentiment > 0.3 ? 'Good' : rel.sentiment > -0.3 ? 'Neutral' : 'Poor'}
                         </span>
@@ -615,23 +617,23 @@ export default function Profile() {
                     
                     {/* Expanded Details */}
                     {selectedRelationship?.partner_id === rel.partner_id && (
-                      <div className="mt-4 pt-4 border-t border-gray-700 space-y-3">
+                      <div className="mt-4 pt-4 border-t-2 border-black/20 space-y-3">
                         {/* Stats */}
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div>
-                            <span className="text-gray-400">Familiarity</span>
-                            <div className="mt-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <span className="text-black/60 font-medium">Familiarity</span>
+                            <div className="mt-1 bg-gray-200 border border-black h-3 overflow-hidden">
                               <div 
-                                className="bg-indigo-500 h-full transition-all"
+                                className="bg-[#7a5224] h-full transition-all"
                                 style={{ width: `${rel.familiarity * 100}%` }}
                               />
                             </div>
                           </div>
                           <div>
-                            <span className="text-gray-400">Sentiment</span>
-                            <div className="mt-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <span className="text-black/60 font-medium">Sentiment</span>
+                            <div className="mt-1 bg-gray-200 border border-black h-3 overflow-hidden">
                               <div 
-                                className={`h-full transition-all ${rel.sentiment > 0 ? 'bg-green-500' : 'bg-red-500'}`}
+                                className={`h-full transition-all ${rel.sentiment > 0 ? 'bg-[#007a28]' : 'bg-red-500'}`}
                                 style={{ width: `${Math.abs(rel.sentiment) * 50 + 50}%` }}
                               />
                             </div>
@@ -641,18 +643,18 @@ export default function Profile() {
                         {/* Last Topic */}
                         {rel.last_topic && (
                           <div>
-                            <span className="text-gray-400 text-sm">Last talked about:</span>
-                            <p className="text-gray-200 text-sm mt-1">{rel.last_topic}</p>
+                            <span className="text-black/60 text-sm font-medium">Last talked about:</span>
+                            <p className="text-black text-sm mt-1">{rel.last_topic}</p>
                           </div>
                         )}
                         
                         {/* Mutual Interests */}
                         {rel.mutual_interests && rel.mutual_interests.length > 0 && (
                           <div>
-                            <span className="text-gray-400 text-sm">Shared interests:</span>
+                            <span className="text-black/60 text-sm font-medium">Shared interests:</span>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {rel.mutual_interests.slice(0, 5).map((interest, i) => (
-                                <span key={i} className="px-2 py-1 bg-green-900/30 text-green-400 text-xs rounded-full">
+                                <span key={i} className="px-2 py-1 bg-[#bae854] text-black text-xs font-medium border border-black">
                                   {interest}
                                 </span>
                               ))}
@@ -663,16 +665,16 @@ export default function Profile() {
                         {/* Relationship Notes */}
                         {rel.relationship_notes && (
                           <div>
-                            <span className="text-gray-400 text-sm">Relationship dynamic:</span>
-                            <p className="text-gray-200 text-sm mt-1 italic">"{rel.relationship_notes}"</p>
+                            <span className="text-black/60 text-sm font-medium">Relationship dynamic:</span>
+                            <p className="text-black text-sm mt-1 italic">"{rel.relationship_notes}"</p>
                           </div>
                         )}
                         
                         {/* Conversation Summary */}
                         {rel.conversation_summary && (
                           <div>
-                            <span className="text-gray-400 text-sm">Conversation history:</span>
-                            <p className="text-gray-300 text-sm mt-1 bg-gray-800 rounded p-2 max-h-32 overflow-y-auto">
+                            <span className="text-black/60 text-sm font-medium">Conversation history:</span>
+                            <p className="text-black text-sm mt-1 bg-white border border-black p-2 max-h-32 overflow-y-auto">
                               {rel.conversation_summary}
                             </p>
                           </div>
@@ -689,7 +691,7 @@ export default function Profile() {
           {activeTab === 'conversations' && (
             <div className="space-y-3">
               {conversations.length === 0 ? (
-                <div className="text-center text-gray-400 py-8">
+                <div className="text-center text-black/60 py-8">
                   <p className="text-lg mb-2">No conversations yet</p>
                   <p className="text-sm">Your chat history will appear here!</p>
                 </div>
@@ -698,13 +700,15 @@ export default function Profile() {
                   <div 
                     key={conv.id}
                     onClick={() => setSelectedConversation(selectedConversation?.id === conv.id ? null : conv)}
-                    className={`bg-gray-900/50 rounded-xl p-4 cursor-pointer transition hover:bg-gray-700/50 border ${
-                      selectedConversation?.id === conv.id ? 'border-blue-500' : 'border-transparent'
+                    className={`bg-white border-2 p-4 cursor-pointer transition hover:shadow-md ${
+                      selectedConversation?.id === conv.id 
+                        ? 'border-[#7a5224] shadow-[3px_3px_0_#7a5224]' 
+                        : 'border-black'
                     }`}
                   >
                     <div className="flex items-center gap-4">
                       {/* Partner Avatar */}
-                      <div className="w-12 h-12 bg-gray-700 rounded-lg overflow-hidden flex-shrink-0">
+                      <div className="w-12 h-12 bg-[#FFF8F0] border-2 border-black overflow-hidden flex-shrink-0">
                         {conv.partner_sprite ? (
                           <img 
                             src={conv.partner_sprite} 
@@ -719,14 +723,14 @@ export default function Profile() {
                       
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-white truncate">{conv.partner_name}</div>
-                        <div className="text-xs text-gray-400">
+                        <div className="font-bold text-black truncate">{conv.partner_name}</div>
+                        <div className="text-xs text-black/60">
                           {conv.message_count} message{conv.message_count !== 1 ? 's' : ''} • {
                             new Date(conv.created_at).toLocaleDateString()
                           }
                         </div>
                         {conv.summary && (
-                          <div className="text-sm text-gray-300 truncate mt-1">{conv.summary}</div>
+                          <div className="text-sm text-black/80 truncate mt-1">{conv.summary}</div>
                         )}
                       </div>
                       
@@ -736,26 +740,28 @@ export default function Profile() {
                           <span className="text-lg">
                             {conv.score >= 8 ? '⭐' : conv.score >= 5 ? '👍' : '😐'}
                           </span>
-                          <span className="text-xs text-gray-400">{conv.score}/10</span>
+                          <span className="text-xs text-black/60 font-medium">{conv.score}/10</span>
                         </div>
                       )}
                     </div>
                     
                     {/* Expanded Transcript */}
                     {selectedConversation?.id === conv.id && conv.transcript && conv.transcript.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <div className="max-h-64 overflow-y-auto space-y-2">
+                      <div className="mt-4 pt-4 border-t-2 border-black/20">
+                        <div className="max-h-64 overflow-y-auto space-y-2 bg-[#FFF8F0] border border-black p-2">
                           {conv.transcript.map((msg, i) => (
                             <div 
                               key={i}
                               className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
                             >
-                              <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                              <div className={`max-w-[80%] px-3 py-2 text-sm border-2 ${
                                 msg.senderId === user?.id 
-                                  ? 'bg-green-900/50 text-green-100' 
-                                  : 'bg-gray-700 text-gray-100'
+                                  ? 'bg-[#007a28] text-white border-[#005018]' 
+                                  : 'bg-white text-black border-black'
                               }`}>
-                                <div className="text-xs text-gray-400 mb-1">{msg.senderName}</div>
+                                <div className={`text-xs mb-1 ${msg.senderId === user?.id ? 'text-white/70' : 'text-black/60'}`}>
+                                  {msg.senderName}
+                                </div>
                                 {msg.content}
                               </div>
                             </div>
