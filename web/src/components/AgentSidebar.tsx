@@ -191,7 +191,9 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
     statusColor = 'text-[#7a5224]'
-  } else if (actionName === 'interact_food') {
+  } 
+  // Activity states
+  else if (actionName === 'interact_food') {
     statusIcon = <Utensils size={16} className="text-[#007a28]" />
     statusText = 'Eating...'
     statusColor = 'text-[#007a28]'
@@ -211,22 +213,28 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Compass size={16} className="text-[#007a28]" />
     statusText = 'Exploring...'
     statusColor = 'text-[#007a28]'
+  } 
+  // Movement states - walking or wandering
+  else if (actionName === 'walk_to_location') {
+    statusIcon = <MapPin size={16} className="text-[#7a5224]" />
+    statusText = 'Walking to activity...'
+    statusColor = 'text-[#7a5224]'
+  } else if (actionName === 'wander') {
+    statusIcon = <Footprints size={16} className="text-black/60" />
+    statusText = 'Wandering...'
+    statusColor = 'text-black/60'
   } else if (agent.is_moving) {
     // Detected from real-time position changes
     statusIcon = <Footprints size={16} className="text-[#007a28]" />
     statusText = 'Walking...'
     statusColor = 'text-[#007a28]'
-  } else if (actionName === 'idle' || actionName === 'stand_still') {
-    // Standing still - check if resting based on low energy
-    if (agent.state.energy < 0.3) {
-      statusIcon = <Sofa size={16} className="text-[#7a5224]" />
-      statusText = 'Resting...'
-      statusColor = 'text-[#7a5224]'
-    } else {
-      statusIcon = <Moon size={16} className="text-black/60" />
-      statusText = 'Idle'
-      statusColor = 'text-black/60'
-    }
+  } 
+  // Idle states - not doing anything specific
+  else {
+    // Default to idling when not doing any other action
+    statusIcon = <Moon size={16} className="text-black/40" />
+    statusText = 'Idling'
+    statusColor = 'text-black/40'
   }
   
   return (
@@ -514,8 +522,10 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       const isMoving = movingAgents.has(entityId)
       const isMe = entityId === myEntityId
       
-      // For the current user, use their activity state if provided
-      let currentAction = metadata?.current_action ?? 'idle'
+      // Prefer real-time current_action from WebSocket, fall back to API metadata
+      // For the current user, use their local activity state if provided
+      let currentAction: string | ActionObject = 
+        entity.stats?.current_action || metadata?.current_action || 'idle'
       if (isMe && myActivityState) {
         currentAction = activityToAction(myActivityState)
       }

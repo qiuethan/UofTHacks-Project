@@ -25,6 +25,21 @@ export interface WorldLocation {
 // Player activity state at locations
 export type PlayerActivityState = 'idle' | 'walking' | 'talking' | 'eating' | 'resting' | 'socializing' | 'singing' | 'wandering'
 
+export interface EntityStats {
+  energy?: number
+  hunger?: number
+  loneliness?: number
+  mood?: number
+  current_action?: string
+  current_action_target?: {
+    target_type?: string
+    target_id?: string
+    name?: string
+    x?: number
+    y?: number
+  }
+}
+
 export interface Entity {
   entityId: string
   kind: 'PLAYER' | 'WALL' | 'ROBOT'
@@ -37,12 +52,7 @@ export interface Entity {
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
-  stats?: {
-    energy?: number
-    hunger?: number
-    loneliness?: number
-    mood?: number
-  }
+  stats?: EntityStats
 }
 
 export type ConversationState = 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION'

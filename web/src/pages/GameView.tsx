@@ -151,7 +151,7 @@ export default function GameView() {
   }, [inConversationWith, isWalkingToConversation, currentLocationId])
 
   // Handle starting an activity at a location
-  const startLocationActivity = useCallback((location: WorldLocation) => {
+  const startLocationActivity = useCallback(async (location: WorldLocation) => {
     const activity = LOCATION_TO_ACTIVITY[location.location_type]
     setPlayerActivityState(activity)
     setCurrentLocationId(location.id)
@@ -165,21 +165,45 @@ export default function GameView() {
       clearTimeout(activityTimerRef.current)
     }
     
+    // Notify API that we're starting an activity (for agent monitor visibility)
+    if (myEntityId) {
+      try {
+        await fetch(`${API_CONFIG.BASE_URL}/agent/${myEntityId}/start-activity`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location_type: location.location_type,
+            location_id: location.id,
+            location_name: location.name
+          })
+        })
+      } catch (err) {
+        console.error('[GameView] Failed to notify start activity:', err)
+      }
+    }
+    
     // Set timer to auto-leave after duration
     activityTimerRef.current = setTimeout(() => {
-      completeLocationActivity(location)
+      completeLocationActivity(location, false)
     }, location.duration_seconds * 1000)
     
     console.log(`[GameView] Started ${activity} at ${location.name} for ${location.duration_seconds}s`)
-  }, [])
+  }, [myEntityId])
 
   // Handle completing/leaving a location activity
-  const completeLocationActivity = useCallback(async (location?: WorldLocation) => {
+  const completeLocationActivity = useCallback(async (location?: WorldLocation, leftEarly: boolean = false) => {
+    // Calculate time spent and progress
+    const timeSpent = activityEndTime && location 
+      ? location.duration_seconds - Math.max(0, (activityEndTime - Date.now()) / 1000)
+      : 0
+    const progress = location ? Math.min(1, timeSpent / location.duration_seconds) : 0
+    
     // Apply stat boost based on location effects
     if (location && myEntityId) {
-      console.log(`[GameView] Completed activity at ${location.name}, effects:`, location.effects)
+      console.log(`[GameView] ${leftEarly ? 'Left early from' : 'Completed activity at'} ${location.name}`)
+      console.log(`[GameView] Time spent: ${timeSpent.toFixed(1)}s / ${location.duration_seconds}s (${(progress * 100).toFixed(0)}% complete)`)
       
-      // Call API to update user stats based on location type
+      // Call API to update user stats based on location type and progress
       try {
         const response = await fetch(`${API_CONFIG.BASE_URL}/agent/${myEntityId}/complete-activity`, {
           method: 'POST',
@@ -187,7 +211,9 @@ export default function GameView() {
           body: JSON.stringify({
             location_type: location.location_type,
             location_id: location.id,
-            effects: location.effects
+            effects: location.effects,
+            progress: progress,  // 0.0 to 1.0 - how much of the activity was completed
+            completed_full: !leftEarly
           })
         })
         const data = await response.json()
@@ -207,12 +233,12 @@ export default function GameView() {
       clearTimeout(activityTimerRef.current)
       activityTimerRef.current = null
     }
-  }, [myEntityId])
+  }, [myEntityId, activityEndTime])
 
   // Leave current location early
   const leaveCurrentLocation = useCallback(() => {
     const currentLocation = worldLocations.find(l => l.id === currentLocationId)
-    completeLocationActivity(currentLocation)
+    completeLocationActivity(currentLocation, true) // leftEarly = true
   }, [currentLocationId, worldLocations, completeLocationActivity])
   
   // Handle direction changes from Phaser

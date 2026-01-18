@@ -33,19 +33,23 @@ class DecisionConfig:
     """Configuration for the decision engine"""
     # Scoring weights
     NEED_WEIGHT = 1.0
-    PERSONALITY_WEIGHT = 0.6
+    PERSONALITY_WEIGHT = 0.8  # Increased from 0.6 - personality matters more
     SOCIAL_WEIGHT = 0.4
-    AFFINITY_WEIGHT = 0.5
+    AFFINITY_WEIGHT = 1.2  # Increased from 0.5 - activities they enjoy are much more appealing
     RECENCY_WEIGHT = 0.3
-    RANDOMNESS_WEIGHT = 0.2
+    RANDOMNESS_WEIGHT = 0.15  # Reduced from 0.2 - less random behavior
+    
+    # Activity base bonus - agents are generally attracted to activities
+    ACTIVITY_BASE_BONUS = 0.4  # Base attractiveness for any activity
     
     # Softmax temperature (lower = more deterministic)
-    SOFTMAX_TEMPERATURE = 0.5
+    SOFTMAX_TEMPERATURE = 0.4  # Reduced from 0.5 - more likely to pick best action
     
     # Thresholds
     CRITICAL_HUNGER = 0.8
     CRITICAL_ENERGY = 0.15
     HIGH_LONELINESS = 0.7
+    LOW_MOOD = 0.3  # New - when mood is low, prefer fun activities
     
     # Social parameters
     CONVERSATION_RADIUS = 8
@@ -71,52 +75,68 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
     """
     Calculate how much an action satisfies current needs.
     Higher scores for actions that address urgent needs.
+    Activities have a base attractiveness to encourage agents to actually do things.
     """
     score = 0.0
+    
+    # All location activities get a base attractiveness bonus
+    if action in [ActionType.INTERACT_FOOD, ActionType.INTERACT_REST, ActionType.INTERACT_KARAOKE,
+                  ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
+        score += DecisionConfig.ACTIVITY_BASE_BONUS
+    
+    # Walking to a location also gets a smaller base bonus
+    if action == ActionType.WALK_TO_LOCATION and location:
+        score += DecisionConfig.ACTIVITY_BASE_BONUS * 0.5
     
     # Food-related actions
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD]:
         if location and location.location_type == LocationType.FOOD:
             # Higher score when hungrier
-            score += state.hunger * 1.5
+            score += state.hunger * 2.0  # Increased from 1.5
             # Bonus if critically hungry
             if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-                score += 0.5
+                score += 0.8  # Increased from 0.5
     
     # Rest-related actions
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
         if action == ActionType.IDLE:
-            score += (1.0 - state.energy) * 0.3  # Small boost for idle when tired
+            score += (1.0 - state.energy) * 0.2  # Small boost for idle when tired
         elif location and location.location_type == LocationType.REST_AREA:
-            score += (1.0 - state.energy) * 1.5
+            score += (1.0 - state.energy) * 2.0  # Increased from 1.5
             if state.energy < DecisionConfig.CRITICAL_ENERGY:
-                score += 0.5
+                score += 0.8  # Increased from 0.5
     
     # Social actions address loneliness
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += state.loneliness * 1.2
+        score += state.loneliness * 1.5  # Increased from 1.2
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.4
+            score += 0.5  # Increased from 0.4
     
-    # Karaoke addresses loneliness and boosts mood
+    # Karaoke addresses loneliness and boosts mood - fun activity!
     if action == ActionType.INTERACT_KARAOKE:
-        score += state.loneliness * 0.8
-        score += (1.0 - state.mood) * 0.5  # More appealing when mood is low
+        score += state.loneliness * 1.0  # Increased from 0.8
+        score += (1.0 - state.mood) * 0.8  # Increased - more appealing when mood is low
+        if state.mood < DecisionConfig.LOW_MOOD:
+            score += 0.5  # Extra bonus when mood is really low
     
     # Social hub addresses loneliness
     if action == ActionType.INTERACT_SOCIAL_HUB:
-        score += state.loneliness * 1.0
+        score += state.loneliness * 1.2  # Increased from 1.0
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.3
+            score += 0.4  # Increased from 0.3
     
     # Wander point satisfies curiosity and improves mood
     if action == ActionType.INTERACT_WANDER_POINT:
-        score += 0.3  # Base exploration appeal
-        score += (1.0 - state.mood) * 0.3  # More appealing when mood is low
+        score += 0.4  # Increased base exploration appeal
+        score += (1.0 - state.mood) * 0.4  # Increased - more appealing when mood is low
     
-    # Wander satisfies curiosity need (implicit)
+    # Wander has low base appeal - agents should prefer activities
     if action == ActionType.WANDER:
-        score += 0.2  # Base wander appeal
+        score += 0.1  # Reduced from 0.2 - wandering is less appealing than activities
+    
+    # Idle has very low appeal - only when really tired
+    if action == ActionType.IDLE:
+        score += 0.05  # Minimal base appeal
     
     return score
 
@@ -240,6 +260,15 @@ def calculate_world_affinity(
 ) -> float:
     """
     Calculate affinity bonus based on personality preferences for locations.
+    
+    Agents with high affinity for a location type get a significant bonus,
+    making them much more likely to choose activities they enjoy.
+    
+    Affinity ranges from 0.0 (dislikes) to 1.0 (loves).
+    - 0.0-0.3: Dislikes, negative score
+    - 0.3-0.5: Neutral, small bonus
+    - 0.5-0.7: Likes, moderate bonus
+    - 0.7-1.0: Loves, large bonus
     """
     if not location:
         return 0.0
@@ -249,7 +278,19 @@ def calculate_world_affinity(
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD, 
                   ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST,
                   ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
-        return affinity * 0.8
+        # Non-linear scaling - high affinity gives much bigger bonus
+        if affinity >= 0.7:
+            # Loves this activity - strong bonus
+            return 0.6 + (affinity - 0.7) * 2.0  # 0.6 to 1.2
+        elif affinity >= 0.5:
+            # Likes this activity - moderate bonus
+            return 0.2 + (affinity - 0.5) * 2.0  # 0.2 to 0.6
+        elif affinity >= 0.3:
+            # Neutral - small bonus
+            return (affinity - 0.3) * 1.0  # 0.0 to 0.2
+        else:
+            # Dislikes - penalty
+            return (affinity - 0.3) * 1.0  # -0.3 to 0.0
     
     return 0.0
 
