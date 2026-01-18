@@ -21,6 +21,14 @@ interface Entity {
     hunger?: number
     loneliness?: number
     mood?: number
+    current_action?: string
+    current_action_target?: {
+      target_type?: string
+      target_id?: string
+      name?: string
+      x?: number
+      y?: number
+    }
   }
   conversationState?: string
   conversationPartnerId?: string
@@ -45,6 +53,14 @@ interface WorldEvent {
     hunger?: number
     loneliness?: number
     mood?: number
+    current_action?: string
+    current_action_target?: {
+      target_type?: string
+      target_id?: string
+      name?: string
+      x?: number
+      y?: number
+    }
   }
   // Conversation fields
   conversationState?: string

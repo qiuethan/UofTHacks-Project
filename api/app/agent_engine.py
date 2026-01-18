@@ -37,14 +37,14 @@ class DecisionConfig:
     SOCIAL_WEIGHT = 1.0  # VERY HIGH - social interactions are highly valuable
     AFFINITY_WEIGHT = 1.0  # Personality affects preferences
     RECENCY_WEIGHT = 0.15  # Low - don't penalize recent interactions much
-    RANDOMNESS_WEIGHT = 0.25  # Moderate randomness for variety
+    RANDOMNESS_WEIGHT = 0.3  # Higher randomness for more variety
     
     # Activity base bonus - agents are generally attracted to activities
-    ACTIVITY_BASE_BONUS = 0.4  # Base attractiveness for any activity
+    ACTIVITY_BASE_BONUS = 0.8  # HIGH base attractiveness for any activity
     
     # Conversation base bonus - agents WANT to talk to each other!
     # This makes conversation the PREFERRED action unless needs are critical
-    CONVERSATION_BASE_BONUS = 1.5  # VERY HIGH - agents strongly prefer conversation!
+    CONVERSATION_BASE_BONUS = 2.0  # VERY HIGH - agents strongly prefer conversation!
     
     # Softmax temperature (lower = more deterministic)
     SOFTMAX_TEMPERATURE = 0.3  # Lower = more likely to pick best action
@@ -95,12 +95,12 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
     # Food-related actions - EVERYONE enjoys food!
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD]:
         if location and location.location_type == LocationType.FOOD:
-            score += 0.6  # Base appeal - food is always nice!
+            score += 1.0  # HIGH base appeal - food is always nice!
             # Higher score when hungrier
-            score += state.hunger * 1.5
+            score += state.hunger * 2.0
             # Bonus if critically hungry
             if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-                score += 1.0
+                score += 1.5
     
     # Rest-related actions - ONLY when actually tired!
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
@@ -131,43 +131,41 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
             score += 0.5
     
-    # Karaoke is FUN - agents should want to sing when bored or feeling down!
+    # Karaoke is FUN - agents should want to sing!
     if action == ActionType.INTERACT_KARAOKE:
-        score += 0.8  # HIGH base appeal - karaoke is fun!
-        score += state.loneliness * 0.8  # Social aspect
-        score += (1.0 - state.mood) * 1.0  # More appealing when mood is low - singing cheers you up!
-        # Extra bonus when bored (not doing much)
-        if state.energy > 0.3:  # Has energy to sing!
-            score += 0.3
-    
-    # Social hub is great for meeting people
-    if action == ActionType.INTERACT_SOCIAL_HUB:
-        score += 0.5  # Base appeal - social spaces are nice
-        score += state.loneliness * 1.2
-        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
+        score += 1.2  # VERY HIGH base appeal - karaoke is super fun!
+        score += state.loneliness * 1.0  # Social aspect
+        score += (1.0 - state.mood) * 1.2  # More appealing when mood is low
+        if state.energy > 0.2:  # Has some energy to sing!
             score += 0.5
+    
+    # Social hub is great for meeting people - HIGH priority!
+    if action == ActionType.INTERACT_SOCIAL_HUB:
+        score += 1.0  # HIGH base appeal - social spaces are fun
+        score += state.loneliness * 1.5  # More when lonely
+        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
+            score += 0.8
     
     # Wander point / Exploration - for the curious!
     if action == ActionType.INTERACT_WANDER_POINT:
-        score += 0.5  # Base exploration appeal
-        score += (1.0 - state.mood) * 0.5  # More appealing when mood is low
-        # Curious agents love exploring
-        if state.energy > 0.4:  # Has energy to explore
-            score += 0.3
+        score += 0.8  # Good exploration appeal
+        score += (1.0 - state.mood) * 0.6  # More appealing when mood is low
+        if state.energy > 0.3:  # Has energy to explore
+            score += 0.4
     
-    # Wander has moderate appeal - agents should explore and move around!
+    # Wander has HIGH appeal - agents should explore and move around!
     if action == ActionType.WANDER:
-        score += 0.35  # Base wandering appeal - movement is natural
-        # More likely to wander when energy is good
-        if state.energy > 0.5:
-            score += 0.2
+        score += 0.7  # HIGH wandering appeal - movement is natural and fun
+        # More likely to wander when energy is decent
+        if state.energy > 0.3:
+            score += 0.4
         # More likely to wander when not too hungry
-        if state.hunger < 0.6:
-            score += 0.15
+        if state.hunger < 0.7:
+            score += 0.3
     
     # Idle has very low appeal - only when really tired or no other options
     if action == ActionType.IDLE:
-        score += 0.02  # Minimal base appeal - agents should DO things, not idle!
+        score += 0.01  # Almost no appeal - agents should DO things, not idle!
     
     return score
 
@@ -179,40 +177,50 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
 def calculate_personality_alignment(action: ActionType, personality: AgentPersonality, location: Optional[WorldLocation] = None) -> float:
     """
     Calculate how well an action aligns with personality traits.
+    Agents should be ACTIVE and SOCIAL!
     """
     score = 0.0
     
     # Sociable personalities STRONGLY prefer social actions
-    # Even introverts will occasionally chat (0.3 * 1.2 = 0.36 bonus)
-    # Extroverts love to talk (0.9 * 1.2 = 1.08 bonus)
+    # Everyone wants to chat - this is the core of the experience!
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += personality.sociability * 1.2  # Increased from 0.8
+        score += personality.sociability * 1.5  # VERY HIGH - agents love talking!
+        score += 0.5  # Base bonus - everyone enjoys chatting
     
     # Curious personalities prefer exploration and wandering
     if action == ActionType.WANDER:
-        score += personality.curiosity * 0.8  # Increased - curious agents love to explore
-        score += 0.2  # Everyone enjoys a bit of wandering
+        score += personality.curiosity * 1.0  # HIGH - curious agents love to explore
+        score += personality.energy_baseline * 0.3  # More energy = more wandering
+        score += 0.4  # Everyone enjoys wandering around!
     
     # Agreeable personalities more likely to accept conversations
     if action == ActionType.JOIN_CONVERSATION:
-        score += personality.agreeableness * 0.5  # Increased from 0.3
+        score += personality.agreeableness * 0.6  # Very agreeable
     
-    # Energy baseline affects rest preference
+    # Energy baseline affects rest preference (LOWER scores for rest)
     if action in [ActionType.IDLE, ActionType.INTERACT_REST]:
-        # Low energy baseline = prefers rest more
-        score += (1.0 - personality.energy_baseline) * 0.4
+        # High energy baseline = LESS interested in rest
+        score += (1.0 - personality.energy_baseline) * 0.3
     
-    # High energy baseline = prefers active actions
-    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_WANDER_POINT]:
-        score += personality.energy_baseline * 0.3
+    # High energy baseline = prefers ALL active actions
+    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_WANDER_POINT, 
+                  ActionType.INTERACT_FOOD, ActionType.INTERACT_SOCIAL_HUB]:
+        score += personality.energy_baseline * 0.5
     
-    # Sociable personalities prefer social hubs
+    # Sociable personalities prefer social hubs AND karaoke (social activities)
     if action == ActionType.INTERACT_SOCIAL_HUB:
-        score += personality.sociability * 0.6
+        score += personality.sociability * 0.8
+    if action == ActionType.INTERACT_KARAOKE:
+        score += personality.sociability * 0.6  # Karaoke is social!
+        score += 0.3  # Base fun bonus
+    
+    # Food is universally enjoyed
+    if action == ActionType.INTERACT_FOOD:
+        score += 0.4  # Everyone enjoys eating!
     
     # Curious personalities prefer wander points
     if action == ActionType.INTERACT_WANDER_POINT:
-        score += personality.curiosity * 0.5
+        score += personality.curiosity * 0.7
     
     return score
 
@@ -856,21 +864,23 @@ def make_decision(context: AgentContext) -> SelectedAction:
 
 
 def calculate_action_duration(action_type: ActionType) -> float:
-    """Calculate how long an action should take."""
+    """Calculate how long an action should take. Activities complete in ~6 seconds."""
     durations = {
-        ActionType.IDLE: 30.0,
-        ActionType.WANDER: 60.0,
-        ActionType.WALK_TO_LOCATION: 45.0,
-        ActionType.INTERACT_FOOD: 45.0,
-        ActionType.INTERACT_KARAOKE: 60.0,
-        ActionType.INTERACT_REST: 30.0,
-        ActionType.INITIATE_CONVERSATION: 120.0,
-        ActionType.JOIN_CONVERSATION: 120.0,
-        ActionType.LEAVE_CONVERSATION: 5.0,
-        ActionType.MOVE: 30.0,
-        ActionType.STAND_STILL: 15.0,
+        ActionType.IDLE: 5.0,
+        ActionType.WANDER: 8.0,
+        ActionType.WALK_TO_LOCATION: 10.0,
+        ActionType.INTERACT_FOOD: 6.0,  # Quick eat
+        ActionType.INTERACT_KARAOKE: 6.0,  # Quick song
+        ActionType.INTERACT_REST: 6.0,  # Quick rest
+        ActionType.INTERACT_SOCIAL_HUB: 6.0,  # Quick socializing
+        ActionType.INTERACT_WANDER_POINT: 6.0,  # Quick explore
+        ActionType.INITIATE_CONVERSATION: 30.0,  # Conversations last a bit longer
+        ActionType.JOIN_CONVERSATION: 30.0,
+        ActionType.LEAVE_CONVERSATION: 2.0,
+        ActionType.MOVE: 5.0,
+        ActionType.STAND_STILL: 3.0,
     }
-    return durations.get(action_type, 30.0)
+    return durations.get(action_type, 6.0)
 
 
 # ============================================================================

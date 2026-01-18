@@ -172,10 +172,10 @@ def generate_default_personality(avatar_id: str) -> AgentPersonality:
             
             return AgentPersonality(
                 avatar_id=avatar_id,
-                sociability=row.get("sociability", 0.7),
-                curiosity=row.get("curiosity", 0.7),
-                agreeableness=row.get("agreeableness", 0.7),
-                energy_baseline=row.get("energy_baseline", 0.7),
+                sociability=row.get("sociability", 0.85),
+                curiosity=row.get("curiosity", 0.8),
+                agreeableness=row.get("agreeableness", 0.8),
+                energy_baseline=row.get("energy_baseline", 0.85),
                 world_affinities=world_affinities,
                 profile_summary=row.get("profile_summary"),
                 communication_style=row.get("communication_style"),
@@ -186,21 +186,20 @@ def generate_default_personality(avatar_id: str) -> AgentPersonality:
     except Exception as e:
         print(f"[Personality] Error loading personality for {avatar_id[:8]}: {e}")
     
-    # Fallback: use slightly positive defaults (not 0.5 neutral)
-    # These are higher because most people are reasonably friendly
-    print(f"[Personality] No onboarding data for {avatar_id[:8]}, using friendly defaults")
+    # Fallback: use high positive defaults - agents should be ACTIVE!
+    print(f"[Personality] No onboarding data for {avatar_id[:8]}, using active/social defaults")
     return AgentPersonality(
         avatar_id=avatar_id,
-        sociability=0.7,        # Reasonably social
-        curiosity=0.7,          # Reasonably curious
+        sociability=0.85,       # VERY social - loves talking!
+        curiosity=0.8,          # Very curious - loves exploring
         agreeableness=0.8,      # Generally agreeable
-        energy_baseline=0.8,    # Generally energetic
+        energy_baseline=0.85,   # High energy - always active
         world_affinities={
-            "food": 0.5,
-            "karaoke": 0.5,
-            "rest_area": 0.5,
-            "social_hub": 0.7,   # Slightly prefer social areas
-            "wander_point": 0.5,
+            "food": 0.8,         # Loves eating
+            "karaoke": 0.85,     # Loves singing!
+            "rest_area": 0.4,    # Less interest in resting
+            "social_hub": 0.9,   # LOVES social areas
+            "wander_point": 0.75, # Enjoys wandering
         }
     )
 

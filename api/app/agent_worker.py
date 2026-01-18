@@ -130,23 +130,12 @@ def execute_action(
                     }
                     interact_action = interact_action_map.get(location.location_type.value, ActionType.IDLE)
                     
-                    # Calculate personalized duration based on personality affinity
-                    # Agents with high affinity stay longer, low affinity leave sooner
-                    base_duration = location.duration_seconds
-                    affinity = context.personality.world_affinities.get(location.location_type.value, 0.5)
-                    
-                    # Duration multiplier: 0.5x to 2x based on affinity (0.0 to 1.0)
-                    # affinity 0.0 -> 0.5x duration (leave early)
-                    # affinity 0.5 -> 1.0x duration (normal)
-                    # affinity 1.0 -> 2.0x duration (stay longer)
-                    duration_multiplier = 0.5 + (affinity * 1.5)
-                    
-                    # Add some randomness (+/- 20%)
-                    randomness = random.uniform(0.8, 1.2)
-                    
-                    chosen_duration = int(base_duration * duration_multiplier * randomness)
-                    # Minimum 10 seconds, maximum 3x base
-                    chosen_duration = max(10, min(chosen_duration, base_duration * 3))
+                    # Fast activities - 6 seconds base for quick gameplay
+                    # Small randomness (+/- 1 second)
+                    randomness = random.uniform(-1, 1)
+                    chosen_duration = int(6 + randomness)
+                    # Minimum 5 seconds, maximum 8 seconds
+                    chosen_duration = max(5, min(chosen_duration, 8))
                     
                     # Set the action to interact with the location
                     state.current_action = interact_action.value
@@ -192,7 +181,7 @@ def execute_action(
                         expires_at = expires_at.replace(tzinfo=None)
                     
                     if datetime.utcnow() >= expires_at:
-                        # Activity completed! Apply full effects
+                        # Activity completed! Apply remaining effects
                         state = apply_interaction_effects(state, location.effects)
                         state.current_action = 'idle'
                         state.current_action_target = None
@@ -204,18 +193,38 @@ def execute_action(
                         print(f"   Stats now: E:{state.energy:.0%} H:{state.hunger:.0%} L:{state.loneliness:.0%} M:{state.mood:.0%}")
                         result = "activity_completed"
                     else:
-                        # Still doing the activity - just stand there
+                        # Still doing the activity - apply gradual effects per tick
                         remaining = (expires_at - datetime.utcnow()).total_seconds()
+                        
+                        # Get started_at for progress calculation
+                        started_at = context.state.action_started_at
+                        if isinstance(started_at, str):
+                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        if started_at and started_at.tzinfo:
+                            started_at = started_at.replace(tzinfo=None)
+                        
+                        # Calculate total duration and apply proportional effects per tick
+                        if started_at:
+                            total_duration = (expires_at - started_at).total_seconds()
+                            if total_duration > 0:
+                                # Apply a fraction of effects each tick
+                                # AI loop runs every ~1 second, so apply 1/total_duration of effects
+                                tick_fraction = 1.0 / total_duration
+                                partial_effects = {
+                                    stat: value * tick_fraction
+                                    for stat, value in location.effects.items()
+                                }
+                                state = apply_interaction_effects(state, partial_effects)
+                                short_id = context.avatar_id[:8]
+                                logger.debug(f"{short_id} applying partial effects {partial_effects} from {location.name}")
+                        
                         logger.info(f"Avatar {context.avatar_id} doing {action.action_type.value} at {location.name} - {remaining:.0f}s remaining")
                         result = "activity_in_progress"
                 else:
-                    # Starting the activity fresh - set up the state properly
-                    base_duration = location.duration_seconds
-                    affinity = context.personality.world_affinities.get(location.location_type.value, 0.5)
-                    duration_multiplier = 0.5 + (affinity * 1.5)
-                    randomness = random.uniform(0.8, 1.2)
-                    chosen_duration = int(base_duration * duration_multiplier * randomness)
-                    chosen_duration = max(10, min(chosen_duration, base_duration * 3))
+                    # Starting the activity fresh - fast 6-second activities
+                    randomness = random.uniform(-1, 1)
+                    chosen_duration = int(6 + randomness)
+                    chosen_duration = max(5, min(chosen_duration, 8))
                     
                     state.current_action = action.action_type.value
                     state.current_action_target = {
@@ -344,10 +353,48 @@ def process_agent_tick(
         # Apply state decay
         context.state = apply_state_decay(context.state, elapsed)
         
-        # Check if agent is mid-walk and should continue to destination
-        # Don't make a new decision if we're already walking somewhere!
+        # Check if agent is mid-activity and should continue
+        # Don't make a new decision if we're doing an activity or walking somewhere!
         action = None
-        if context.state.current_action == 'walk_to_location' and context.state.current_action_target:
+        
+        # Check for ongoing interact activities (rest, food, karaoke, etc.)
+        interact_actions = ['interact_rest', 'interact_food', 'interact_karaoke', 'interact_social_hub', 'interact_wander_point']
+        if context.state.current_action in interact_actions and context.state.current_action_target:
+            target = context.state.current_action_target
+            target_id = target.get('target_id')
+            if target_id and context.state.action_expires_at:
+                # Check if activity is still ongoing
+                expires_at = context.state.action_expires_at
+                if isinstance(expires_at, str):
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if expires_at.tzinfo:
+                    expires_at = expires_at.replace(tzinfo=None)
+                
+                if datetime.utcnow() < expires_at:
+                    # Activity still in progress - continue it
+                    location = next(
+                        (loc for loc in context.world_locations if loc.id == target_id),
+                        None
+                    )
+                    if location:
+                        action = SelectedAction(
+                            action_type=ActionType(context.state.current_action),
+                            target=ActionTarget(
+                                target_type="location",
+                                target_id=location.id,
+                                name=location.name,
+                                x=location.x,
+                                y=location.y
+                            ),
+                            utility_score=10.0,  # High score - we're committed
+                            duration_seconds=location.duration_seconds
+                        )
+                        remaining = (expires_at - datetime.utcnow()).total_seconds()
+                        short_id = avatar_id[:8]
+                        print(f"⏳ {short_id} | CONTINUING {context.state.current_action} at {location.name} - {remaining:.0f}s remaining")
+        
+        # Check if agent is mid-walk and should continue to destination
+        if action is None and context.state.current_action == 'walk_to_location' and context.state.current_action_target:
             target = context.state.current_action_target
             target_id = target.get('target_id')
             if target_id:
