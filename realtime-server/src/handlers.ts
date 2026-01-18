@@ -698,6 +698,36 @@ async function processConversationEnd(
   }
 }
 
+// ============================================================================
+// RESPAWN HANDLER
+// ============================================================================
+
+export async function handleRespawn(client: Client): Promise<void> {
+  const { MAP_WIDTH, MAP_HEIGHT } = await import('./config');
+  
+  // Calculate center position
+  const centerX = Math.floor(MAP_WIDTH / 2);
+  const centerY = Math.floor(MAP_HEIGHT / 2);
+  
+  // Move the entity in the world
+  const result = world.moveEntityTo(client.userId, centerX, centerY);
+  
+  if (!result.ok) {
+    send(client.ws, { type: 'ERROR', error: result.error.message });
+    return;
+  }
+  
+  // Also update the database
+  await updatePosition(client.userId, centerX, centerY, { x: 0, y: 1 });
+  
+  // Broadcast the move event
+  if (result.value.length > 0) {
+    broadcast({ type: 'EVENTS', events: result.value });
+  }
+  
+  console.log(`[Respawn] ${client.displayName} respawned to (${centerX}, ${centerY})`);
+}
+
 export async function handleDisconnect(client: Client, oderId: string) {
     console.log(`[handleDisconnect] Called for ${client.userId}, isReplaced: ${client.isReplaced}`);
     // If this client was replaced by a new connection, don't remove the entity

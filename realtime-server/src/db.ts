@@ -130,9 +130,9 @@ export async function getPosition(userId: string): Promise<UserPositionData> {
     };
   }
   
-  // First time user - create random position (avoid walls near edges)
-  const x = Math.floor(Math.random() * (MAP_WIDTH - 10)) + 5;
-  const y = Math.floor(Math.random() * (MAP_HEIGHT - 10)) + 5;
+  // First time user - spawn in the middle of the map
+  const x = Math.floor(MAP_WIDTH / 2);
+  const y = Math.floor(MAP_HEIGHT / 2);
   
   const { error: insertError } = await supabase.from('user_positions').insert({ 
     user_id: userId, 

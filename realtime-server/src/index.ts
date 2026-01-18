@@ -2,7 +2,7 @@ import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
 import { startGameLoop, startAiLoop, loadExistingUsers, world, startConversationTimeoutLoop, startAgentAgentConversationLoop, startStatsSyncLoop } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
-import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation, handleChatMessage } from './handlers';
+import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation, handleChatMessage, handleRespawn } from './handlers';
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
@@ -54,6 +54,8 @@ playWss.on('connection', (ws) => {
         await handleEndConversation(client);
       } else if (msg.type === 'CHAT_MESSAGE' && client && msg.content) {
         await handleChatMessage(client, msg.content);
+      } else if (msg.type === 'RESPAWN' && client) {
+        await handleRespawn(client);
       }
     } catch (e) {
       send(ws, { type: 'ERROR', error: 'Invalid message format' });

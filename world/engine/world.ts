@@ -178,6 +178,42 @@ export class World {
   }
 
   /**
+   * Teleport an entity to a specific position immediately.
+   * Used for respawning players.
+   * Returns ENTITY_MOVED event on success.
+   */
+  moveEntityTo(entityId: string, x: number, y: number): Result<WorldEvent[]> {
+    const entity = this.state.entities.get(entityId);
+    if (!entity) {
+      return err('ENTITY_NOT_FOUND', `Entity ${entityId} does not exist`);
+    }
+
+    // Clamp to map bounds
+    const clamped = clampToBounds(this.state.map, x, y);
+
+    // Update entity position and clear pathfinding state
+    const updated = {
+      ...entity,
+      x: clamped.x,
+      y: clamped.y,
+      facing: { x: 0 as const, y: 1 as const }, // Face down after respawn
+      targetPosition: undefined,
+      plannedPath: undefined,
+      positionHistory: [],
+      stuckCounter: 0
+    };
+
+    this.state.entities.set(entityId, updated);
+
+    return ok([{
+      type: 'ENTITY_MOVED',
+      entityId,
+      x: clamped.x,
+      y: clamped.y
+    }]);
+  }
+
+  /**
    * Advance the world by one tick.
    * Moves entities based on their current direction.
    * Updates AI logic.

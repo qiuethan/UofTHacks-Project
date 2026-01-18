@@ -66,6 +66,7 @@ interface GameSocketActions {
   endConversation: () => void
   clearNotification: () => void
   sendChatMessage: (content: string) => void
+  respawn: () => void
 }
 
 /**
@@ -587,6 +588,12 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     }, 10000)
   }, [])
 
+  const respawn = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'RESPAWN' }))
+  }, [])
+
   const state: GameSocketState = {
     connected,
     myEntityId,
@@ -610,7 +617,8 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     rejectConversation,
     endConversation,
     clearNotification,
-    sendChatMessage
+    sendChatMessage,
+    respawn
   }
 
   return [state, actions]
