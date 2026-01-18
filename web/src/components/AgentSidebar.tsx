@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { GameEntity } from '../game/types'
 import { 
   Moon, Footprints, MapPin, MessageCircle, Utensils, Sofa, Mic, 
@@ -42,6 +42,7 @@ interface AgentData {
   display_name: string
   position: { x: number; y: number }
   is_online: boolean
+  is_moving: boolean  // Detected from position changes
   conversation_state: string | null
   conversation_partner_id: string | null
   state: {
@@ -164,7 +165,7 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     ? entities.get(agent.conversation_partner_id)?.displayName || 'Someone'
     : null
   
-  // Determine icon and status
+  // Determine icon and status - prioritize real-time detection over API metadata
   let statusIcon: React.ReactNode = ACTION_ICONS[actionName] || <User size={16} />
   let statusText = formatAction(actionName)
   let statusColor = 'text-black/60'
@@ -181,6 +182,22 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
     statusColor = 'text-[#7a5224]'
+  } else if (agent.is_moving) {
+    // Detected from real-time position changes
+    statusIcon = <Footprints size={16} className="text-[#007a28]" />
+    statusText = 'Walking...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'idle' || actionName === 'stand_still') {
+    // Standing still - check if resting based on low energy
+    if (agent.state.energy < 0.3) {
+      statusIcon = <Sofa size={16} className="text-[#7a5224]" />
+      statusText = 'Resting...'
+      statusColor = 'text-[#7a5224]'
+    } else {
+      statusIcon = <Moon size={16} className="text-black/60" />
+      statusText = 'Idle'
+      statusColor = 'text-black/60'
+    }
   }
   
   return (
@@ -325,6 +342,48 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
   // Relationship stats for agents in conversation
   const [relationshipStats, setRelationshipStats] = useState<Map<string, RelationshipStats>>(new Map())
   
+  // Track previous positions to detect movement
+  const prevPositionsRef = useRef<Map<string, { x: number; y: number; time: number }>>(new Map())
+  const [movingAgents, setMovingAgents] = useState<Set<string>>(new Set())
+  
+  // Detect movement by comparing current positions to previous positions
+  useEffect(() => {
+    if (!entities) return
+    
+    const now = Date.now()
+    const newMoving = new Set<string>()
+    const newPrevPositions = new Map<string, { x: number; y: number; time: number }>()
+    
+    for (const [entityId, entity] of entities) {
+      if (entity.kind === 'WALL') continue
+      
+      const prev = prevPositionsRef.current.get(entityId)
+      const currentPos = { x: entity.x, y: entity.y, time: now }
+      
+      if (prev) {
+        // Check if position changed within last 2 seconds
+        const posChanged = prev.x !== entity.x || prev.y !== entity.y
+        if (posChanged) {
+          newMoving.add(entityId)
+          newPrevPositions.set(entityId, currentPos)
+        } else if (now - prev.time < 2000) {
+          // Keep as moving if it was moving recently (within 2 seconds)
+          if (movingAgents.has(entityId)) {
+            newMoving.add(entityId)
+          }
+          newPrevPositions.set(entityId, prev) // Keep old timestamp
+        } else {
+          newPrevPositions.set(entityId, currentPos)
+        }
+      } else {
+        newPrevPositions.set(entityId, currentPos)
+      }
+    }
+    
+    prevPositionsRef.current = newPrevPositions
+    setMovingAgents(newMoving)
+  }, [entities])
+  
   // Fetch agent metadata (personality, actions) - less frequent, supplementary data
   useEffect(() => {
     if (!isOpen) return
@@ -409,12 +468,14 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       if (entity.kind === 'WALL') continue
       
       const metadata = agentMetadata.get(entityId)
+      const isMoving = movingAgents.has(entityId)
       
       result.push({
         avatar_id: entityId,
         display_name: entity.displayName || 'Unknown',
         position: { x: entity.x, y: entity.y },
         is_online: entity.kind === 'PLAYER',
+        is_moving: isMoving,
         conversation_state: entity.conversationState || null,
         conversation_partner_id: entity.conversationPartnerId || null,
         state: {
@@ -434,7 +495,7 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
     }
     
     return result
-  }, [entities, agentMetadata])
+  }, [entities, agentMetadata, movingAgents])
   
   const toggleAgent = (avatarId: string) => {
     setExpandedAgents(prev => {

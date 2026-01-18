@@ -5,6 +5,7 @@ import {
   ConversationChat,
   GameLoading
 } from '../components'
+import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
@@ -18,6 +19,7 @@ export default function GameView() {
   console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -150,6 +152,15 @@ export default function GameView() {
         chatMessages={chatMessages}
         allEntityMessages={allEntityMessages}
         followEntityId={null}
+      />
+
+      {/* Agent Sidebar */}
+      <AgentSidebar
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onFollowAgent={() => {}} // No follow in play mode
+        followingAgentId={null}
+        entities={entities}
       />
 
       {/* Incoming Conversation Requests */}
