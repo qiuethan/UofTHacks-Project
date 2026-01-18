@@ -53,7 +53,7 @@ class DecisionConfig:
     
     # Time decay rates (per tick)
     ENERGY_DECAY = 0.02
-    HUNGER_GROWTH = 0.03
+    HUNGER_GROWTH = 0.015  # Reduced from 0.03
     LONELINESS_GROWTH = 0.02
 
 
@@ -290,6 +290,7 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
             target=ActionTarget(
                 target_type="location",
                 target_id=location.id,
+                name=location.name,
                 x=location.x,
                 y=location.y
             )

@@ -128,6 +128,7 @@ def execute_action(
                     new_x = context.x + int(dx * move_factor)
                     new_y = context.y + int(dy * move_factor)
                     agent_db.update_avatar_position(client, context.avatar_id, new_x, new_y)
+                    logger.info(f"Avatar {context.avatar_id} walking to '{location.name}' [{location.location_type}] at ({location.x}, {location.y}) - now at ({new_x}, {new_y})")
                     state = apply_interaction_effects(state, {"energy": -0.02})
                     logger.info(f"Avatar {context.avatar_id} walking to {location.name} ({new_x}, {new_y})")
     
