@@ -170,6 +170,7 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
   let statusText = formatAction(actionName)
   let statusColor = 'text-black/60'
   
+  // Conversation states take priority
   if (isInConversation && partnerName) {
     statusIcon = <MessageCircle size={16} className="text-[#007a28]" />
     statusText = `Chatting with ${partnerName}`
@@ -543,8 +544,8 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       
       {/* Sidebar panel - slides in from left */}
       <div 
-        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] border-r-2 border-black transform transition-transform duration-300 z-40 shadow-[4px_0_0_#000] ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed top-0 left-0 w-80 h-screen bg-[#FFF8F0] transform transition-transform duration-300 z-40 ${
+          isOpen ? 'translate-x-0 border-r-2 border-black shadow-[4px_0_0_#000]' : '-translate-x-full'
         }`}
       >
         <div className="h-full flex flex-col">
