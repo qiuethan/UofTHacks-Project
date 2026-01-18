@@ -38,6 +38,7 @@ interface EntitySprite {
   hoverBanner?: Phaser.GameObjects.Container
   chatBubble?: Phaser.GameObjects.Container
   loadingIndicator?: Phaser.GameObjects.Graphics
+  playerArrow?: Phaser.GameObjects.Text
   lastFacing?: { x: number; y: number }
   loadAttempts: number
   isLoading: boolean
@@ -993,18 +994,19 @@ export class GameScene extends Phaser.Scene {
     })
 
     // Player highlight and camera setup
+    let playerArrow: Phaser.GameObjects.Text | undefined
     if (isMe) {
       // Arrow pointing down above the player's head
-      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 20, '▼', {
+      playerArrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 20, '▼', {
         fontSize: '18px',
         color: '#000000'
       }).setOrigin(0.5)
-      container.add(arrow)
+      container.add(playerArrow)
       
       // Add bobbing animation to the arrow
       this.tweens.add({
-        targets: arrow,
-        y: arrow.y - 4,
+        targets: playerArrow,
+        y: playerArrow.y - 4,
         duration: 500,
         yoyo: true,
         repeat: -1,
@@ -1032,6 +1034,7 @@ export class GameScene extends Phaser.Scene {
       sprite,
       hoverBanner,
       loadingIndicator,
+      playerArrow,
       lastFacing: entity.facing,
       loadAttempts: 0,
       isLoading: Boolean(hasValidSprite) && !this.textures.exists(textureKey),
@@ -1435,8 +1438,40 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Scale UI elements (hover banners, chat bubbles, location dots, arrows) inversely with camera zoom
+   * so they appear at a consistent size on screen regardless of zoom level.
+   */
+  private updateUIScales() {
+    const cameraZoom = this.cameras.main.zoom
+    // Calculate inverse scale - cap at reasonable limits
+    // At zoom 1.0, scale = 1.0; at zoom 3.5, scale = ~0.29
+    const uiScale = Math.min(1.0, Math.max(0.2, 1.0 / cameraZoom))
+    
+    // Scale entity hover banners, chat bubbles, and player arrows
+    for (const [, entitySprite] of this.entitySprites) {
+      if (entitySprite.hoverBanner) {
+        entitySprite.hoverBanner.setScale(uiScale)
+      }
+      if (entitySprite.chatBubble) {
+        entitySprite.chatBubble.setScale(uiScale)
+      }
+      if (entitySprite.playerArrow) {
+        entitySprite.playerArrow.setScale(uiScale)
+      }
+    }
+    
+    // Scale location dots and their hover banners
+    for (const [, locationSprite] of this.locationSprites) {
+      locationSprite.container.setScale(uiScale)
+    }
+  }
+
   update(time: number) {
     const { mode, inputEnabled, onDirectionChange } = this.sceneDataRef.current
+    
+    // Scale UI elements inversely with camera zoom so they appear consistent size on screen
+    this.updateUIScales()
     
     // Animate loading indicators with pulsing effect
     for (const [, entitySprite] of this.entitySprites) {
