@@ -68,6 +68,24 @@ def get_personality(client: Client, avatar_id: str) -> Optional[AgentPersonality
     result = client.table("agent_personality").select("*").eq("avatar_id", avatar_id).execute()
     if result.data and len(result.data) > 0:
         row = result.data[0]
+        # Parse interests if it's a string
+        interests = row.get("interests")
+        if isinstance(interests, str):
+            try:
+                import json
+                interests = json.loads(interests)
+            except:
+                interests = []
+        
+        # Parse conversation_topics if it's a string
+        conversation_topics = row.get("conversation_topics")
+        if isinstance(conversation_topics, str):
+            try:
+                import json
+                conversation_topics = json.loads(conversation_topics)
+            except:
+                conversation_topics = []
+        
         return AgentPersonality(
             avatar_id=row["avatar_id"],
             sociability=row["sociability"],
@@ -75,6 +93,11 @@ def get_personality(client: Client, avatar_id: str) -> Optional[AgentPersonality
             agreeableness=row["agreeableness"],
             energy_baseline=row["energy_baseline"],
             world_affinities=row.get("world_affinities", {}),
+            profile_summary=row.get("profile_summary"),
+            communication_style=row.get("communication_style"),
+            interests=interests,
+            conversation_topics=conversation_topics,
+            personality_notes=row.get("personality_notes"),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
         )
@@ -270,6 +293,15 @@ def get_social_memory(client: Client, from_avatar_id: str, to_avatar_id: str) ->
     )
     if result.data and len(result.data) > 0:
         row = result.data[0]
+        # Parse mutual_interests if it's a string
+        mutual_interests = row.get("mutual_interests")
+        if isinstance(mutual_interests, str):
+            try:
+                import json
+                mutual_interests = json.loads(mutual_interests)
+            except:
+                mutual_interests = []
+        
         return SocialMemory(
             id=row["id"],
             from_avatar_id=row["from_avatar_id"],
@@ -279,6 +311,9 @@ def get_social_memory(client: Client, from_avatar_id: str, to_avatar_id: str) ->
             interaction_count=row.get("interaction_count", 0),
             last_interaction=row.get("last_interaction"),
             last_conversation_topic=row.get("last_conversation_topic"),
+            mutual_interests=mutual_interests,
+            conversation_history_summary=row.get("conversation_history_summary"),
+            relationship_notes=row.get("relationship_notes"),
         )
     return None
 

@@ -1,4 +1,4 @@
-import type { SpriteUrls } from '../types/game'
+import type { SpriteUrls, ChatMessage } from '../types/game'
 
 export interface GameEntity {
   entityId: string
@@ -25,7 +25,11 @@ export interface GameProps {
   myEntityId?: string | null
   mode: 'play' | 'watch'
   onDirectionChange?: (dx: -1 | 0 | 1, dy: -1 | 0 | 1) => void
+  onRequestConversation?: (targetEntityId: string) => void
   inputEnabled?: boolean
+  inConversationWith?: string | null
+  chatMessages?: ChatMessage[]
+  allEntityMessages?: Map<string, ChatMessage>
 }
 
 export interface SceneData {
@@ -34,5 +38,9 @@ export interface SceneData {
   myEntityId?: string | null
   mode: 'play' | 'watch'
   onDirectionChange?: (dx: -1 | 0 | 1, dy: -1 | 0 | 1) => void
+  onRequestConversation?: (targetEntityId: string) => void
   inputEnabled?: boolean
+  inConversationWith?: string | null
+  chatMessages?: ChatMessage[]
+  allEntityMessages?: Map<string, ChatMessage>
 }

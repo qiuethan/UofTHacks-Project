@@ -10,7 +10,7 @@ export interface Client {
 }
 
 export interface ClientMessage {
-  type: 'JOIN' | 'MOVE' | 'WATCH' | 'SET_DIRECTION' | 'REQUEST_CONVERSATION' | 'ACCEPT_CONVERSATION' | 'REJECT_CONVERSATION' | 'END_CONVERSATION';
+  type: 'JOIN' | 'MOVE' | 'WATCH' | 'SET_DIRECTION' | 'REQUEST_CONVERSATION' | 'ACCEPT_CONVERSATION' | 'REJECT_CONVERSATION' | 'END_CONVERSATION' | 'CHAT_MESSAGE';
   token?: string;
   userId?: string;
   displayName?: string;
@@ -21,12 +21,30 @@ export interface ClientMessage {
   // Conversation fields
   targetEntityId?: string;
   requestId?: string;
+  // Chat message fields
+  content?: string;
 }
 
 export interface ServerMessage {
-  type: 'SNAPSHOT' | 'EVENTS' | 'ERROR' | 'WELCOME' | 'KICKED';
+  type: 'SNAPSHOT' | 'EVENTS' | 'ERROR' | 'WELCOME' | 'KICKED' | 'CHAT_MESSAGE';
   snapshot?: WorldSnapshot;
   events?: WorldEvent[];
   error?: string;
   entityId?: string;
+  // Chat message fields
+  messageId?: string;
+  senderId?: string;
+  senderName?: string;
+  content?: string;
+  timestamp?: number;
+  conversationId?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  timestamp: number;
+  conversationId?: string;
 }

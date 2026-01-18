@@ -17,7 +17,11 @@ export default function PhaserGame({
   myEntityId,
   mode,
   onDirectionChange,
-  inputEnabled = true
+  onRequestConversation,
+  inputEnabled = true,
+  inConversationWith,
+  chatMessages = [],
+  allEntityMessages = new Map()
 }: GameProps) {
   const gameRef = useRef<Phaser.Game | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -30,7 +34,11 @@ export default function PhaserGame({
     myEntityId,
     mode,
     onDirectionChange,
-    inputEnabled
+    onRequestConversation,
+    inputEnabled,
+    inConversationWith,
+    chatMessages,
+    allEntityMessages
   })
 
   // Use layout effect to set size before paint
@@ -59,7 +67,11 @@ export default function PhaserGame({
       myEntityId,
       mode,
       onDirectionChange,
-      inputEnabled
+      onRequestConversation,
+      inputEnabled,
+      inConversationWith,
+      chatMessages,
+      allEntityMessages
     }
     
     // Update the running scene with new data
@@ -68,8 +80,30 @@ export default function PhaserGame({
       if (scene && scene.updateEntities) {
         scene.updateEntities(entities, myEntityId || null)
       }
+      // Update chat bubbles when messages change
+      if (scene && scene.updateChatBubbles) {
+        scene.updateChatBubbles(chatMessages, inConversationWith)
+      }
+      // Update all entity chat bubbles
+      if (scene && scene.updateAllEntityBubbles) {
+        scene.updateAllEntityBubbles(allEntityMessages)
+      }
     }
-  }, [entities, mapSize, myEntityId, mode, onDirectionChange, inputEnabled])
+  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages])
+
+  // Listen for conversation initiation events from Phaser
+  useEffect(() => {
+    const handleInitiateConversation = (event: CustomEvent<{ targetEntityId: string }>) => {
+      if (onRequestConversation && event.detail.targetEntityId) {
+        onRequestConversation(event.detail.targetEntityId)
+      }
+    }
+
+    window.addEventListener('initiateConversation', handleInitiateConversation as EventListener)
+    return () => {
+      window.removeEventListener('initiateConversation', handleInitiateConversation as EventListener)
+    }
+  }, [onRequestConversation])
 
   // Initialize Phaser game - wait until size is ready
   useEffect(() => {

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import type { GameEntity, SceneData } from '../types'
+import type { ChatMessage } from '../../types/game'
 
 // Character sprite dimensions
 const SPRITE_WIDTH = 80
@@ -10,14 +11,21 @@ const GRID_SIZE = 32
 const SPRITE_LOAD_MAX_RETRIES = 3
 const SPRITE_LOAD_RETRY_DELAY = 1000
 
+// Chat bubble configuration
+const CHAT_BUBBLE_WIDTH = 200
+const CHAT_BUBBLE_HEIGHT = 60
+const CHAT_BUBBLE_DISPLAY_TIME = 5000  // ms to show each message
+
 interface EntitySprite {
   container: Phaser.GameObjects.Container
   sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image
   hoverBanner?: Phaser.GameObjects.Container
+  chatBubble?: Phaser.GameObjects.Container
   loadingIndicator?: Phaser.GameObjects.Graphics
   lastFacing?: { x: number; y: number }
   loadAttempts: number
   isLoading: boolean
+  lastMessageId?: string
 }
 
 export class GameScene extends Phaser.Scene {
@@ -29,6 +37,9 @@ export class GameScene extends Phaser.Scene {
   private worldWidth = 0
   private worldHeight = 0
   private background?: Phaser.GameObjects.Image
+  private isInConversation = false
+  private conversationZoomTween?: Phaser.Tweens.Tween
+  private lastProcessedMessageId?: string
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -139,6 +150,206 @@ export class GameScene extends Phaser.Scene {
       const isMe = id === myEntityId
       this.updateOrCreateEntity(entity, isMe)
     }
+  }
+
+  updateChatBubbles(messages: ChatMessage[], inConversationWith: string | null | undefined) {
+    const { myEntityId, mode } = this.sceneDataRef.current
+    
+    // Handle conversation zoom
+    if (inConversationWith && !this.isInConversation && mode === 'play') {
+      this.isInConversation = true
+      this.zoomInOnConversation(myEntityId || '', inConversationWith)
+    } else if (!inConversationWith && this.isInConversation) {
+      this.isInConversation = false
+      this.zoomOutFromConversation()
+    }
+    
+    // Get the latest message
+    if (messages.length === 0) return
+    
+    const latestMessage = messages[messages.length - 1]
+    
+    // Skip if we've already processed this message
+    if (latestMessage.id === this.lastProcessedMessageId) return
+    this.lastProcessedMessageId = latestMessage.id
+    
+    // Show chat bubble above the sender
+    const senderSprite = this.entitySprites.get(latestMessage.senderId)
+    if (senderSprite) {
+      this.showChatBubble(senderSprite, latestMessage.content, latestMessage.senderId === myEntityId)
+    }
+  }
+
+  // Track which messages we've shown for each entity
+  private shownEntityMessages: Map<string, string> = new Map()
+
+  updateAllEntityBubbles(allEntityMessages: Map<string, ChatMessage>) {
+    const { myEntityId } = this.sceneDataRef.current
+    
+    // Show chat bubbles for all entities with recent messages
+    for (const [entityId, message] of allEntityMessages) {
+      // Skip if we've already shown this exact message
+      if (this.shownEntityMessages.get(entityId) === message.id) continue
+      this.shownEntityMessages.set(entityId, message.id)
+      
+      const entitySprite = this.entitySprites.get(entityId)
+      if (entitySprite) {
+        const isMe = entityId === myEntityId
+        this.showChatBubble(entitySprite, message.content, isMe)
+      }
+    }
+    
+    // Clean up tracking for entities that no longer have messages
+    for (const [entityId] of this.shownEntityMessages) {
+      if (!allEntityMessages.has(entityId)) {
+        this.shownEntityMessages.delete(entityId)
+      }
+    }
+  }
+
+  private zoomInOnConversation(myEntityId: string, partnerId: string) {
+    const mySprite = this.entitySprites.get(myEntityId)
+    const partnerSprite = this.entitySprites.get(partnerId)
+    
+    if (!mySprite || !partnerSprite) return
+    
+    // Calculate center point between the two entities
+    const centerX = (mySprite.container.x + partnerSprite.container.x) / 2
+    const centerY = (mySprite.container.y + partnerSprite.container.y) / 2
+    
+    // Stop following player
+    this.cameras.main.stopFollow()
+    
+    // Smoothly zoom in and pan to conversation center
+    if (this.conversationZoomTween) {
+      this.conversationZoomTween.stop()
+    }
+    
+    this.conversationZoomTween = this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1.5,
+      scrollX: centerX - this.cameras.main.width / 2 / 1.5,
+      scrollY: centerY - this.cameras.main.height / 2 / 1.5,
+      duration: 500,
+      ease: 'Sine.easeInOut'
+    })
+  }
+
+  private zoomOutFromConversation() {
+    const { myEntityId, mode } = this.sceneDataRef.current
+    const mySprite = myEntityId ? this.entitySprites.get(myEntityId) : null
+    
+    if (this.conversationZoomTween) {
+      this.conversationZoomTween.stop()
+    }
+    
+    // Zoom back out
+    this.conversationZoomTween = this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 0.75,
+      duration: 300,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        // Resume following the player
+        if (mySprite && mode === 'play') {
+          this.cameras.main.startFollow(mySprite.container, true, 0.1, 0.1)
+        }
+      }
+    })
+    
+    // Clear all chat bubbles
+    for (const [, entitySprite] of this.entitySprites) {
+      if (entitySprite.chatBubble) {
+        entitySprite.chatBubble.destroy()
+        entitySprite.chatBubble = undefined
+      }
+    }
+  }
+
+  private showChatBubble(entitySprite: EntitySprite, message: string, isMe: boolean) {
+    // Remove existing bubble
+    if (entitySprite.chatBubble) {
+      entitySprite.chatBubble.destroy()
+    }
+    
+    // Create new chat bubble
+    const bubble = this.add.container(0, -SPRITE_HEIGHT - 30)
+    bubble.setDepth(2000)
+    
+    // Truncate long messages
+    const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message
+    
+    // Calculate text dimensions first
+    const textStyle = {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
+      color: '#000000',
+      wordWrap: { width: CHAT_BUBBLE_WIDTH - 20 }
+    }
+    const tempText = this.add.text(0, 0, displayMessage, textStyle)
+    const textWidth = Math.min(tempText.width + 24, CHAT_BUBBLE_WIDTH)
+    const textHeight = tempText.height + 16
+    tempText.destroy()
+    
+    // Background with tail
+    const bgColor = isMe ? 0x4ade80 : 0xffffff
+    const bg = this.add.graphics()
+    
+    // Draw rounded rectangle
+    bg.fillStyle(bgColor, 0.95)
+    bg.fillRoundedRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight, 12)
+    
+    // Draw tail pointing down
+    bg.fillTriangle(
+      isMe ? 10 : -10, textHeight / 2 - 2,
+      isMe ? 20 : -20, textHeight / 2 + 12,
+      isMe ? 25 : -25, textHeight / 2 - 2
+    )
+    
+    // Add border
+    bg.lineStyle(2, 0x333333, 0.3)
+    bg.strokeRoundedRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight, 12)
+    
+    bubble.add(bg)
+    
+    // Add text
+    const text = this.add.text(0, 0, displayMessage, {
+      ...textStyle,
+      wordWrap: { width: textWidth - 20 }
+    }).setOrigin(0.5)
+    bubble.add(text)
+    
+    // Add to entity container
+    entitySprite.container.add(bubble)
+    entitySprite.chatBubble = bubble
+    
+    // Fade in animation
+    bubble.setAlpha(0)
+    this.tweens.add({
+      targets: bubble,
+      alpha: 1,
+      y: bubble.y - 10,
+      duration: 200,
+      ease: 'Back.easeOut'
+    })
+    
+    // Auto-hide after delay
+    this.time.delayedCall(CHAT_BUBBLE_DISPLAY_TIME, () => {
+      if (entitySprite.chatBubble === bubble) {
+        this.tweens.add({
+          targets: bubble,
+          alpha: 0,
+          y: bubble.y - 20,
+          duration: 300,
+          onComplete: () => {
+            if (entitySprite.chatBubble === bubble) {
+              bubble.destroy()
+              entitySprite.chatBubble = undefined
+            }
+          }
+        })
+      }
+    })
   }
 
   private updateOrCreateEntity(entity: GameEntity, isMe: boolean) {

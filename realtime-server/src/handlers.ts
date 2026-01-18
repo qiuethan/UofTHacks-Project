@@ -1,10 +1,11 @@
 import { WebSocket } from 'ws';
 import { supabase, getPosition, updatePosition } from './db';
-import { world } from './game';
+import { world, activeConversations } from './game';
 import { clients, userConnections } from './state';
-import { send, broadcast } from './network';
-import type { Client, ClientMessage } from './types';
+import { send, broadcast, sendToUser } from './network';
+import type { Client, ClientMessage, ChatMessage } from './types';
 import { createAvatar, createEntity, type SetDirectionAction } from '../../world/index.ts';
+import { API_BASE_URL } from './config';
 
 export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessage): Promise<Client | null> {
   const { token, userId, displayName = 'Anonymous' } = msg;
@@ -138,6 +139,12 @@ export async function handleAcceptConversation(client: Client, requestId: string
   
   // Broadcast conversation accepted event
   broadcast({ type: 'EVENTS', events: result.value });
+  
+  // Initialize conversation tracking
+  const entity = world.getEntity(client.userId);
+  if (entity?.conversationPartnerId) {
+    await initializeConversationTracking(client.userId, entity.conversationPartnerId);
+  }
 }
 
 export async function handleRejectConversation(client: Client, requestId: string): Promise<void> {
@@ -153,6 +160,13 @@ export async function handleRejectConversation(client: Client, requestId: string
 }
 
 export async function handleEndConversation(client: Client): Promise<void> {
+  const entity = world.getEntity(client.userId);
+  const partnerId = entity?.conversationPartnerId;
+  const partnerEntity = partnerId ? world.getEntity(partnerId) : null;
+  
+  // Get conversation data before ending
+  const conversationData = activeConversations.get(client.userId) || activeConversations.get(partnerId || '');
+  
   const result = world.endConversation(client.userId);
   
   if (!result.ok) {
@@ -162,6 +176,288 @@ export async function handleEndConversation(client: Client): Promise<void> {
   
   // Broadcast conversation ended event
   broadcast({ type: 'EVENTS', events: result.value });
+  
+  // Process conversation end (update sentiment, memories, etc.)
+  if (conversationData && partnerId) {
+    const isPartnerOnline = userConnections.has(partnerId);
+    const isClientOnline = true; // Client is always online if they're ending
+    
+    try {
+      await processConversationEnd(
+        conversationData.conversationId,
+        client.userId,
+        partnerId,
+        client.displayName,
+        partnerEntity?.displayName || 'Unknown',
+        conversationData.messages,
+        isClientOnline,
+        isPartnerOnline
+      );
+    } catch (e) {
+      console.error('Error processing conversation end:', e);
+    }
+    
+    // Clean up conversation tracking
+    activeConversations.delete(client.userId);
+    activeConversations.delete(partnerId);
+  }
+}
+
+// ============================================================================
+// CHAT MESSAGE HANDLER
+// ============================================================================
+
+export async function handleChatMessage(client: Client, content: string): Promise<void> {
+  const entity = world.getEntity(client.userId);
+  
+  if (!entity || entity.conversationState !== 'IN_CONVERSATION') {
+    send(client.ws, { type: 'ERROR', error: 'Not in a conversation' });
+    return;
+  }
+  
+  const partnerId = entity.conversationPartnerId;
+  if (!partnerId) {
+    send(client.ws, { type: 'ERROR', error: 'No conversation partner' });
+    return;
+  }
+  
+  const partnerEntity = world.getEntity(partnerId);
+  if (!partnerEntity) {
+    send(client.ws, { type: 'ERROR', error: 'Partner not found' });
+    return;
+  }
+  
+  // Get or create conversation tracking
+  let convData = activeConversations.get(client.userId) || activeConversations.get(partnerId);
+  if (!convData) {
+    // Create new conversation record
+    const conversationId = await getOrCreateConversation(client.userId, partnerId);
+    convData = {
+      conversationId,
+      participant1: client.userId,
+      participant2: partnerId,
+      messages: [],
+      lastMessageAt: Date.now()
+    };
+    activeConversations.set(client.userId, convData);
+    activeConversations.set(partnerId, convData);
+  }
+  
+  // Create the chat message
+  const message: ChatMessage = {
+    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    senderId: client.userId,
+    senderName: client.displayName,
+    content,
+    timestamp: Date.now(),
+    conversationId: convData.conversationId
+  };
+  
+  // Add to local tracking
+  convData.messages.push(message);
+  convData.lastMessageAt = Date.now();
+  
+  // Store in database
+  try {
+    await addMessageToConversation(convData.conversationId, client.userId, client.displayName, content);
+  } catch (e) {
+    console.error('Error storing message:', e);
+  }
+  
+  // Broadcast to both participants
+  const chatEvent = {
+    type: 'CHAT_MESSAGE' as const,
+    messageId: message.id,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    content: message.content,
+    timestamp: message.timestamp,
+    conversationId: convData.conversationId
+  };
+  
+  // Send to the sender
+  send(client.ws, chatEvent);
+  
+  // Send to the partner if online
+  sendToUser(partnerId, chatEvent);
+  
+  // If partner is offline (ROBOT), generate AI response
+  const isPartnerOnline = userConnections.has(partnerId);
+  if (!isPartnerOnline && partnerEntity.kind === 'ROBOT') {
+    try {
+      const agentResponse = await generateAgentResponse(
+        partnerId,
+        client.userId,
+        client.displayName,
+        content,
+        convData.messages
+      );
+      
+      if (agentResponse) {
+        // Create agent's message
+        const agentMessage: ChatMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          senderId: partnerId,
+          senderName: partnerEntity.displayName || 'Agent',
+          content: agentResponse,
+          timestamp: Date.now(),
+          conversationId: convData.conversationId
+        };
+        
+        // Add to tracking
+        convData.messages.push(agentMessage);
+        convData.lastMessageAt = Date.now();
+        
+        // Store in database
+        await addMessageToConversation(
+          convData.conversationId, 
+          partnerId, 
+          partnerEntity.displayName || 'Agent', 
+          agentResponse
+        );
+        
+        // Broadcast agent's response
+        const agentChatEvent = {
+          type: 'CHAT_MESSAGE' as const,
+          messageId: agentMessage.id,
+          senderId: agentMessage.senderId,
+          senderName: agentMessage.senderName,
+          content: agentMessage.content,
+          timestamp: agentMessage.timestamp,
+          conversationId: convData.conversationId
+        };
+        
+        send(client.ws, agentChatEvent);
+      }
+    } catch (e) {
+      console.error('Error generating agent response:', e);
+    }
+  }
+}
+
+// ============================================================================
+// CONVERSATION INITIALIZATION
+// ============================================================================
+
+async function initializeConversationTracking(participant1: string, participant2: string): Promise<void> {
+  // Check if already tracking
+  if (activeConversations.has(participant1) || activeConversations.has(participant2)) {
+    return;
+  }
+  
+  // Create conversation record
+  const conversationId = await getOrCreateConversation(participant1, participant2);
+  
+  const convData = {
+    conversationId,
+    participant1,
+    participant2,
+    messages: [] as ChatMessage[],
+    lastMessageAt: Date.now()
+  };
+  
+  activeConversations.set(participant1, convData);
+  activeConversations.set(participant2, convData);
+  
+  console.log(`Initialized conversation tracking: ${conversationId} between ${participant1.substring(0, 8)} and ${participant2.substring(0, 8)}`);
+}
+
+// Also export for use in game.ts
+export { initializeConversationTracking };
+
+// ============================================================================
+// API HELPERS
+// ============================================================================
+
+async function getOrCreateConversation(participantA: string, participantB: string): Promise<string> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/get-or-create?participant_a=${participantA}&participant_b=${participantB}`, {
+      method: 'POST'
+    });
+    const data = await response.json();
+    return data.conversation_id || `conv-${Date.now()}`;
+  } catch (e) {
+    console.error('Error creating conversation:', e);
+    return `conv-${Date.now()}`;
+  }
+}
+
+async function addMessageToConversation(conversationId: string, senderId: string, senderName: string, content: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/conversation/${conversationId}/message?sender_id=${senderId}&sender_name=${encodeURIComponent(senderName)}&content=${encodeURIComponent(content)}`, {
+      method: 'POST'
+    });
+  } catch (e) {
+    console.error('Error adding message to conversation:', e);
+  }
+}
+
+async function generateAgentResponse(
+  agentId: string,
+  partnerId: string,
+  partnerName: string,
+  message: string,
+  conversationHistory: ChatMessage[]
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/agent-respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: conversationHistory[0]?.conversationId || '',
+        agent_id: agentId,
+        partner_id: partnerId,
+        partner_name: partnerName,
+        message,
+        conversation_history: conversationHistory.map(m => ({
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp
+        }))
+      })
+    });
+    const data = await response.json();
+    return data.ok ? data.response : null;
+  } catch (e) {
+    console.error('Error generating agent response:', e);
+    return null;
+  }
+}
+
+async function processConversationEnd(
+  conversationId: string,
+  participantA: string,
+  participantB: string,
+  participantAName: string,
+  participantBName: string,
+  transcript: ChatMessage[],
+  participantAIsOnline: boolean,
+  participantBIsOnline: boolean
+): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/conversation/end-process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        participant_a: participantA,
+        participant_b: participantB,
+        participant_a_name: participantAName,
+        participant_b_name: participantBName,
+        transcript: transcript.map(m => ({
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp
+        })),
+        participant_a_is_online: participantAIsOnline,
+        participant_b_is_online: participantBIsOnline
+      })
+    });
+  } catch (e) {
+    console.error('Error processing conversation end:', e);
+  }
 }
 
 export async function handleDisconnect(client: Client, oderId: string) {
