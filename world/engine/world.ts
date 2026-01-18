@@ -144,6 +144,40 @@ export class World {
   }
 
   /**
+   * Update entity kind in place (e.g., PLAYER -> ROBOT or vice versa).
+   * This avoids the remove/add pattern that causes visual flickering.
+   * Returns events for the kind change.
+   */
+  updateEntityKind(entityId: string, newKind: 'PLAYER' | 'ROBOT'): Result<WorldEvent[]> {
+    const entity = this.state.entities.get(entityId);
+    if (!entity) {
+      return err('ENTITY_NOT_FOUND', `Entity ${entityId} does not exist`);
+    }
+
+    if (entity.kind === newKind) {
+      return ok([]); // No change needed
+    }
+
+    // Update the entity kind and clear AI-specific properties if becoming PLAYER
+    const updated = {
+      ...entity,
+      kind: newKind,
+      direction: { x: 0 as const, y: 0 as const },
+      targetPosition: undefined,
+      plannedPath: undefined
+    };
+
+    this.state.entities.set(entityId, updated);
+
+    // Return a state changed event (no ENTITY_LEFT/ENTITY_JOINED)
+    return ok([{
+      type: 'ENTITY_STATE_CHANGED',
+      entityId,
+      conversationState: entity.conversationState
+    }]);
+  }
+
+  /**
    * Advance the world by one tick.
    * Moves entities based on their current direction.
    * Updates AI logic.
