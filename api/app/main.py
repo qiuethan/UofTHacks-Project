@@ -1023,6 +1023,51 @@ def should_end_conversation(request: conv.ShouldEndConversationRequest):
 
 
 # ============================================================================
+# RELATIONSHIP STATS ENDPOINT
+# ============================================================================
+
+@app.get("/relationship/{from_id}/{to_id}")
+def get_relationship(from_id: str, to_id: str):
+    """
+    Get relationship stats between two avatars.
+    
+    Returns sentiment, familiarity, and interaction_count.
+    - sentiment: 0.5 = neutral, <0.5 = dislike, >0.5 = like
+    - familiarity: 0 = strangers, 1 = very familiar
+    - interaction_count: number of conversations
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        return {
+            "ok": True,
+            "sentiment": 0.5,
+            "familiarity": 0.0,
+            "interaction_count": 0,
+            "is_new": True
+        }
+    
+    social_memory = agent_db.get_social_memory(client, from_id, to_id)
+    
+    if not social_memory:
+        return {
+            "ok": True,
+            "sentiment": 0.5,  # Neutral default
+            "familiarity": 0.0,
+            "interaction_count": 0,
+            "is_new": True
+        }
+    
+    return {
+        "ok": True,
+        "sentiment": social_memory.sentiment,
+        "familiarity": social_memory.familiarity,
+        "interaction_count": social_memory.interaction_count,
+        "last_topic": social_memory.last_conversation_topic,
+        "is_new": False
+    }
+
+
+# ============================================================================
 # AGENT MONITORING ENDPOINTS
 # ============================================================================
 

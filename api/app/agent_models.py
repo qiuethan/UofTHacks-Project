@@ -2,7 +2,7 @@
 Pydantic models for the Agent Decision System
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, Literal
 from datetime import datetime
 from enum import Enum
@@ -66,6 +66,32 @@ class AgentPersonality(BaseModel):
     personality_notes: Optional[str] = Field(default=None, description="Notes about observed personality traits")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    
+    @validator('world_affinities', pre=True, always=True)
+    def parse_world_affinities(cls, v):
+        """Parse world_affinities if it's a JSON string from the database."""
+        if v is None:
+            return {"food": 0.5, "karaoke": 0.5, "rest_area": 0.5, "social_hub": 0.5, "wander_point": 0.5}
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except:
+                return {"food": 0.5, "karaoke": 0.5, "rest_area": 0.5, "social_hub": 0.5, "wander_point": 0.5}
+        return v
+    
+    @validator('interests', 'conversation_topics', pre=True, always=True)
+    def parse_json_lists(cls, v):
+        """Parse JSON string fields that should be lists."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except:
+                return None
+        return v
 
 
 # ============================================================================

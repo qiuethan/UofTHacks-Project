@@ -724,54 +724,78 @@ def process_conversation_end(
         print(f"Error updating personality profiles: {e}")
     
     # ========================================================================
-    # UPDATE AGENT_SOCIAL_MEMORY with detailed relationship info
+    # UPDATE AGENT_SOCIAL_MEMORY with detailed relationship info for BOTH parties
+    # Uses BIDIRECTIONAL update to ensure both parties have the same interaction_count
+    # This happens REGARDLESS of whether participants are online or AI-controlled
     # All columns populated: sentiment, familiarity, interaction_count,
     # last_conversation_topic, mutual_interests, conversation_history_summary,
     # relationship_notes
     # ========================================================================
+    social_memory_success = False
+    
     try:
-        print(f"[SocialMemory] Updating A->B: sentiment_delta={sentiment_a * 0.15:.3f}, familiarity={familiarity_increase:.3f}")
-        # A -> B (how A feels about B)
-        update_social_memory_detailed(
-            db_client,
-            participant_a,
-            participant_b,
-            sentiment_delta=sentiment_a * 0.15,  # Scaled for gradual change
-            familiarity_delta=familiarity_increase,  # LLM-decided familiarity increase
-            topic=topic_str,
-            mutual_interests=mutual_interests,
-            relationship_notes=relationship_notes,
-            conversation_summary=conversation_history_summary  # Detailed summary for history
-        )
+        print(f"[SocialMemory] Updating BIDIRECTIONAL: {participant_a_name}↔{participant_b_name}")
+        print(f"[SocialMemory] Sentiments: A→B={sentiment_a * 0.15:.3f}, B→A={sentiment_b * 0.15:.3f}, familiarity={familiarity_increase:.3f}")
         
-        print(f"[SocialMemory] Updating B->A: sentiment_delta={sentiment_b * 0.15:.3f}, familiarity={familiarity_increase:.3f}")
-        # B -> A (how B feels about A)
-        update_social_memory_detailed(
+        update_social_memory_bidirectional(
             db_client,
-            participant_b,
             participant_a,
-            sentiment_delta=sentiment_b * 0.15,
+            participant_b,
+            sentiment_a_to_b=sentiment_a * 0.15,  # How A feels about B
+            sentiment_b_to_a=sentiment_b * 0.15,  # How B feels about A
             familiarity_delta=familiarity_increase,
             topic=topic_str,
             mutual_interests=mutual_interests,
             relationship_notes=relationship_notes,
             conversation_summary=conversation_history_summary
         )
-        print(f"[SocialMemory] Successfully updated social memory for both directions")
+        social_memory_success = True
+        print(f"[SocialMemory] Successfully updated both directions in single transaction")
     except Exception as e:
-        print(f"Error updating social memory: {e}")
+        print(f"[SocialMemory] ERROR updating bidirectional: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Fallback: try individual updates if bidirectional fails
+        print(f"[SocialMemory] Attempting fallback with individual updates...")
+        try:
+            update_social_memory_detailed(
+                db_client, participant_a, participant_b,
+                sentiment_delta=sentiment_a * 0.15,
+                familiarity_delta=familiarity_increase,
+                topic=topic_str,
+                mutual_interests=mutual_interests,
+                relationship_notes=relationship_notes,
+                conversation_summary=conversation_history_summary
+            )
+            update_social_memory_detailed(
+                db_client, participant_b, participant_a,
+                sentiment_delta=sentiment_b * 0.15,
+                familiarity_delta=familiarity_increase,
+                topic=topic_str,
+                mutual_interests=mutual_interests,
+                relationship_notes=relationship_notes,
+                conversation_summary=conversation_history_summary
+            )
+            social_memory_success = True
+            print(f"[SocialMemory] Fallback succeeded")
+        except Exception as fallback_e:
+            print(f"[SocialMemory] Fallback also failed: {fallback_e}")
+    
+    print(f"[SocialMemory] Update result: success={social_memory_success}")
     
     # ========================================================================
     # UPDATE AGENT_STATE for ALL participants after conversation
     # Both online and offline participants should have their state updated
     # The LLM decides EXACTLY how much each stat changes based on conversation
+    # This happens REGARDLESS of whether they're online or AI-controlled
     # ========================================================================
+    message_count = len(transcript)
+    state_a_success = False
+    state_b_success = False
+    
+    # Update participant A's state with LLM-decided changes
     try:
-        message_count = len(transcript)
-        
-        # Update participant A's state with LLM-decided changes
         print(f"[State] Applying LLM-decided changes to {participant_a_name}: {state_changes_a}")
         update_agent_state_with_changes(
             db_client, 
@@ -779,8 +803,14 @@ def process_conversation_end(
             participant_a_name,
             state_changes_a
         )
-        
-        # Update participant B's state with LLM-decided changes
+        state_a_success = True
+    except Exception as e:
+        print(f"[State] ERROR updating {participant_a_name}'s state: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Update participant B's state with LLM-decided changes - INDEPENDENT from A
+    try:
         print(f"[State] Applying LLM-decided changes to {participant_b_name}: {state_changes_b}")
         update_agent_state_with_changes(
             db_client, 
@@ -788,27 +818,33 @@ def process_conversation_end(
             participant_b_name,
             state_changes_b
         )
-        
-        print(f"[Conversation] Updated states for BOTH participants with LLM-decided changes (msgs={message_count})")
+        state_b_success = True
     except Exception as e:
-        print(f"Error updating agent state: {e}")
+        print(f"[State] ERROR updating {participant_b_name}'s state: {e}")
         import traceback
         traceback.print_exc()
     
+    print(f"[State] Update results: A={state_a_success}, B={state_b_success} (msgs={message_count})")
+    
     # ========================================================================
-    # CREATE DETAILED MEMORY RECORDS
+    # CREATE DETAILED MEMORY RECORDS for BOTH participants
+    # This happens REGARDLESS of whether they're online or AI-controlled
     # ========================================================================
     try:
-        # Update the conversation record
+        # Update the conversation record with final transcript
         supabase.table("conversations").update({
             "ended_at": datetime.utcnow().isoformat(),
             "transcript": transcript
         }).eq("id", conversation_id).execute()
+        print(f"[Memory] Updated conversation record with transcript")
     except Exception as e:
-        print(f"Error updating conversation record: {e}")
+        print(f"[Memory] Error updating conversation record: {e}")
     
+    memory_a_success = False
+    memory_b_success = False
+    
+    # Create detailed memory for participant A about B
     try:
-        # Create detailed memory for participant A about B
         memory_a_data = {
             "conversation_id": conversation_id,
             "owner_id": participant_a,
@@ -825,8 +861,13 @@ def process_conversation_end(
                 memory_a_data["owner_quotes"] = json.dumps(person_b_profile["notable_quotes"][:3])
         
         supabase.table("memories").insert(memory_a_data).execute()
-        
-        # Create detailed memory for participant B about A
+        memory_a_success = True
+        print(f"[Memory] Created memory for {participant_a_name} about {participant_b_name}")
+    except Exception as e:
+        print(f"[Memory] ERROR creating memory for {participant_a_name}: {e}")
+    
+    # Create detailed memory for participant B about A - INDEPENDENT from A's memory
+    try:
         memory_b_data = {
             "conversation_id": conversation_id,
             "owner_id": participant_b,
@@ -843,10 +884,12 @@ def process_conversation_end(
                 memory_b_data["owner_quotes"] = json.dumps(person_a_profile["notable_quotes"][:3])
         
         supabase.table("memories").insert(memory_b_data).execute()
-        
-        print(f"[Conversation] Created memories for both participants")
+        memory_b_success = True
+        print(f"[Memory] Created memory for {participant_b_name} about {participant_a_name}")
     except Exception as e:
-        print(f"Error creating memories: {e}")
+        print(f"[Memory] ERROR creating memory for {participant_b_name}: {e}")
+    
+    print(f"[Memory] Creation results: A={memory_a_success}, B={memory_b_success}")
     
     return {
         "ok": True,
@@ -993,10 +1036,26 @@ def update_social_memory_detailed(
     relationship_notes: Optional[str] = None,
     conversation_summary: Optional[str] = None
 ):
-    """Update social memory with detailed relationship information."""
+    """
+    Update social memory with detailed relationship information.
+    
+    IMPORTANT: This updates the relationship FROM from_avatar_id's perspective TOWARD to_avatar_id.
+    To update both directions, this function must be called TWICE with swapped parameters.
+    
+    All columns updated:
+    - sentiment: How from_avatar feels about to_avatar (delta applied)
+    - familiarity: How well they know each other (delta applied)
+    - interaction_count: Number of conversations (incremented)
+    - last_conversation_topic: Most recent topic
+    - mutual_interests: Shared interests (merged with existing)
+    - conversation_history_summary: Running summary (appended)
+    - relationship_notes: Dynamic relationship description (replaced)
+    """
+    print(f"[SocialMemory] Updating {from_avatar_id[:8]}→{to_avatar_id[:8]}: Δsent={sentiment_delta:.3f}, Δfam={familiarity_delta:.3f}")
+    
     try:
         # Try to use the database function first
-        supabase.rpc("update_social_memory_detailed", {
+        result = supabase.rpc("update_social_memory_detailed", {
             "p_from_avatar_id": from_avatar_id,
             "p_to_avatar_id": to_avatar_id,
             "p_sentiment_delta": sentiment_delta,
@@ -1006,17 +1065,121 @@ def update_social_memory_detailed(
             "p_relationship_notes": relationship_notes,
             "p_conversation_summary": conversation_summary
         }).execute()
+        print(f"[SocialMemory] RPC succeeded for {from_avatar_id[:8]}→{to_avatar_id[:8]}")
     except Exception as e:
-        print(f"RPC failed, using fallback: {e}")
-        # Fallback to basic update
-        agent_db.update_social_memory(
-            db_client,
-            from_avatar_id,
-            to_avatar_id,
-            sentiment_delta=sentiment_delta,
-            familiarity_delta=familiarity_delta,
-            conversation_topic=topic
-        )
+        print(f"[SocialMemory] RPC failed for {from_avatar_id[:8]}→{to_avatar_id[:8]}: {e}")
+        # Fallback to manual update
+        try:
+            # First try to update existing record
+            existing = agent_db.get_social_memory(db_client, from_avatar_id, to_avatar_id)
+            
+            if existing:
+                # Update existing record
+                new_sentiment = max(-1.0, min(1.0, existing.sentiment + sentiment_delta))
+                new_familiarity = max(0.0, min(1.0, existing.familiarity + familiarity_delta))
+                
+                update_data = {
+                    "sentiment": new_sentiment,
+                    "familiarity": new_familiarity,
+                    "interaction_count": existing.interaction_count + 1,
+                    "last_interaction": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+                if topic:
+                    update_data["last_conversation_topic"] = topic
+                if relationship_notes:
+                    update_data["relationship_notes"] = relationship_notes
+                if conversation_summary:
+                    # Append to existing summary
+                    old_summary = getattr(existing, 'conversation_history_summary', '') or ''
+                    if old_summary:
+                        update_data["conversation_history_summary"] = old_summary + "\n---\n" + conversation_summary
+                    else:
+                        update_data["conversation_history_summary"] = conversation_summary
+                if mutual_interests:
+                    # Merge with existing
+                    old_interests = getattr(existing, 'mutual_interests', []) or []
+                    merged = list(set(old_interests + mutual_interests))
+                    update_data["mutual_interests"] = json.dumps(merged)
+                
+                db_client.table("agent_social_memory").update(update_data).eq("id", existing.id).execute()
+                print(f"[SocialMemory] Fallback update succeeded for {from_avatar_id[:8]}→{to_avatar_id[:8]}")
+            else:
+                # Create new record - start with neutral sentiment (0.5)
+                import uuid
+                new_id = str(uuid.uuid4())
+                initial_sentiment = max(-1.0, min(1.0, 0.5 + sentiment_delta))
+                
+                insert_data = {
+                    "id": new_id,
+                    "from_avatar_id": from_avatar_id,
+                    "to_avatar_id": to_avatar_id,
+                    "sentiment": initial_sentiment,
+                    "familiarity": max(0.0, min(1.0, familiarity_delta)),
+                    "interaction_count": 1,
+                    "last_interaction": datetime.utcnow().isoformat(),
+                    "last_conversation_topic": topic,
+                    "mutual_interests": json.dumps(mutual_interests) if mutual_interests else "[]",
+                    "conversation_history_summary": conversation_summary,
+                    "relationship_notes": relationship_notes,
+                }
+                db_client.table("agent_social_memory").insert(insert_data).execute()
+                print(f"[SocialMemory] Fallback insert succeeded for {from_avatar_id[:8]}→{to_avatar_id[:8]}")
+        except Exception as fallback_error:
+            print(f"[SocialMemory] Fallback also failed for {from_avatar_id[:8]}→{to_avatar_id[:8]}: {fallback_error}")
+            import traceback
+            traceback.print_exc()
+
+
+def update_social_memory_bidirectional(
+    db_client,
+    avatar_a: str,
+    avatar_b: str,
+    sentiment_a_to_b: float = 0.0,
+    sentiment_b_to_a: float = 0.0,
+    familiarity_delta: float = 0.05,
+    topic: Optional[str] = None,
+    mutual_interests: Optional[List[str]] = None,
+    relationship_notes: Optional[str] = None,
+    conversation_summary: Optional[str] = None
+):
+    """
+    Update social memory for BOTH directions in a single transaction.
+    
+    This ensures both parties have the same interaction_count after a conversation.
+    Uses a PostgreSQL function to update both A→B and B→A atomically.
+    
+    Args:
+        avatar_a: First participant's ID
+        avatar_b: Second participant's ID
+        sentiment_a_to_b: How A feels about B (delta to apply)
+        sentiment_b_to_a: How B feels about A (delta to apply)
+        familiarity_delta: How much familiarity increases for both (same value)
+        topic: Topic of conversation
+        mutual_interests: Shared interests discovered
+        relationship_notes: Notes about the relationship dynamic
+        conversation_summary: Summary to append to history
+    """
+    print(f"[SocialMemory] Bidirectional update: {avatar_a[:8]}↔{avatar_b[:8]}")
+    
+    try:
+        # Try to use the bidirectional database function
+        result = supabase.rpc("update_social_memory_bidirectional", {
+            "p_avatar_a": avatar_a,
+            "p_avatar_b": avatar_b,
+            "p_sentiment_a_to_b": sentiment_a_to_b,
+            "p_sentiment_b_to_a": sentiment_b_to_a,
+            "p_familiarity_delta": familiarity_delta,
+            "p_topic": topic,
+            "p_mutual_interests": json.dumps(mutual_interests) if mutual_interests else None,
+            "p_relationship_notes": relationship_notes,
+            "p_conversation_summary": conversation_summary
+        }).execute()
+        print(f"[SocialMemory] Bidirectional RPC succeeded for {avatar_a[:8]}↔{avatar_b[:8]}")
+    except Exception as e:
+        print(f"[SocialMemory] Bidirectional RPC failed: {e}")
+        # Re-raise to let caller handle fallback
+        raise
 
 
 def build_person_summary_text(profile: Dict, name: str) -> str:

@@ -12,6 +12,13 @@ interface ActionObject {
   }
 }
 
+// Relationship stats between two agents
+interface RelationshipStats {
+  sentiment: number
+  familiarity: number
+  interaction_count: number
+}
+
 // Agent metadata fetched from API (personality, current action)
 interface AgentMetadata {
   avatar_id: string
@@ -114,14 +121,33 @@ function StatBar({
   )
 }
 
+// Helper to get sentiment label and color
+function getSentimentInfo(sentiment: number) {
+  if (sentiment >= 0.7) return { label: 'Loves', color: 'text-green-400', bgColor: 'bg-green-500' }
+  if (sentiment >= 0.6) return { label: 'Likes', color: 'text-green-300', bgColor: 'bg-green-400' }
+  if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-gray-400', bgColor: 'bg-gray-500' }
+  if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-orange-400', bgColor: 'bg-orange-500' }
+  return { label: 'Hates', color: 'text-red-400', bgColor: 'bg-red-500' }
+}
+
+// Helper to get familiarity label
+function getFamiliarityInfo(familiarity: number) {
+  if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-purple-400', bgColor: 'bg-purple-500' }
+  if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-blue-400', bgColor: 'bg-blue-500' }
+  if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-cyan-400', bgColor: 'bg-cyan-500' }
+  if (familiarity >= 0.2) return { label: 'Just met', color: 'text-gray-400', bgColor: 'bg-gray-500' }
+  return { label: 'Strangers', color: 'text-gray-500', bgColor: 'bg-gray-600' }
+}
+
 // Individual agent card
-function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entities }: { 
+function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entities, relationshipStats }: { 
   agent: AgentData
   isExpanded: boolean
   onToggle: () => void
   onFollow?: () => void
   isFollowing?: boolean
   entities?: Map<string, GameEntity>
+  relationshipStats?: RelationshipStats | null
 }) {
   const actionName = getActionName(agent.current_action)
   const isInConversation = agent.conversation_state === 'IN_CONVERSATION'
@@ -209,8 +235,56 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
       {/* Expanded details */}
       {isExpanded && (
         <div className="px-3 pb-3 space-y-3 border-t border-gray-700/50">
+          {/* Relationship Stats - Only show when in conversation */}
+          {isInConversation && relationshipStats && partnerName && (
+            <div className="pt-3">
+              <div className="text-xs font-medium text-gray-300 mb-2 flex items-center gap-2">
+                💕 Relationship with {partnerName}
+              </div>
+              <div className="space-y-1.5">
+                {/* Sentiment */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-4">💭</span>
+                  <span className="w-16 text-gray-400">Sentiment</span>
+                  <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${getSentimentInfo(relationshipStats.sentiment).bgColor} transition-all duration-300`}
+                      style={{ width: `${relationshipStats.sentiment * 100}%` }}
+                    />
+                  </div>
+                  <span className={`w-20 text-right text-xs ${getSentimentInfo(relationshipStats.sentiment).color}`}>
+                    {getSentimentInfo(relationshipStats.sentiment).label}
+                  </span>
+                </div>
+                
+                {/* Familiarity */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-4">🤝</span>
+                  <span className="w-16 text-gray-400">Familiar</span>
+                  <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${getFamiliarityInfo(relationshipStats.familiarity).bgColor} transition-all duration-300`}
+                      style={{ width: `${relationshipStats.familiarity * 100}%` }}
+                    />
+                  </div>
+                  <span className={`w-20 text-right text-xs ${getFamiliarityInfo(relationshipStats.familiarity).color}`}>
+                    {getFamiliarityInfo(relationshipStats.familiarity).label}
+                  </span>
+                </div>
+                
+                {/* Interaction Count */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-4">💬</span>
+                  <span className="w-16 text-gray-400">Chats</span>
+                  <span className="text-blue-400 font-medium">{relationshipStats.interaction_count}</span>
+                  <span className="text-gray-500">conversations</span>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Needs */}
-          <div className="pt-3">
+          <div className={isInConversation && relationshipStats ? "" : "pt-3"}>
             <div className="text-xs font-medium text-gray-300 mb-2">Needs</div>
             <div className="space-y-1.5">
               <StatBar label="Energy" value={agent.state.energy} color="bg-yellow-500" icon="⚡" />
@@ -247,6 +321,8 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set())
+  // Relationship stats for agents in conversation
+  const [relationshipStats, setRelationshipStats] = useState<Map<string, RelationshipStats>>(new Map())
   
   // Fetch agent metadata (personality, actions) - less frequent, supplementary data
   useEffect(() => {
@@ -284,6 +360,43 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
     
     return () => clearInterval(interval)
   }, [isOpen])
+  
+  // Fetch relationship stats for agents in conversation
+  useEffect(() => {
+    if (!isOpen || !entities) return
+    
+    const fetchRelationshipStats = async () => {
+      const newStats = new Map<string, RelationshipStats>()
+      
+      for (const [entityId, entity] of entities) {
+        if (entity.conversationState === 'IN_CONVERSATION' && entity.conversationPartnerId) {
+          try {
+            const response = await fetch(
+              `${API_URL}/relationship/${entityId}/${entity.conversationPartnerId}`
+            )
+            const data = await response.json()
+            if (data.ok) {
+              newStats.set(entityId, {
+                sentiment: data.sentiment,
+                familiarity: data.familiarity,
+                interaction_count: data.interaction_count
+              })
+            }
+          } catch (err) {
+            console.error('Error fetching relationship stats:', err)
+          }
+        }
+      }
+      
+      setRelationshipStats(newStats)
+    }
+    
+    fetchRelationshipStats()
+    // Refresh relationship stats every 3 seconds while sidebar is open
+    const interval = setInterval(fetchRelationshipStats, 3000)
+    
+    return () => clearInterval(interval)
+  }, [isOpen, entities])
   
   // Combine real-time entity data with agent metadata
   const agents = useMemo<AgentData[]>(() => {
@@ -441,6 +554,7 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
                   onFollow={onFollowAgent ? () => onFollowAgent(agent.avatar_id) : undefined}
                   isFollowing={followingAgentId === agent.avatar_id}
                   entities={entities}
+                  relationshipStats={relationshipStats.get(agent.avatar_id)}
                 />
               ))
             )}

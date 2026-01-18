@@ -86,13 +86,22 @@ def get_personality(client: Client, avatar_id: str) -> Optional[AgentPersonality
             except:
                 conversation_topics = []
         
+        # Parse world_affinities if it's a string (JSON from database)
+        world_affinities = row.get("world_affinities", {})
+        if isinstance(world_affinities, str):
+            try:
+                import json
+                world_affinities = json.loads(world_affinities)
+            except:
+                world_affinities = {"food": 0.5, "karaoke": 0.5, "rest_area": 0.5, "social_hub": 0.5, "wander_point": 0.5}
+        
         return AgentPersonality(
             avatar_id=row["avatar_id"],
             sociability=row["sociability"],
             curiosity=row["curiosity"],
             agreeableness=row["agreeableness"],
             energy_baseline=row["energy_baseline"],
-            world_affinities=row.get("world_affinities", {}),
+            world_affinities=world_affinities,
             profile_summary=row.get("profile_summary"),
             communication_style=row.get("communication_style"),
             interests=interests,
@@ -150,16 +159,24 @@ def generate_default_personality(avatar_id: str) -> AgentPersonality:
                 except:
                     conversation_topics = []
             
+            # Parse world_affinities if it's a string (JSON from database)
+            world_affinities = row.get("world_affinities", {
+                "food": 0.5, "karaoke": 0.5, "rest_area": 0.5, 
+                "social_hub": 0.5, "wander_point": 0.5
+            })
+            if isinstance(world_affinities, str):
+                try:
+                    world_affinities = json.loads(world_affinities)
+                except:
+                    world_affinities = {"food": 0.5, "karaoke": 0.5, "rest_area": 0.5, "social_hub": 0.5, "wander_point": 0.5}
+            
             return AgentPersonality(
                 avatar_id=avatar_id,
                 sociability=row.get("sociability", 0.7),
                 curiosity=row.get("curiosity", 0.7),
                 agreeableness=row.get("agreeableness", 0.7),
                 energy_baseline=row.get("energy_baseline", 0.7),
-                world_affinities=row.get("world_affinities", {
-                    "food": 0.5, "karaoke": 0.5, "rest_area": 0.5, 
-                    "social_hub": 0.5, "wander_point": 0.5
-                }),
+                world_affinities=world_affinities,
                 profile_summary=row.get("profile_summary"),
                 communication_style=row.get("communication_style"),
                 interests=interests,
@@ -407,14 +424,17 @@ def update_social_memory(
             last_conversation_topic=conversation_topic or existing.last_conversation_topic,
         )
     else:
-        # Create new
+        # Create new - start with neutral sentiment (0.5) then apply delta
         new_id = str(uuid.uuid4())
+        initial_sentiment = max(-1.0, min(1.0, 0.5 + sentiment_delta))  # Start at 0.5 neutral
+        initial_familiarity = max(0.0, min(1.0, familiarity_delta))
+        
         data = {
             "id": new_id,
             "from_avatar_id": from_avatar_id,
             "to_avatar_id": to_avatar_id,
-            "sentiment": max(-1.0, min(1.0, sentiment_delta)),
-            "familiarity": max(0.0, min(1.0, familiarity_delta)),
+            "sentiment": initial_sentiment,
+            "familiarity": initial_familiarity,
             "interaction_count": 1,
             "last_interaction": datetime.utcnow().isoformat(),
             "last_conversation_topic": conversation_topic,
@@ -425,8 +445,8 @@ def update_social_memory(
             id=new_id,
             from_avatar_id=from_avatar_id,
             to_avatar_id=to_avatar_id,
-            sentiment=max(-1.0, min(1.0, sentiment_delta)),
-            familiarity=max(0.0, min(1.0, familiarity_delta)),
+            sentiment=initial_sentiment,
+            familiarity=initial_familiarity,
             interaction_count=1,
             last_interaction=datetime.utcnow(),
             last_conversation_topic=conversation_topic,

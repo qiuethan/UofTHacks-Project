@@ -130,6 +130,12 @@ export interface ConversationEndedEvent {
   readonly conversationId: string;
   readonly participant1Id: string;
   readonly participant2Id: string;
+  /** Who ended the conversation (their ID) */
+  readonly endedBy?: string;
+  /** Name of who ended the conversation */
+  readonly endedByName?: string;
+  /** Reason for ending (if agent-initiated) */
+  readonly reason?: string;
 }
 
 /** Emitted when entity state changes (for real-time sync) */

@@ -190,6 +190,7 @@ export default function GameView() {
           partnerName={entities.get(inConversationWith)?.displayName || 'someone'}
           partnerSpriteUrl={entities.get(inConversationWith)?.sprites?.front}
           myEntityId={myEntityId}
+          partnerId={inConversationWith}
           isWaitingForResponse={isWaitingForResponse}
           onSendMessage={sendChatMessage}
           onEndConversation={endConversation}
