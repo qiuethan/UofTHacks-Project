@@ -14,6 +14,12 @@ interface Entity {
   color?: string
   facing?: { x: number; y: number }
   sprites?: SpriteUrls
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 interface WorldSnapshot {
@@ -181,7 +187,8 @@ export default function WatchView() {
       y: entity.y,
       color: entity.color,
       facing: entity.facing,
-      sprites: entity.sprites
+      sprites: entity.sprites,
+      stats: entity.stats
     })
   }
 

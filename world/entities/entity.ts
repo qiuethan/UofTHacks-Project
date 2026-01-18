@@ -37,6 +37,13 @@ export interface Entity {
   readonly conversationTargetId?: string; // Entity we're trying to talk to or talking with
   readonly pendingConversationRequestId?: string; // Request ID if we have a pending request
   readonly conversationPartnerId?: string; // ID of entity we're currently in conversation with
+  // Agent stats (from agent_state table)
+  readonly stats?: {
+    energy?: number;
+    hunger?: number;
+    loneliness?: number;
+    mood?: number;
+  };
 }
 
 export function createEntity(

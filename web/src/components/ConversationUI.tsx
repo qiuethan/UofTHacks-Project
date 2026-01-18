@@ -93,29 +93,30 @@ interface IncomingRequestsProps {
 export function IncomingRequests({ requests, onAccept, onReject }: IncomingRequestsProps) {
   if (requests.length === 0) return null
   
+  // Show only the most recent request
+  const mostRecentRequest = requests[requests.length - 1]
+  
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 space-y-2">
-      {requests.map(req => (
-        <div key={req.requestId} className="bg-gray-900/80 backdrop-blur-md px-6 py-4 rounded-xl shadow-2xl border border-gray-700/50 min-w-[320px]">
-          <p className="text-white mb-3 text-center font-serif italic text-lg">
-            <strong className="text-green-400">{req.initiatorName}</strong> wants to talk!
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button
-              className="px-5 py-2 bg-green-500/90 text-gray-900 rounded-lg text-sm font-semibold hover:bg-green-400 transition-all shadow-lg"
-              onClick={() => onAccept(req.requestId)}
-            >
-              ✓ Accept
-            </button>
-            <button
-              className="px-5 py-2 bg-gray-700/80 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-600 transition-all"
-              onClick={() => onReject(req.requestId)}
-            >
-              ✕ Decline
-            </button>
-          </div>
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
+      <div className="bg-gray-900/95 backdrop-blur-md px-8 py-5 rounded-2xl shadow-2xl border-2 border-green-500/40 min-w-[360px]">
+        <p className="text-white mb-4 text-center font-sans text-xl">
+          <strong className="text-green-400">{mostRecentRequest.initiatorName}</strong> wants to talk!
+        </p>
+        <div className="flex gap-3 justify-center">
+          <button
+            className="px-6 py-3 bg-green-500 text-gray-900 rounded-xl text-base font-bold hover:bg-green-400 hover:scale-105 transition-all shadow-lg"
+            onClick={() => onAccept(mostRecentRequest.requestId)}
+          >
+            ✓ Accept
+          </button>
+          <button
+            className="px-6 py-3 bg-gray-700 text-gray-200 rounded-xl text-base font-semibold hover:bg-gray-600 hover:scale-105 transition-all"
+            onClick={() => onReject(mostRecentRequest.requestId)}
+          >
+            ✕ Decline
+          </button>
         </div>
-      ))}
+      </div>
     </div>
   )
 }

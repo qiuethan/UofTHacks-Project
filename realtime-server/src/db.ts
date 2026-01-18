@@ -28,6 +28,12 @@ export interface UserPositionData {
   conversationTargetId?: string;
   conversationPartnerId?: string;
   pendingConversationRequestId?: string;
+  stats?: {
+    energy?: number;
+    hunger?: number;
+    loneliness?: number;
+    mood?: number;
+  };
 }
 
 // Helper to parse a row into UserPositionData
@@ -79,7 +85,7 @@ async function withRetry<T>(
 }
 
 export async function getPosition(userId: string): Promise<UserPositionData> {
-  const { data, error } = await withRetry(() => 
+  const { data, error }: any = await withRetry(() => 
     supabase
       .from('user_positions')
       .select('x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id')
@@ -92,6 +98,13 @@ export async function getPosition(userId: string): Promise<UserPositionData> {
   }
   
   if (data) {
+    // Fetch agent stats if available
+    const { data: statsData }: any = await supabase
+      .from('agent_state')
+      .select('energy, hunger, loneliness, mood')
+      .eq('avatar_id', userId)
+      .single();
+    
     return { 
       x: data.x, 
       y: data.y, 
@@ -107,7 +120,13 @@ export async function getPosition(userId: string): Promise<UserPositionData> {
       conversationState: data.conversation_state || undefined,
       conversationTargetId: data.conversation_target_id || undefined,
       conversationPartnerId: data.conversation_partner_id || undefined,
-      pendingConversationRequestId: data.pending_conversation_request_id || undefined
+      pendingConversationRequestId: data.pending_conversation_request_id || undefined,
+      stats: statsData ? {
+        energy: statsData.energy,
+        hunger: statsData.hunger,
+        loneliness: statsData.loneliness,
+        mood: statsData.mood
+      } : undefined
     };
   }
   
@@ -150,7 +169,7 @@ export async function getAllUsers(): Promise<Array<{ userId: string } & UserPosi
   
   // Only load users who have completed avatar setup and have a display name
   // This filters out incomplete signups and test accounts
-  const { data, error } = await withRetry(() =>
+  const { data, error }: any = await withRetry(() =>
     supabase
       .from('user_positions')
       .select('user_id, x, y, facing_x, facing_y, display_name, has_avatar, sprite_front, sprite_back, sprite_left, sprite_right, conversation_state, conversation_target_id, conversation_partner_id, pending_conversation_request_id')

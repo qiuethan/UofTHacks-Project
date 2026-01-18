@@ -11,6 +11,12 @@ export interface GameEntity {
   sprites?: SpriteUrls
   conversationState?: string
   conversationPartnerId?: string
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 export interface GameProps {
