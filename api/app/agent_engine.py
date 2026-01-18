@@ -59,8 +59,8 @@ class DecisionConfig:
     # Wander influence parameters
     SOCIAL_WANDER_INFLUENCE = 0.5  # How much sentiment influences wander direction (0-1)
     WANDER_RANDOMNESS = 0.5  # Remaining randomness in wander (should = 1 - SOCIAL_WANDER_INFLUENCE)
-    MAP_WIDTH = 75
-    MAP_HEIGHT = 56
+    MAP_WIDTH = 60
+    MAP_HEIGHT = 40
 
 
 # ============================================================================
