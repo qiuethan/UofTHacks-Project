@@ -869,17 +869,35 @@ export class GameScene extends Phaser.Scene {
       if (spriteUrl && spriteUrl.startsWith('http')) {
         const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
         
-        // Check if sprite URL has changed - if so, remove old texture to force reload
+        // Check if sprite URL has changed - if so, load new texture before removing old one
         const existingTexture = this.textures.get(textureKey)
+        let urlChanged = false
         if (existingTexture && existingTexture.source[0]) {
           const source = existingTexture.source[0].source
           if (source instanceof HTMLImageElement && source.src !== spriteUrl) {
-            console.log(`[GameScene] Sprite URL changed for ${entity.displayName}, clearing cache`)
-            this.textures.remove(textureKey)
+            console.log(`[GameScene] Sprite URL changed for ${entity.displayName}, will reload`)
+            urlChanged = true
           }
         }
         
-        if (!this.textures.exists(textureKey)) {
+        if (urlChanged) {
+          // URL changed - load new texture with temp key, then swap (prevents flickering)
+          const tempKey = `${textureKey}-reload-${Date.now()}`
+          this.load.image(tempKey, spriteUrl)
+          this.load.once('complete', () => {
+            if (this.textures.exists(tempKey) && entitySprite.sprite instanceof Phaser.GameObjects.Sprite) {
+              // Swap to new texture
+              entitySprite.sprite.setTexture(tempKey)
+              this.scaleSprite(entitySprite.sprite)
+              // Now safe to remove old texture
+              if (this.textures.exists(textureKey)) {
+                this.textures.remove(textureKey)
+              }
+            }
+          })
+          this.load.start()
+        } else if (!this.textures.exists(textureKey)) {
+          // First time loading this texture
           this.load.image(textureKey, spriteUrl)
           this.load.once('complete', () => {
             if (this.textures.exists(textureKey) && entitySprite.sprite instanceof Phaser.GameObjects.Sprite) {
@@ -889,6 +907,7 @@ export class GameScene extends Phaser.Scene {
           })
           this.load.start()
         } else if (entitySprite.sprite instanceof Phaser.GameObjects.Sprite) {
+          // Texture already cached, just switch to it
           entitySprite.sprite.setTexture(textureKey)
           this.scaleSprite(entitySprite.sprite)
         }
