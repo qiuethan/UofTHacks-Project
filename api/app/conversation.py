@@ -117,6 +117,17 @@ def generate_agent_response(
     agent_info = agent_db.get_avatar_position(db_client, agent_id)
     agent_name = agent_info.get("display_name", "Agent") if agent_info else "Agent"
     
+    # Log context being used
+    print(f"[AgentResponse] Generating response for {agent_name} ({agent_id[:8]})")
+    print(f"[AgentResponse] Has personality: {personality is not None}")
+    print(f"[AgentResponse] Has state: {state is not None}")
+    if state:
+        print(f"[AgentResponse] State: E:{state.energy:.2f} H:{state.hunger:.2f} L:{state.loneliness:.2f} M:{state.mood:.2f}")
+    print(f"[AgentResponse] Has social memory with {partner_name}: {social_memory is not None}")
+    if social_memory:
+        print(f"[AgentResponse] Social: sentiment={social_memory.sentiment:.2f}, familiarity={social_memory.familiarity:.2f}, interactions={social_memory.interaction_count}")
+    print(f"[AgentResponse] Past memories with {partner_name}: {len(past_memories)}")
+    
     # Build personality description
     personality_desc = build_personality_description(personality) if personality else "a friendly person"
     
@@ -136,26 +147,27 @@ def generate_agent_response(
             history_text += f"{sender}: {content}\n"
     
     # Create the prompt
-    system_prompt = f"""You are {agent_name}, a person in a virtual world having a casual conversation.
+    system_prompt = f"""You are {agent_name}, a real person in a virtual world having a casual conversation.
 
-PERSONALITY:
+=== YOUR PERSONALITY & BACKGROUND ===
 {personality_desc}
 
-CURRENT STATE:
+=== YOUR CURRENT STATE ===
 {state_desc}
 
-RELATIONSHIP WITH {partner_name}:
+=== YOUR RELATIONSHIP WITH {partner_name} ===
 {relationship_desc}
 
-INSTRUCTIONS:
-1. Respond naturally as {agent_name} would, based on your personality and mood
-2. Keep responses conversational and brief (1-3 sentences usually)
-3. Your tone should reflect your current mood and feelings toward {partner_name}
-4. If you're tired (low energy), you might be more brief or mention wanting to rest
-5. If you like {partner_name} (positive sentiment), be warm and friendly
-6. If you don't know them well (low familiarity), be curious and ask questions
-7. Never break character or mention that you're an AI
-8. Match the casual texting style - short messages, can use lowercase, natural speech
+=== HOW TO RESPOND ===
+1. BE AUTHENTIC: Respond as {agent_name} would based on your personality, interests, and communication style above. If you have specific interests or topics you enjoy, naturally bring them up when relevant.
+2. USE YOUR PERSONALITY: Your sociability, curiosity, and agreeableness should shape how you engage. If you're curious, ask questions. If you're social, be warm and engaging.
+3. MATCH YOUR MOOD: Your current energy and mood affect your responses. Low energy = brief. Good mood = more enthusiastic.
+4. BUILD ON TOPICS: If you have conversation topics you enjoy, steer toward them naturally. Share your interests when appropriate.
+5. REMEMBER CONTEXT: Use what you know about {partner_name} from past conversations and your relationship with them.
+6. STAY IN CHARACTER: Never break character or mention being an AI.
+7. COMMUNICATION STYLE: Follow your communication style (formal/casual, emoji usage, response length) from your profile.
+8. FORMAT: Use plain text only. No bold, italics, bullet points, or markdown. Write naturally like texting a friend.
+9. ONE MESSAGE: Only respond with ONE message. Do not continue the conversation yourself.
 """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -194,11 +206,21 @@ INSTRUCTIONS:
 
 
 def build_personality_description(personality) -> str:
-    """Build a text description of personality traits including detailed profile."""
+    """
+    Build a comprehensive text description using ALL personality columns:
+    - sociability, curiosity, agreeableness, energy_baseline (core traits)
+    - profile_summary (detailed description of the person)
+    - communication_style (how they communicate)
+    - interests (hobbies and things they like)
+    - conversation_topics (topics they enjoy discussing)
+    - personality_notes (observed traits from conversations)
+    """
     if not personality:
         return "You are friendly and approachable."
     
     parts = []
+    
+    # Core personality traits from scores
     traits = []
     
     if personality.sociability > 0.7:
@@ -211,40 +233,53 @@ def build_personality_description(personality) -> str:
     if personality.agreeableness > 0.7:
         traits.append("very agreeable and supportive")
     elif personality.agreeableness < 0.3:
-        traits.append("can be blunt or disagreeable at times")
+        traits.append("can be blunt or direct at times")
     
     if personality.curiosity > 0.7:
-        traits.append("very curious, loves asking questions")
+        traits.append("very curious, loves asking questions and exploring new topics")
     elif personality.curiosity < 0.3:
-        traits.append("not very curious, prefers familiar topics")
+        traits.append("prefers familiar topics and routines")
     
     if personality.energy_baseline > 0.7:
         traits.append("naturally energetic and enthusiastic")
     elif personality.energy_baseline < 0.3:
         traits.append("naturally calm and laid-back")
     
-    parts.append("You are " + ", ".join(traits) + ".")
+    parts.append("CORE TRAITS: You are " + ", ".join(traits) + ".")
     
-    # Add detailed profile if available
+    # Profile summary - the detailed description of who this person is
     if hasattr(personality, 'profile_summary') and personality.profile_summary:
-        parts.append(f"\n\nAbout you: {personality.profile_summary[:500]}")
+        parts.append(f"\n\nWHO YOU ARE: {personality.profile_summary[:800]}")
     
+    # Communication style - how they talk
     if hasattr(personality, 'communication_style') and personality.communication_style:
-        parts.append(f"\n\nYour communication style: {personality.communication_style}")
+        parts.append(f"\n\nHOW YOU COMMUNICATE: {personality.communication_style}")
     
+    # Interests - things they like
     if hasattr(personality, 'interests') and personality.interests:
         interests = personality.interests
         if isinstance(interests, str):
             try:
-                import json
                 interests = json.loads(interests)
             except:
                 interests = []
-        if interests:
-            parts.append(f"\n\nYour interests: {', '.join(interests[:8])}")
+        if interests and len(interests) > 0:
+            parts.append(f"\n\nYOUR INTERESTS: {', '.join(interests[:10])}")
     
+    # Conversation topics - what they like to talk about
+    if hasattr(personality, 'conversation_topics') and personality.conversation_topics:
+        topics = personality.conversation_topics
+        if isinstance(topics, str):
+            try:
+                topics = json.loads(topics)
+            except:
+                topics = []
+        if topics and len(topics) > 0:
+            parts.append(f"\n\nTOPICS YOU ENJOY DISCUSSING: {', '.join(topics[:10])}")
+    
+    # Personality notes - additional observations
     if hasattr(personality, 'personality_notes') and personality.personality_notes:
-        parts.append(f"\n\nPersonality notes: {personality.personality_notes[:300]}")
+        parts.append(f"\n\nADDITIONAL NOTES ABOUT YOU: {personality.personality_notes[:500]}")
     
     return "".join(parts)
 
@@ -324,6 +359,10 @@ def build_relationship_description(social_memory, past_memories: List[Dict], par
     if hasattr(social_memory, 'conversation_history_summary') and social_memory.conversation_history_summary:
         desc_parts.append(f"\n\nHistory of your relationship:\n{social_memory.conversation_history_summary[:500]}")
     
+    # Add relationship notes if available (dynamics between the two)
+    if hasattr(social_memory, 'relationship_notes') and social_memory.relationship_notes:
+        desc_parts.append(f"\n\nRelationship dynamic: {social_memory.relationship_notes[:300]}")
+    
     # Add past memory context
     if past_memories:
         memory_context = "\n\nThings you remember from past conversations:\n"
@@ -385,7 +424,7 @@ def process_conversation_end(
     
     print(f"[Conversation] Processing end for {participant_a_name} & {participant_b_name} ({len(transcript)} messages)")
     
-    # Analyze the conversation in detail
+    # Analyze the conversation in detail - LLM decides all stat changes
     analysis = analyze_conversation(transcript, participant_a_name, participant_b_name)
     
     summary = analysis.get("summary", "Had a conversation")
@@ -396,10 +435,16 @@ def process_conversation_end(
     person_b_profile = analysis.get("person_b_profile")
     mutual_interests = analysis.get("mutual_interests", [])
     relationship_notes = analysis.get("relationship_notes")
+    conversation_history_summary = analysis.get("conversation_history_summary", summary)
+    state_changes_a = analysis.get("state_changes_a", {"energy": -0.05, "hunger": 0.03, "loneliness": -0.10, "mood": 0.05})
+    state_changes_b = analysis.get("state_changes_b", {"energy": -0.05, "hunger": 0.03, "loneliness": -0.10, "mood": 0.05})
+    familiarity_increase = analysis.get("familiarity_increase", 0.05)
     
     topic_str = ", ".join(topics[:5]) if topics else None
     
     print(f"[Conversation] Analysis: sentiment_a={sentiment_a:.2f}, sentiment_b={sentiment_b:.2f}, topics={topics[:3]}")
+    print(f"[Conversation] State changes A: {state_changes_a}")
+    print(f"[Conversation] State changes B: {state_changes_b}")
     
     # ========================================================================
     # UPDATE AGENT_PERSONALITY with detailed profile for EACH participant
@@ -427,46 +472,75 @@ def process_conversation_end(
     
     # ========================================================================
     # UPDATE AGENT_SOCIAL_MEMORY with detailed relationship info
+    # All columns populated: sentiment, familiarity, interaction_count,
+    # last_conversation_topic, mutual_interests, conversation_history_summary,
+    # relationship_notes
     # ========================================================================
     try:
+        print(f"[SocialMemory] Updating A->B: sentiment_delta={sentiment_a * 0.15:.3f}, familiarity={familiarity_increase:.3f}")
         # A -> B (how A feels about B)
         update_social_memory_detailed(
             db_client,
             participant_a,
             participant_b,
             sentiment_delta=sentiment_a * 0.15,  # Scaled for gradual change
-            familiarity_delta=0.08,
+            familiarity_delta=familiarity_increase,  # LLM-decided familiarity increase
             topic=topic_str,
             mutual_interests=mutual_interests,
             relationship_notes=relationship_notes,
-            conversation_summary=summary
+            conversation_summary=conversation_history_summary  # Detailed summary for history
         )
         
+        print(f"[SocialMemory] Updating B->A: sentiment_delta={sentiment_b * 0.15:.3f}, familiarity={familiarity_increase:.3f}")
         # B -> A (how B feels about A)
         update_social_memory_detailed(
             db_client,
             participant_b,
             participant_a,
             sentiment_delta=sentiment_b * 0.15,
-            familiarity_delta=0.08,
+            familiarity_delta=familiarity_increase,
             topic=topic_str,
             mutual_interests=mutual_interests,
             relationship_notes=relationship_notes,
-            conversation_summary=summary
+            conversation_summary=conversation_history_summary
         )
+        print(f"[SocialMemory] Successfully updated social memory for both directions")
     except Exception as e:
         print(f"Error updating social memory: {e}")
+        import traceback
+        traceback.print_exc()
     
     # ========================================================================
-    # UPDATE AGENT_STATE for offline participants
+    # UPDATE AGENT_STATE for ALL participants after conversation
+    # Both online and offline participants should have their state updated
+    # The LLM decides EXACTLY how much each stat changes based on conversation
     # ========================================================================
     try:
-        if not participant_a_is_online:
-            update_agent_state_after_conversation(db_client, participant_a, sentiment_a)
-        if not participant_b_is_online:
-            update_agent_state_after_conversation(db_client, participant_b, sentiment_b)
+        message_count = len(transcript)
+        
+        # Update participant A's state with LLM-decided changes
+        print(f"[State] Applying LLM-decided changes to {participant_a_name}: {state_changes_a}")
+        update_agent_state_with_changes(
+            db_client, 
+            participant_a, 
+            participant_a_name,
+            state_changes_a
+        )
+        
+        # Update participant B's state with LLM-decided changes
+        print(f"[State] Applying LLM-decided changes to {participant_b_name}: {state_changes_b}")
+        update_agent_state_with_changes(
+            db_client, 
+            participant_b, 
+            participant_b_name,
+            state_changes_b
+        )
+        
+        print(f"[Conversation] Updated states for BOTH participants with LLM-decided changes (msgs={message_count})")
     except Exception as e:
         print(f"Error updating agent state: {e}")
+        import traceback
+        traceback.print_exc()
     
     # ========================================================================
     # CREATE DETAILED MEMORY RECORDS
@@ -589,6 +663,30 @@ def update_personality_profile(db_client, avatar_id: str, profile: Dict, name: s
             
             all_interests = list(set(existing_interests + interests))[:20]  # Keep top 20
             
+            # Merge conversation topics from this conversation
+            existing_topics = current.get("conversation_topics", []) or []
+            if isinstance(existing_topics, str):
+                try:
+                    existing_topics = json.loads(existing_topics)
+                except:
+                    existing_topics = []
+            
+            # Get new topics from the profile (interests become conversation topics)
+            new_topics = []
+            profile_interests = profile.get("interests", [])
+            if isinstance(profile_interests, list):
+                new_topics.extend(profile_interests)
+            
+            # Also add any explicitly mentioned topics from personality traits or revealed info
+            if profile.get("revealed_info"):
+                # Extract potential topics from revealed info
+                revealed = profile["revealed_info"]
+                if isinstance(revealed, str) and len(revealed) > 0:
+                    # Add as a general topic area
+                    pass  # Topics are better extracted from interests
+            
+            all_topics = list(set(existing_topics + new_topics))[:15]  # Keep top 15 topics
+            
             # Update personality notes
             personality_notes = None
             if profile.get("personality_traits"):
@@ -601,6 +699,7 @@ def update_personality_profile(db_client, avatar_id: str, profile: Dict, name: s
                 "profile_summary": new_profile[:2000] if new_profile else None,  # Limit size
                 "communication_style": new_comm_style[:500] if new_comm_style else None,
                 "interests": json.dumps(all_interests) if all_interests else None,
+                "conversation_topics": json.dumps(all_topics) if all_topics else None,
                 "updated_at": datetime.utcnow().isoformat()
             }
             
@@ -710,7 +809,11 @@ def analyze_conversation(transcript: List[Dict], name_a: str, name_b: str) -> Di
     - Important quotes
     - Mutual interests
     - Relationship dynamic
+    - STAT CHANGES for all 4 needs (energy, hunger, loneliness, mood)
+    - Detailed relationship updates (conversation_history_summary, relationship_notes)
     """
+    message_count = len(transcript)
+    
     if not client:
         # Fallback without LLM
         return {
@@ -721,7 +824,10 @@ def analyze_conversation(transcript: List[Dict], name_a: str, name_b: str) -> Di
             "person_a_profile": None,
             "person_b_profile": None,
             "mutual_interests": [],
-            "relationship_notes": None
+            "relationship_notes": None,
+            "conversation_history_summary": "Had a brief conversation.",
+            "state_changes_a": {"energy": -0.05, "hunger": 0.03, "loneliness": -0.15, "mood": 0.05},
+            "state_changes_b": {"energy": -0.05, "hunger": 0.03, "loneliness": -0.15, "mood": 0.05}
         }
     
     # Format transcript
@@ -736,7 +842,9 @@ def analyze_conversation(transcript: List[Dict], name_a: str, name_b: str) -> Di
 TRANSCRIPT:
 {transcript_text}
 
-You are building a psychological profile of each person. Extract EVERYTHING you can learn about them.
+NUMBER OF MESSAGES: {message_count}
+
+You are building a psychological profile of each person AND determining how this conversation affects their internal state.
 
 Return JSON with:
 {{
@@ -764,9 +872,32 @@ Return JSON with:
   }},
   
   "mutual_interests": ["shared interests or topics both engaged with enthusiastically"],
-  "relationship_notes": "The dynamic between them: do they click? tension? awkwardness? chemistry?",
-  "conversation_quality": "Rate the conversation: deep/meaningful, casual/fun, awkward, boring, etc."
+  "relationship_notes": "The dynamic between them: do they click? tension? awkwardness? chemistry? Be specific and detailed.",
+  "conversation_quality": "Rate the conversation: deep/meaningful, casual/fun, awkward, boring, etc.",
+  "conversation_history_summary": "A one-paragraph summary of this conversation that can be appended to a running history. Include key moments, emotions, and what was learned about each other.",
+  
+  "state_changes_a": {{
+    "energy": (float -0.20 to +0.10) Change to {name_a}'s energy. Talking is tiring (negative), but exciting convos can energize (positive). Longer convos = more energy cost.,
+    "hunger": (float 0.0 to +0.15) {name_a}'s hunger increases as time passes during conversation. Longer = more hunger.,
+    "loneliness": (float -0.30 to 0.0) How much {name_a}'s loneliness DECREASES. Good conversations reduce loneliness more. Negative means loneliness goes down.,
+    "mood": (float -0.20 to +0.30) How {name_a}'s mood changes. Positive if conversation was enjoyable, negative if frustrating/boring.
+  }},
+  
+  "state_changes_b": {{
+    "energy": (float -0.20 to +0.10) Change to {name_b}'s energy,
+    "hunger": (float 0.0 to +0.15) {name_b}'s hunger increase,
+    "loneliness": (float -0.30 to 0.0) How much {name_b}'s loneliness DECREASES (negative value),
+    "mood": (float -0.20 to +0.30) How {name_b}'s mood changes
+  }},
+  
+  "familiarity_increase": (float 0.03 to 0.15) How much familiarity increased for both. Deep personal convos = higher.
 }}
+
+IMPORTANT FOR STATE CHANGES:
+- Energy: Conversations cost energy. Short casual = -0.02 to -0.05. Long intense = -0.10 to -0.15. But very exciting/energizing = small positive.
+- Hunger: Time passes. Short = +0.02, Long = +0.08 to +0.12.
+- Loneliness: ALL conversations REDUCE loneliness (negative value). Good = -0.15 to -0.25. Bad/awkward = -0.05 to -0.10.
+- Mood: Positive convo = +0.10 to +0.25. Neutral = -0.05 to +0.05. Bad/frustrating = -0.10 to -0.20.
 
 Be thorough. This data will be used to simulate these people realistically in future conversations.
 Output only valid JSON:
@@ -776,14 +907,27 @@ Output only valid JSON:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a personality analyst. Extract detailed psychological profiles from conversations. Be thorough and specific. Output valid JSON only."},
+                {"role": "system", "content": "You are a personality analyst and game state manager. Extract detailed psychological profiles from conversations AND determine realistic stat changes. Be thorough and specific. Output valid JSON only."},
                 {"role": "user", "content": analysis_prompt}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1000
+            max_tokens=1500
         )
         
         result = json.loads(completion.choices[0].message.content)
+        
+        # Parse state changes with defaults
+        state_changes_a = result.get("state_changes_a", {})
+        state_changes_b = result.get("state_changes_b", {})
+        
+        # Ensure all fields exist with sensible defaults
+        default_changes = {"energy": -0.05, "hunger": 0.03, "loneliness": -0.10, "mood": 0.05}
+        for key in default_changes:
+            if key not in state_changes_a:
+                state_changes_a[key] = default_changes[key]
+            if key not in state_changes_b:
+                state_changes_b[key] = default_changes[key]
+        
         return {
             "summary": result.get("summary", "Had a conversation"),
             "sentiment_a": float(result.get("sentiment_a", 0)),
@@ -793,7 +937,11 @@ Output only valid JSON:
             "person_b_profile": result.get("person_b_profile"),
             "mutual_interests": result.get("mutual_interests", []),
             "relationship_notes": result.get("relationship_notes"),
-            "conversation_quality": result.get("conversation_quality")
+            "conversation_quality": result.get("conversation_quality"),
+            "conversation_history_summary": result.get("conversation_history_summary", result.get("summary", "Had a conversation")),
+            "state_changes_a": state_changes_a,
+            "state_changes_b": state_changes_b,
+            "familiarity_increase": float(result.get("familiarity_increase", 0.05))
         }
     except Exception as e:
         print(f"Error analyzing conversation: {e}")
@@ -805,32 +953,108 @@ Output only valid JSON:
             "person_a_profile": None,
             "person_b_profile": None,
             "mutual_interests": [],
-            "relationship_notes": None
+            "relationship_notes": None,
+            "conversation_history_summary": "Had a brief conversation.",
+            "state_changes_a": {"energy": -0.05, "hunger": 0.03, "loneliness": -0.15, "mood": 0.05},
+            "state_changes_b": {"energy": -0.05, "hunger": 0.03, "loneliness": -0.15, "mood": 0.05},
+            "familiarity_increase": 0.05
         }
 
 
-def update_agent_state_after_conversation(db_client, avatar_id: str, sentiment: float):
-    """Update agent state after a conversation ends."""
+def update_agent_state_with_changes(
+    db_client, 
+    avatar_id: str, 
+    name: str,
+    state_changes: Dict[str, float]
+):
+    """
+    Update agent state after a conversation ends using LLM-decided changes.
+    
+    Args:
+        avatar_id: The avatar whose state to update
+        name: Display name for logging
+        state_changes: Dict with keys 'energy', 'hunger', 'loneliness', 'mood' and their delta values
+    
+    The LLM decides how each stat changes:
+        - energy: Usually negative (talking is tiring), can be positive for energizing convos
+        - hunger: Always positive (time passes, get hungrier)
+        - loneliness: Always negative (social interaction reduces loneliness)
+        - mood: Positive or negative based on conversation quality
+    """
     state = agent_db.get_state(db_client, avatar_id)
+    
+    # If no state exists, try to initialize one
     if not state:
+        print(f"[State] No state found for {name} ({avatar_id[:8]}), attempting to create...")
+        try:
+            # Try to initialize agent (creates personality + state)
+            personality, state = agent_db.initialize_agent(db_client, avatar_id)
+            print(f"[State] Created new state for {name}")
+        except Exception as e:
+            print(f"[State] Failed to create state for {name}: {e}")
+            return
+    
+    if not state:
+        print(f"[State] Still no state for {name}, skipping update")
         return
     
-    # Decrease loneliness (conversations help!)
-    new_loneliness = max(0, state.loneliness - 0.15)
+    # Log the changes we're about to apply
+    old_state = f"E:{state.energy:.2f} H:{state.hunger:.2f} L:{state.loneliness:.2f} M:{state.mood:.2f}"
     
-    # Adjust mood based on conversation sentiment
-    mood_change = sentiment * 0.1
+    # Apply LLM-decided changes to each stat
+    energy_change = float(state_changes.get("energy", 0))
+    hunger_change = float(state_changes.get("hunger", 0))
+    loneliness_change = float(state_changes.get("loneliness", 0))
+    mood_change = float(state_changes.get("mood", 0))
+    
+    # Apply changes with clamping
+    new_energy = max(0, min(1.0, state.energy + energy_change))
+    new_hunger = max(0, min(1.0, state.hunger + hunger_change))
+    new_loneliness = max(0, min(1.0, state.loneliness + loneliness_change))  # loneliness_change is usually negative
     new_mood = max(-1.0, min(1.0, state.mood + mood_change))
     
-    # Slight energy decrease (talking is tiring)
-    new_energy = max(0, state.energy - 0.05)
-    
-    # Update state
+    state.energy = new_energy
+    state.hunger = new_hunger
     state.loneliness = new_loneliness
     state.mood = new_mood
-    state.energy = new_energy
     
-    agent_db.update_state(db_client, state)
+    new_state = f"E:{state.energy:.2f} H:{state.hunger:.2f} L:{state.loneliness:.2f} M:{state.mood:.2f}"
+    changes_str = f"ΔE:{energy_change:+.2f} ΔH:{hunger_change:+.2f} ΔL:{loneliness_change:+.2f} ΔM:{mood_change:+.2f}"
+    print(f"[State Update] {name}: {old_state} → {new_state}")
+    print(f"[State Update] {name}: Applied changes: {changes_str}")
+    
+    # Save to database
+    try:
+        agent_db.update_state(db_client, state)
+        print(f"[State Update] Successfully saved state for {name}")
+    except Exception as e:
+        print(f"[State Update] Error saving state for {name}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def update_agent_state_after_conversation(
+    db_client, 
+    avatar_id: str, 
+    sentiment: float,
+    conversation_quality: float = 0.5,
+    message_count: int = 1
+):
+    """
+    DEPRECATED: Use update_agent_state_with_changes instead.
+    This function is kept for backward compatibility.
+    
+    Update agent state after a conversation ends using calculated changes.
+    """
+    # Calculate changes based on old formula
+    state_changes = {
+        "energy": -(0.03 + (min(message_count, 15) * 0.005)) * (0.5 if sentiment > 0.5 else 1.0),
+        "hunger": 0.02 + (min(message_count, 15) * 0.003),
+        "loneliness": -(0.1 + (conversation_quality * 0.15) + (min(message_count, 10) * 0.01)) * (1.3 if sentiment > 0.3 else 0.5 if sentiment < -0.3 else 1.0),
+        "mood": sentiment * 0.15 * (0.5 + conversation_quality * 0.5)
+    }
+    
+    update_agent_state_with_changes(db_client, avatar_id, f"avatar-{avatar_id[:8]}", state_changes)
 
 
 # ============================================================================

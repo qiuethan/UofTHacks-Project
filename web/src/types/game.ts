@@ -45,6 +45,7 @@ export type WorldEventType =
   | 'CONVERSATION_STARTED' 
   | 'CONVERSATION_ENDED' 
   | 'ENTITY_STATE_CHANGED'
+  | 'ENTITY_STATS_UPDATED'
   | 'CHAT_MESSAGE'
 
 export interface WorldEvent {
@@ -66,6 +67,13 @@ export interface WorldEvent {
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
+  // Stats update fields
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 export interface ConversationRequest {

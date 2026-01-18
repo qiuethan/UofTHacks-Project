@@ -877,6 +877,11 @@ def end_process(request: conv.ConversationEndRequest):
     Updates sentiment, mood, energy, and creates memory records.
     Called by the realtime server when a conversation ends.
     """
+    print(f"[API] /conversation/end-process called")
+    print(f"[API] Participants: {request.participant_a_name} ({request.participant_a[:8]}...) & {request.participant_b_name} ({request.participant_b[:8]}...)")
+    print(f"[API] Transcript length: {len(request.transcript)} messages")
+    print(f"[API] Online status: A={request.participant_a_is_online}, B={request.participant_b_is_online}")
+    
     try:
         result = conv.process_conversation_end(
             conversation_id=request.conversation_id,
@@ -888,9 +893,12 @@ def end_process(request: conv.ConversationEndRequest):
             participant_a_is_online=request.participant_a_is_online,
             participant_b_is_online=request.participant_b_is_online
         )
+        print(f"[API] /conversation/end-process completed: {result}")
         return conv.ConversationEndResponse(**result)
     except Exception as e:
-        print(f"Error in end-process: {e}")
+        import traceback
+        print(f"[API] Error in end-process: {e}")
+        traceback.print_exc()
         return conv.ConversationEndResponse(ok=False, error=str(e))
 
 

@@ -109,7 +109,7 @@ const previousStats = new Map<string, { energy: number; hunger: number; loneline
  * Sync agent stats from database and broadcast any changes to clients.
  * This runs periodically to keep clients updated with stats from the AI engine.
  */
-export async function syncAgentStats() {
+export async function syncAgentStats(force: boolean = false) {
   const currentStats = await getAllAgentStats();
   const events: any[] = [];
   
@@ -117,7 +117,7 @@ export async function syncAgentStats() {
     const prev = previousStats.get(avatarId);
     
     // Check if stats changed (with some tolerance for floating point)
-    const changed = !prev || 
+    const changed = force || !prev || 
       Math.abs(prev.energy - stats.energy) > 0.001 ||
       Math.abs(prev.hunger - stats.hunger) > 0.001 ||
       Math.abs(prev.loneliness - stats.loneliness) > 0.001 ||
@@ -134,6 +134,7 @@ export async function syncAgentStats() {
   }
   
   if (events.length > 0) {
+    console.log(`[StatsSync] Broadcasting ${events.length} stat updates`);
     broadcast({ type: 'EVENTS', events });
   }
 }
@@ -189,8 +190,11 @@ async function processConversationEndAsync(convData: ActiveConversation) {
   const entity2 = world.getEntity(convData.participant2);
   const { userConnections } = await import('./state');
   
+  console.log(`[ConvEndAsync] Processing: ${entity1?.displayName || 'Unknown'} & ${entity2?.displayName || 'Unknown'}`);
+  console.log(`[ConvEndAsync] Messages: ${convData.messages.length}`);
+  
   try {
-    await fetch(`${API_BASE_URL}/conversation/end-process`, {
+    const response = await fetch(`${API_BASE_URL}/conversation/end-process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -209,8 +213,16 @@ async function processConversationEndAsync(convData: ActiveConversation) {
         participant_b_is_online: userConnections.has(convData.participant2)
       })
     });
+    
+    const result = await response.json();
+    console.log(`[ConvEndAsync] API response:`, result);
+    
+    // Force sync stats immediately so UI updates
+    console.log(`[ConvEndAsync] Forcing stats sync for UI update`);
+    await syncAgentStats(true);
+    
   } catch (e) {
-    console.error('Error processing timed-out conversation end:', e);
+    console.error('[ConvEndAsync] Error processing conversation end:', e);
   }
 }
 
@@ -220,12 +232,15 @@ export function startConversationTimeoutLoop() {
 }
 
 /**
- * Handle agent-agent conversations.
- * When two robots are in a conversation, they generate messages to each other.
+ * Handle agent-agent conversations ONLY.
+ * When two offline robots are in a conversation, they generate messages to each other.
+ * 
+ * IMPORTANT: This does NOT handle player-agent conversations.
+ * Player-agent conversations are handled in handleChatMessage (handlers.ts)
+ * where the player sends a message and gets ONE response from the agent.
  */
 export async function processAgentAgentConversations() {
   const { userConnections } = await import('./state');
-  const { sendToUser } = await import('./network');
   
   // Process each active conversation
   const processedConversations = new Set<string>();
@@ -246,16 +261,16 @@ export async function processAgentAgentConversations() {
     const isEntity1Online = userConnections.has(convData.participant1);
     const isEntity2Online = userConnections.has(convData.participant2);
     
-    // Process conversations where at least one is a ROBOT
-    // This allows agent-agent AND agent-player-offline conversations
-    const isEntity1Robot = entity1.kind === 'ROBOT' && !isEntity1Online;
-    const isEntity2Robot = entity2.kind === 'ROBOT' && !isEntity2Online;
+    // CRITICAL: If ANY participant is an online player, skip this conversation entirely.
+    // Player-agent conversations are turn-based and handled via handleChatMessage.
+    // This loop ONLY handles agent-agent (both offline robots) conversations.
+    if (isEntity1Online || isEntity2Online) continue;
     
-    // Skip if both are online players (they chat via handleChatMessage)
-    if (isEntity1Online && isEntity2Online) continue;
+    // Both must be offline ROBOTs for this loop to generate messages
+    const isEntity1Robot = entity1.kind === 'ROBOT';
+    const isEntity2Robot = entity2.kind === 'ROBOT';
     
-    // At least one must be an offline robot for us to generate messages
-    if (!isEntity1Robot && !isEntity2Robot) continue;
+    if (!isEntity1Robot || !isEntity2Robot) continue;
     
     // Rate limit: only send messages every 3-5 seconds
     const timeSinceLastMessage = Date.now() - convData.lastMessageAt;
@@ -272,7 +287,7 @@ export async function processAgentAgentConversations() {
     const listener = nextSpeakerId === convData.participant1 ? entity2 : entity1;
     const listenerId = nextSpeakerId === convData.participant1 ? convData.participant2 : convData.participant1;
     
-    // Generate response from the speaker
+    // Generate response from the speaker (agent only)
     try {
       const response = await generateAgentMessage(
         nextSpeakerId,

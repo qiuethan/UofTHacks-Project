@@ -194,6 +194,12 @@ export async function handleEndConversation(client: Client): Promise<void> {
         isClientOnline,
         isPartnerOnline
       );
+      
+      // Force sync stats immediately so UI updates for both participants
+      const { syncAgentStats } = await import('./game');
+      console.log(`[EndConv] Forcing stats sync for UI update`);
+      await syncAgentStats(true);
+      
     } catch (e) {
       console.error('Error processing conversation end:', e);
     }
@@ -283,8 +289,12 @@ export async function handleChatMessage(client: Client, content: string): Promis
   sendToUser(partnerId, chatEvent);
   
   // If partner is offline (ROBOT), generate AI response
+  // This is the ONLY place where player-agent conversation responses are generated
+  // The agent-agent loop in game.ts will skip this conversation because the player is online
   const isPartnerOnline = userConnections.has(partnerId);
   if (!isPartnerOnline && partnerEntity.kind === 'ROBOT') {
+    console.log(`[Player→Agent] ${client.displayName} → ${partnerEntity.displayName}: ${content.substring(0, 50)}...`);
+    
     try {
       const agentResponse = await generateAgentResponse(
         partnerId,
@@ -317,7 +327,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
           agentResponse
         );
         
-        // Broadcast agent's response
+        // Send agent's response ONLY to the player (the agent is offline)
         const agentChatEvent = {
           type: 'CHAT_MESSAGE' as const,
           messageId: agentMessage.id,
@@ -328,6 +338,9 @@ export async function handleChatMessage(client: Client, content: string): Promis
           conversationId: convData.conversationId
         };
         
+        console.log(`[Agent→Player] ${partnerEntity.displayName} → ${client.displayName}: ${agentResponse.substring(0, 50)}...`);
+        
+        // Only send to the player, not broadcast (agent is offline, no need to send to them)
         send(client.ws, agentChatEvent);
       }
     } catch (e) {
@@ -436,8 +449,12 @@ async function processConversationEnd(
   participantAIsOnline: boolean,
   participantBIsOnline: boolean
 ): Promise<void> {
+  console.log(`[ConvEnd] Processing conversation end: ${conversationId}`);
+  console.log(`[ConvEnd] Participants: ${participantAName} (${participantA.substring(0, 8)}) & ${participantBName} (${participantB.substring(0, 8)})`);
+  console.log(`[ConvEnd] Transcript: ${transcript.length} messages`);
+  
   try {
-    await fetch(`${API_BASE_URL}/conversation/end-process`, {
+    const response = await fetch(`${API_BASE_URL}/conversation/end-process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -456,8 +473,15 @@ async function processConversationEnd(
         participant_b_is_online: participantBIsOnline
       })
     });
+    
+    const result = await response.json();
+    console.log(`[ConvEnd] API response:`, result);
+    
+    if (!result.ok) {
+      console.error(`[ConvEnd] API returned error:`, result.error);
+    }
   } catch (e) {
-    console.error('Error processing conversation end:', e);
+    console.error('[ConvEnd] Error processing conversation end:', e);
   }
 }
 

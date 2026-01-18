@@ -669,7 +669,7 @@ export class World {
     );
     
     if (!request) {
-      return err('REQUEST_FAILED', 'Could not create request (on cooldown or already pending)');
+      return err('REQUEST_FAILED', 'Waiting on other user...');
     }
     
     // Update initiator state

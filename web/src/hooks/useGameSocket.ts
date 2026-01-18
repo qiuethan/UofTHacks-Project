@@ -150,6 +150,18 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
             }
           }
           break
+        case 'ENTITY_STATS_UPDATED':
+          // Update agent stats (energy, hunger, loneliness, mood)
+          if (event.entityId && event.stats) {
+            const entity = next.get(event.entityId)
+            if (entity) {
+              next.set(event.entityId, { 
+                ...entity, 
+                stats: event.stats
+              })
+            }
+          }
+          break
       }
       return next
     })

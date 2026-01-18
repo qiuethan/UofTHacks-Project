@@ -31,12 +31,18 @@ interface WorldSnapshot {
 }
 
 interface WorldEvent {
-  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED'
+  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED' | 'ENTITY_STATS_UPDATED'
   entityId?: string
   entity?: Entity
   x?: number
   y?: number
   facing?: { x: number; y: number }
+  stats?: {
+    energy?: number
+    hunger?: number
+    loneliness?: number
+    mood?: number
+  }
 }
 
 
@@ -144,6 +150,14 @@ export default function WatchView() {
                       const entity = next.get(event.entityId)
                       if (entity) {
                         next.set(event.entityId, { ...entity, facing: event.facing })
+                      }
+                    }
+                    break
+                  case 'ENTITY_STATS_UPDATED':
+                    if (event.entityId && event.stats) {
+                      const entity = next.get(event.entityId)
+                      if (entity) {
+                        next.set(event.entityId, { ...entity, stats: event.stats })
                       }
                     }
                     break
