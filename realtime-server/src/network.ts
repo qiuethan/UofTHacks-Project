@@ -2,15 +2,25 @@ import { WebSocket } from 'ws';
 import { clients, spectators, userConnections } from './state';
 import type { ServerMessage } from './types';
 
-export function broadcast(message: ServerMessage, exclude?: string) {
+export function broadcast(message: ServerMessage, exclude?: string | string[]) {
   const data = JSON.stringify(message);
+  const excludeSet = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
   // Send to players
   for (const [id, client] of clients) {
-    if (id !== exclude && client.ws.readyState === WebSocket.OPEN) {
+    if (!excludeSet.has(id) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(data);
     }
   }
   // Send to spectators
+  for (const ws of spectators) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+    }
+  }
+}
+
+export function broadcastToSpectators(message: ServerMessage) {
+  const data = JSON.stringify(message);
   for (const ws of spectators) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data);

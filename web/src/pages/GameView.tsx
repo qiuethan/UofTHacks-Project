@@ -5,7 +5,6 @@ import {
   ConversationChat,
   GameLoading
 } from '../components'
-import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
@@ -19,13 +18,6 @@ export default function GameView() {
   console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
-
-  // Handle follow agent toggle
-  const handleFollowAgent = (agentId: string) => {
-    setFollowingAgentId(prev => prev === agentId ? null : agentId)
-  }
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -144,14 +136,6 @@ export default function GameView() {
         </div>
       )}
       
-      {/* Agent Monitoring Sidebar */}
-      <AgentSidebar 
-        isOpen={sidebarOpen} 
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        onFollowAgent={handleFollowAgent}
-        followingAgentId={followingAgentId}
-        entities={gameEntities}
-      />
 
       {/* Phaser Game Canvas */}
       <PhaserGame
@@ -165,7 +149,7 @@ export default function GameView() {
         inConversationWith={inConversationWith}
         chatMessages={chatMessages}
         allEntityMessages={allEntityMessages}
-        followEntityId={followingAgentId}
+        followEntityId={null}
       />
 
       {/* Incoming Conversation Requests */}
@@ -191,12 +175,12 @@ export default function GameView() {
 
       {/* Nearby Entities Panel - Show when near someone and not in conversation */}
       {nearbyEntities.length > 0 && canStartConversation && !inConversationWith && !isWalkingToConversation && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <div className="panel-fun px-4 py-3">
-            <div className="text-black text-xs font-semibold uppercase tracking-wider mb-2 text-center">
-              Nearby
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="bg-[#FFF8F0] border-2 border-black shadow-[4px_4px_0_#000] px-4 py-3">
+            <div className="text-black text-xs font-bold uppercase tracking-wider mb-2">
+              Nearby People
             </div>
-            <div className="flex gap-2 flex-wrap justify-center max-w-md">
+            <div className="flex flex-col gap-2 min-w-[180px]">
               {nearbyEntities.slice(0, 5).map(entity => {
                 const isBusy = entity.conversationState === 'IN_CONVERSATION' || 
                                entity.conversationState === 'WALKING_TO_CONVERSATION' ||
@@ -207,21 +191,21 @@ export default function GameView() {
                     onClick={() => !isBusy && requestConversation(entity.entityId)}
                     disabled={isBusy}
                     className={`
-                      px-4 py-2 text-sm font-medium transition-all
+                      px-3 py-2 text-sm font-medium transition-all border-2 border-black
                       ${isBusy 
-                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed border border-gray-300' 
-                        : 'btn-primary text-white border-0'
+                        ? 'bg-black/10 text-black/40 cursor-not-allowed' 
+                        : 'btn-primary text-white shadow-[2px_2px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px]'
                       }
                     `}
                   >
                     {entity.displayName}
-                    {isBusy && <span className="ml-1 text-xs opacity-70">(busy)</span>}
+                    {isBusy && <span className="ml-1 text-xs">(busy)</span>}
                   </button>
                 )
               })}
             </div>
             {nearbyEntities.length > 5 && (
-              <div className="text-black text-xs text-center mt-2">
+              <div className="text-black/60 text-xs mt-2">
                 +{nearbyEntities.length - 5} more nearby
               </div>
             )}
@@ -232,7 +216,7 @@ export default function GameView() {
       {/* Status Modal - keeping logic but removing the trigger button from main flow */}
       {showStatusModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4">
-          <div className="panel-fun p-8 max-w-sm w-full animate-in fade-in zoom-in duration-200">
+          <div className="bg-[#FFF8F0] border-2 border-black shadow-[8px_8px_0_#000] p-8 max-w-sm w-full">
             <h2 className="text-2xl font-bold text-black mb-4 text-center">Identity Matrix</h2>
             
             <div className="flex flex-col items-center gap-4 mb-6">
@@ -244,7 +228,7 @@ export default function GameView() {
 
             <button
               onClick={() => setShowStatusModal(false)}
-              className="btn-primary w-full py-2 text-white border-0"
+              className="btn-primary w-full py-2 text-white"
             >
               Close
             </button>

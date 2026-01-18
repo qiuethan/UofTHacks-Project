@@ -2,7 +2,7 @@ import { WebSocket } from 'ws';
 import { supabase, getPosition, updatePosition } from './db';
 import { world, activeConversations } from './game';
 import { clients, userConnections } from './state';
-import { send, broadcast, sendToUser } from './network';
+import { send, broadcast, sendToUser, broadcastToSpectators } from './network';
 import type { Client, ClientMessage, ChatMessage } from './types';
 import { createAvatar, createEntity, type SetDirectionAction } from '../../world/index.ts';
 import { API_BASE_URL } from './config';
@@ -353,8 +353,8 @@ export async function handleChatMessage(client: Client, content: string): Promis
   // Send to the partner if online
   sendToUser(partnerId, chatEvent);
   
-  // Broadcast to spectators so they can see chat bubbles
-  broadcast(chatEvent);
+  // Broadcast to spectators only (not to players, to avoid double-sending)
+  broadcastToSpectators(chatEvent);
   
   // If partner is offline (ROBOT), generate AI response
   // This is the ONLY place where player-agent conversation responses are generated
@@ -412,8 +412,8 @@ export async function handleChatMessage(client: Client, content: string): Promis
         // Send to the player
         send(client.ws, agentChatEvent);
         
-        // Broadcast for spectators (chat bubbles)
-        broadcast(agentChatEvent);
+        // Broadcast to spectators only (not to players, to avoid double-sending)
+        broadcastToSpectators(agentChatEvent);
         
         // Check if the agent wants to end the conversation
         const shouldEndResult = await checkAgentWantsToEnd(
@@ -451,7 +451,7 @@ export async function handleChatMessage(client: Client, content: string): Promis
               conversationId: convData.conversationId
             };
             send(client.ws, farewellEvent);
-            broadcast(farewellEvent);
+            broadcastToSpectators(farewellEvent);
           }
           
           // End the conversation - pass reason and agent name for notifications
