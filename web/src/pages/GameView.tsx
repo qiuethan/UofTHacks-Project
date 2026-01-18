@@ -1,13 +1,15 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { 
   ConnectionStatus,
   IncomingRequests,
-  ActiveConversation
+  ConversationChat
 } from '../components'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
 import { useGameSocket } from '../hooks'
+import { CONVERSATION_CONFIG } from '../config/constants'
 import type { GameEntity } from '../game/types'
+import type { Entity } from '../types/game'
 
 export default function GameView() {
   console.log('[GameView] Rendering...')
@@ -32,15 +34,20 @@ export default function GameView() {
     isWalkingToConversation,
     pendingRequests,
     notification,
-    error 
+    error,
+    chatMessages,
+    isWaitingForResponse,
+    allEntityMessages
   } = gameState
 
   const { 
     sendDirection, 
+    requestConversation,
     acceptConversation, 
     rejectConversation, 
     endConversation,
-    clearNotification
+    clearNotification,
+    sendChatMessage
   } = gameActions
   
   // Handle direction changes from Phaser
@@ -68,6 +75,38 @@ export default function GameView() {
   // Determine if input should be enabled
   const inputEnabled = connected && !inConversationWith && !isWalkingToConversation
 
+  // Calculate nearby entities (within conversation initiation radius)
+  const nearbyEntities = useMemo(() => {
+    if (!myEntityId) return []
+    const me = entities.get(myEntityId)
+    if (!me) return []
+    
+    const nearby: Entity[] = []
+    for (const [id, entity] of entities) {
+      if (id === myEntityId) continue
+      if (entity.kind === 'WALL') continue
+      
+      // Calculate distance (center to center for 2x1 entities)
+      const centerX1 = me.x + 1
+      const centerY1 = me.y + 0.5
+      const centerX2 = entity.x + 1
+      const centerY2 = entity.y + 0.5
+      const distance = Math.sqrt(
+        Math.pow(centerX2 - centerX1, 2) + 
+        Math.pow(centerY2 - centerY1, 2)
+      )
+      
+      if (distance <= CONVERSATION_CONFIG.INITIATION_RADIUS) {
+        nearby.push(entity)
+      }
+    }
+    return nearby
+  }, [entities, myEntityId])
+
+  // Check if my entity can start a conversation
+  const myEntity = myEntityId ? entities.get(myEntityId) : null
+  const canStartConversation = myEntity?.conversationState === 'IDLE' || !myEntity?.conversationState
+
   return (
     <div className="w-full h-[calc(100vh-64px)] overflow-hidden">
       {/* Error/Notification overlays */}
@@ -91,7 +130,11 @@ export default function GameView() {
         myEntityId={myEntityId}
         mode="play"
         onDirectionChange={handleDirectionChange}
+        onRequestConversation={requestConversation}
         inputEnabled={inputEnabled}
+        inConversationWith={inConversationWith}
+        chatMessages={chatMessages}
+        allEntityMessages={allEntityMessages}
       />
 
       {/* Incoming Conversation Requests */}
@@ -101,12 +144,56 @@ export default function GameView() {
         onReject={rejectConversation}
       />
 
-      {/* In Conversation Indicator */}
+      {/* Chat UI when in conversation */}
       {inConversationWith && (
-        <ActiveConversation
+        <ConversationChat
+          messages={chatMessages}
           partnerName={entities.get(inConversationWith)?.displayName || 'someone'}
-          onEnd={endConversation}
+          myEntityId={myEntityId}
+          isWaitingForResponse={isWaitingForResponse}
+          onSendMessage={sendChatMessage}
+          onEndConversation={endConversation}
         />
+      )}
+
+      {/* Nearby Entities Panel - Show when near someone and not in conversation */}
+      {nearbyEntities.length > 0 && canStartConversation && !inConversationWith && !isWalkingToConversation && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-gray-900/90 backdrop-blur-md px-4 py-3 rounded-xl shadow-2xl border border-gray-700/50">
+            <div className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2 text-center">
+              Nearby
+            </div>
+            <div className="flex gap-2 flex-wrap justify-center max-w-md">
+              {nearbyEntities.slice(0, 5).map(entity => {
+                const isBusy = entity.conversationState === 'IN_CONVERSATION' || 
+                               entity.conversationState === 'WALKING_TO_CONVERSATION' ||
+                               entity.conversationState === 'PENDING_REQUEST'
+                return (
+                  <button
+                    key={entity.entityId}
+                    onClick={() => !isBusy && requestConversation(entity.entityId)}
+                    disabled={isBusy}
+                    className={`
+                      px-4 py-2 rounded-lg text-sm font-medium transition-all
+                      ${isBusy 
+                        ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' 
+                        : 'bg-green-600/80 hover:bg-green-500 text-white shadow-lg hover:shadow-green-500/20 hover:scale-105'
+                      }
+                    `}
+                  >
+                    💬 {entity.displayName}
+                    {isBusy && <span className="ml-1 text-xs opacity-70">(busy)</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {nearbyEntities.length > 5 && (
+              <div className="text-gray-500 text-xs text-center mt-2">
+                +{nearbyEntities.length - 5} more nearby
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Status Modal - keeping logic but removing the trigger button from main flow */}

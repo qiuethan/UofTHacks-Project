@@ -1,0 +1,916 @@
+"""
+Conversation Chat System - Handles real-time chat with AI agents
+
+This module provides:
+- Agent response generation using Grok LLM
+- Conversation analysis and state updates
+- Memory creation from conversations
+"""
+
+import os
+import json
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel
+
+from .supabase_client import supabase
+from . import agent_database as agent_db
+
+# Try to import OpenAI, but don't fail if not available
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAI = None
+    print("Warning: openai module not installed. LLM features will be disabled.")
+
+# OpenRouter client for Grok
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+client = None
+if OPENROUTER_API_KEY and OPENAI_AVAILABLE:
+    try:
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+        )
+    except Exception as e:
+        print(f"Failed to init OpenRouter client for conversations: {e}")
+
+MODEL_NAME = "x-ai/grok-4.1-fast"
+
+
+# ============================================================================
+# REQUEST/RESPONSE MODELS
+# ============================================================================
+
+class AgentRespondRequest(BaseModel):
+    conversation_id: str
+    agent_id: str
+    partner_id: str
+    partner_name: str
+    message: str
+    conversation_history: List[Dict[str, Any]] = []
+
+
+class AgentRespondResponse(BaseModel):
+    ok: bool
+    response: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ConversationEndRequest(BaseModel):
+    conversation_id: str
+    participant_a: str
+    participant_b: str
+    participant_a_name: str
+    participant_b_name: str
+    transcript: List[Dict[str, Any]]
+    participant_a_is_online: bool = False
+    participant_b_is_online: bool = False
+
+
+class ConversationEndResponse(BaseModel):
+    ok: bool
+    summary: Optional[str] = None
+    sentiment_change_a: Optional[float] = None
+    sentiment_change_b: Optional[float] = None
+    error: Optional[str] = None
+
+
+# ============================================================================
+# AGENT RESPONSE GENERATION
+# ============================================================================
+
+def generate_agent_response(
+    agent_id: str,
+    partner_id: str,
+    partner_name: str,
+    message: str,
+    conversation_history: List[Dict[str, Any]]
+) -> str:
+    """
+    Generate an AI agent's response to a chat message.
+    
+    Uses:
+    - Agent personality (sociability, agreeableness, etc.)
+    - Past memories with this partner
+    - Social memory (sentiment, familiarity)
+    - Current state (mood, energy)
+    """
+    if not client:
+        return "..."  # Fallback if no API key
+    
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return "Hey there!"
+    
+    # Load agent context
+    personality = agent_db.get_personality(db_client, agent_id)
+    state = agent_db.get_state(db_client, agent_id)
+    social_memory = agent_db.get_social_memory(db_client, agent_id, partner_id)
+    
+    # Load past memories/conversations with this partner
+    past_memories = get_past_memories(agent_id, partner_id)
+    
+    # Get agent's display name
+    agent_info = agent_db.get_avatar_position(db_client, agent_id)
+    agent_name = agent_info.get("display_name", "Agent") if agent_info else "Agent"
+    
+    # Build personality description
+    personality_desc = build_personality_description(personality) if personality else "a friendly person"
+    
+    # Build state description
+    state_desc = build_state_description(state) if state else ""
+    
+    # Build relationship context
+    relationship_desc = build_relationship_description(social_memory, past_memories, partner_name)
+    
+    # Build conversation history for context
+    history_text = ""
+    if conversation_history:
+        recent_history = conversation_history[-10:]  # Last 10 messages
+        for msg in recent_history:
+            sender = msg.get("senderName", "Unknown")
+            content = msg.get("content", "")
+            history_text += f"{sender}: {content}\n"
+    
+    # Create the prompt
+    system_prompt = f"""You are {agent_name}, a person in a virtual world having a casual conversation.
+
+PERSONALITY:
+{personality_desc}
+
+CURRENT STATE:
+{state_desc}
+
+RELATIONSHIP WITH {partner_name}:
+{relationship_desc}
+
+INSTRUCTIONS:
+1. Respond naturally as {agent_name} would, based on your personality and mood
+2. Keep responses conversational and brief (1-3 sentences usually)
+3. Your tone should reflect your current mood and feelings toward {partner_name}
+4. If you're tired (low energy), you might be more brief or mention wanting to rest
+5. If you like {partner_name} (positive sentiment), be warm and friendly
+6. If you don't know them well (low familiarity), be curious and ask questions
+7. Never break character or mention that you're an AI
+8. Match the casual texting style - short messages, can use lowercase, natural speech
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add conversation history
+    if history_text:
+        messages.append({
+            "role": "user", 
+            "content": f"Previous messages in this conversation:\n{history_text}\n\nNow {partner_name} says: {message}"
+        })
+    else:
+        messages.append({
+            "role": "user",
+            "content": f"{partner_name} says: {message}"
+        })
+    
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            max_tokens=150,
+            temperature=0.8
+        )
+        response = completion.choices[0].message.content.strip()
+        
+        # Clean up response - remove quotes if the model added them
+        if response.startswith('"') and response.endswith('"'):
+            response = response[1:-1]
+        if response.startswith(f"{agent_name}:"):
+            response = response[len(f"{agent_name}:"):].strip()
+            
+        return response
+    except Exception as e:
+        print(f"Error generating agent response: {e}")
+        return "hmm interesting"
+
+
+def build_personality_description(personality) -> str:
+    """Build a text description of personality traits including detailed profile."""
+    if not personality:
+        return "You are friendly and approachable."
+    
+    parts = []
+    traits = []
+    
+    if personality.sociability > 0.7:
+        traits.append("very social and outgoing, loves talking to people")
+    elif personality.sociability < 0.3:
+        traits.append("introverted and reserved, prefers shorter conversations")
+    else:
+        traits.append("moderately social")
+    
+    if personality.agreeableness > 0.7:
+        traits.append("very agreeable and supportive")
+    elif personality.agreeableness < 0.3:
+        traits.append("can be blunt or disagreeable at times")
+    
+    if personality.curiosity > 0.7:
+        traits.append("very curious, loves asking questions")
+    elif personality.curiosity < 0.3:
+        traits.append("not very curious, prefers familiar topics")
+    
+    if personality.energy_baseline > 0.7:
+        traits.append("naturally energetic and enthusiastic")
+    elif personality.energy_baseline < 0.3:
+        traits.append("naturally calm and laid-back")
+    
+    parts.append("You are " + ", ".join(traits) + ".")
+    
+    # Add detailed profile if available
+    if hasattr(personality, 'profile_summary') and personality.profile_summary:
+        parts.append(f"\n\nAbout you: {personality.profile_summary[:500]}")
+    
+    if hasattr(personality, 'communication_style') and personality.communication_style:
+        parts.append(f"\n\nYour communication style: {personality.communication_style}")
+    
+    if hasattr(personality, 'interests') and personality.interests:
+        interests = personality.interests
+        if isinstance(interests, str):
+            try:
+                import json
+                interests = json.loads(interests)
+            except:
+                interests = []
+        if interests:
+            parts.append(f"\n\nYour interests: {', '.join(interests[:8])}")
+    
+    if hasattr(personality, 'personality_notes') and personality.personality_notes:
+        parts.append(f"\n\nPersonality notes: {personality.personality_notes[:300]}")
+    
+    return "".join(parts)
+
+
+def build_state_description(state) -> str:
+    """Build a text description of current state."""
+    if not state:
+        return ""
+    
+    descriptions = []
+    
+    if state.energy < 0.3:
+        descriptions.append("You're feeling tired and low on energy")
+    elif state.energy > 0.8:
+        descriptions.append("You're feeling energetic and alert")
+    
+    if state.mood < -0.3:
+        descriptions.append("Your mood is a bit down")
+    elif state.mood > 0.3:
+        descriptions.append("You're in a good mood")
+    
+    if state.loneliness > 0.7:
+        descriptions.append("You've been feeling lonely and really enjoy having someone to talk to")
+    
+    if state.hunger > 0.7:
+        descriptions.append("You're quite hungry")
+    
+    return ". ".join(descriptions) + "." if descriptions else ""
+
+
+def build_relationship_description(social_memory, past_memories: List[Dict], partner_name: str) -> str:
+    """Build a description of the relationship with the conversation partner."""
+    if not social_memory:
+        if past_memories:
+            return f"You've talked to {partner_name} before but don't remember much. Be friendly and try to get to know them again."
+        return f"This is your first time meeting {partner_name}. Be curious and introduce yourself."
+    
+    desc_parts = []
+    
+    # Sentiment
+    if social_memory.sentiment > 0.5:
+        desc_parts.append(f"You really like {partner_name}")
+    elif social_memory.sentiment > 0.2:
+        desc_parts.append(f"You have positive feelings toward {partner_name}")
+    elif social_memory.sentiment < -0.5:
+        desc_parts.append(f"You don't really like {partner_name}")
+    elif social_memory.sentiment < -0.2:
+        desc_parts.append(f"You have some negative feelings toward {partner_name}")
+    else:
+        desc_parts.append(f"You feel neutral about {partner_name}")
+    
+    # Familiarity
+    if social_memory.familiarity > 0.7:
+        desc_parts.append("and know them quite well")
+    elif social_memory.familiarity > 0.3:
+        desc_parts.append("and are getting to know them")
+    else:
+        desc_parts.append("but don't know them very well yet")
+    
+    # Interaction count
+    if social_memory.interaction_count > 5:
+        desc_parts.append(f". You've had many conversations ({social_memory.interaction_count} times)")
+    elif social_memory.interaction_count > 1:
+        desc_parts.append(f". You've talked a few times before")
+    
+    # Last topic
+    if social_memory.last_conversation_topic:
+        desc_parts.append(f". Last time you talked about: {social_memory.last_conversation_topic}")
+    
+    # Add mutual interests if available
+    if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
+        interests = social_memory.mutual_interests if isinstance(social_memory.mutual_interests, list) else []
+        if interests:
+            desc_parts.append(f"\n\nYou both share interests in: {', '.join(interests[:5])}")
+    
+    # Add conversation history summary if available
+    if hasattr(social_memory, 'conversation_history_summary') and social_memory.conversation_history_summary:
+        desc_parts.append(f"\n\nHistory of your relationship:\n{social_memory.conversation_history_summary[:500]}")
+    
+    # Add past memory context
+    if past_memories:
+        memory_context = "\n\nThings you remember from past conversations:\n"
+        for mem in past_memories[:3]:  # Last 3 memories
+            if mem.get("conversation_summary"):
+                memory_context += f"- {mem['conversation_summary']}\n"
+            if mem.get("person_summary"):
+                memory_context += f"  (What you learned about them: {mem['person_summary'][:100]}...)\n"
+        desc_parts.append(memory_context)
+    
+    return "".join(desc_parts)
+
+
+def get_past_memories(owner_id: str, partner_id: str) -> List[Dict]:
+    """Get past conversation memories between two users."""
+    try:
+        result = supabase.table("memories")\
+            .select("*")\
+            .eq("owner_id", owner_id)\
+            .eq("partner_id", partner_id)\
+            .order("created_at", desc=True)\
+            .limit(5)\
+            .execute()
+        return result.data or []
+    except Exception as e:
+        print(f"Error fetching memories: {e}")
+        return []
+
+
+# ============================================================================
+# CONVERSATION END PROCESSING
+# ============================================================================
+
+def process_conversation_end(
+    conversation_id: str,
+    participant_a: str,
+    participant_b: str,
+    participant_a_name: str,
+    participant_b_name: str,
+    transcript: List[Dict[str, Any]],
+    participant_a_is_online: bool = False,
+    participant_b_is_online: bool = False
+) -> Dict[str, Any]:
+    """
+    Process a conversation after it ends.
+    
+    1. Analyze the conversation for sentiment, topics, and detailed profiles
+    2. Update agent_personality with detailed person profile
+    3. Update agent_social_memory with relationship details
+    4. Update agent_state (loneliness, mood, energy)
+    5. Create detailed memory records for future reference
+    """
+    if not transcript or len(transcript) == 0:
+        return {"ok": True, "summary": "Empty conversation", "sentiment_change_a": 0, "sentiment_change_b": 0}
+    
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return {"ok": False, "error": "Database unavailable"}
+    
+    print(f"[Conversation] Processing end for {participant_a_name} & {participant_b_name} ({len(transcript)} messages)")
+    
+    # Analyze the conversation in detail
+    analysis = analyze_conversation(transcript, participant_a_name, participant_b_name)
+    
+    summary = analysis.get("summary", "Had a conversation")
+    sentiment_a = analysis.get("sentiment_a", 0.0)
+    sentiment_b = analysis.get("sentiment_b", 0.0)
+    topics = analysis.get("topics", [])
+    person_a_profile = analysis.get("person_a_profile")
+    person_b_profile = analysis.get("person_b_profile")
+    mutual_interests = analysis.get("mutual_interests", [])
+    relationship_notes = analysis.get("relationship_notes")
+    
+    topic_str = ", ".join(topics[:5]) if topics else None
+    
+    print(f"[Conversation] Analysis: sentiment_a={sentiment_a:.2f}, sentiment_b={sentiment_b:.2f}, topics={topics[:3]}")
+    
+    # ========================================================================
+    # UPDATE AGENT_PERSONALITY with detailed profile for EACH participant
+    # ========================================================================
+    try:
+        # Update participant A's personality profile
+        if person_a_profile:
+            update_personality_profile(
+                db_client, 
+                participant_a, 
+                person_a_profile,
+                participant_a_name
+            )
+        
+        # Update participant B's personality profile
+        if person_b_profile:
+            update_personality_profile(
+                db_client, 
+                participant_b, 
+                person_b_profile,
+                participant_b_name
+            )
+    except Exception as e:
+        print(f"Error updating personality profiles: {e}")
+    
+    # ========================================================================
+    # UPDATE AGENT_SOCIAL_MEMORY with detailed relationship info
+    # ========================================================================
+    try:
+        # A -> B (how A feels about B)
+        update_social_memory_detailed(
+            db_client,
+            participant_a,
+            participant_b,
+            sentiment_delta=sentiment_a * 0.15,  # Scaled for gradual change
+            familiarity_delta=0.08,
+            topic=topic_str,
+            mutual_interests=mutual_interests,
+            relationship_notes=relationship_notes,
+            conversation_summary=summary
+        )
+        
+        # B -> A (how B feels about A)
+        update_social_memory_detailed(
+            db_client,
+            participant_b,
+            participant_a,
+            sentiment_delta=sentiment_b * 0.15,
+            familiarity_delta=0.08,
+            topic=topic_str,
+            mutual_interests=mutual_interests,
+            relationship_notes=relationship_notes,
+            conversation_summary=summary
+        )
+    except Exception as e:
+        print(f"Error updating social memory: {e}")
+    
+    # ========================================================================
+    # UPDATE AGENT_STATE for offline participants
+    # ========================================================================
+    try:
+        if not participant_a_is_online:
+            update_agent_state_after_conversation(db_client, participant_a, sentiment_a)
+        if not participant_b_is_online:
+            update_agent_state_after_conversation(db_client, participant_b, sentiment_b)
+    except Exception as e:
+        print(f"Error updating agent state: {e}")
+    
+    # ========================================================================
+    # CREATE DETAILED MEMORY RECORDS
+    # ========================================================================
+    try:
+        # Update the conversation record
+        supabase.table("conversations").update({
+            "ended_at": datetime.utcnow().isoformat(),
+            "transcript": transcript
+        }).eq("id", conversation_id).execute()
+    except Exception as e:
+        print(f"Error updating conversation record: {e}")
+    
+    try:
+        # Create detailed memory for participant A about B
+        memory_a_data = {
+            "conversation_id": conversation_id,
+            "owner_id": participant_a,
+            "partner_id": participant_b,
+            "summary": summary,
+            "conversation_summary": summary,
+            "conversation_score": max(1, min(10, int(5 + sentiment_a * 5)))
+        }
+        
+        # Add person summary if we learned about B
+        if person_b_profile:
+            memory_a_data["person_summary"] = build_person_summary_text(person_b_profile, participant_b_name)
+            if person_b_profile.get("notable_quotes"):
+                memory_a_data["owner_quotes"] = json.dumps(person_b_profile["notable_quotes"][:3])
+        
+        supabase.table("memories").insert(memory_a_data).execute()
+        
+        # Create detailed memory for participant B about A
+        memory_b_data = {
+            "conversation_id": conversation_id,
+            "owner_id": participant_b,
+            "partner_id": participant_a,
+            "summary": summary,
+            "conversation_summary": summary,
+            "conversation_score": max(1, min(10, int(5 + sentiment_b * 5)))
+        }
+        
+        # Add person summary if we learned about A
+        if person_a_profile:
+            memory_b_data["person_summary"] = build_person_summary_text(person_a_profile, participant_a_name)
+            if person_a_profile.get("notable_quotes"):
+                memory_b_data["owner_quotes"] = json.dumps(person_a_profile["notable_quotes"][:3])
+        
+        supabase.table("memories").insert(memory_b_data).execute()
+        
+        print(f"[Conversation] Created memories for both participants")
+    except Exception as e:
+        print(f"Error creating memories: {e}")
+    
+    return {
+        "ok": True,
+        "summary": summary,
+        "sentiment_change_a": sentiment_a * 0.15,
+        "sentiment_change_b": sentiment_b * 0.15
+    }
+
+
+def update_personality_profile(db_client, avatar_id: str, profile: Dict, name: str):
+    """Update an avatar's personality profile with new information from a conversation."""
+    if not profile:
+        return
+    
+    # Build profile summary text
+    profile_parts = []
+    
+    if profile.get("personality_traits"):
+        traits = profile["personality_traits"]
+        if isinstance(traits, list):
+            profile_parts.append(f"Personality: {', '.join(traits[:5])}")
+    
+    if profile.get("revealed_info"):
+        profile_parts.append(f"Background: {profile['revealed_info']}")
+    
+    if profile.get("mood_in_conversation"):
+        profile_parts.append(f"Typical mood: {profile['mood_in_conversation']}")
+    
+    profile_summary = ". ".join(profile_parts) if profile_parts else None
+    
+    # Get communication style
+    communication_style = profile.get("communication_style")
+    
+    # Get interests
+    interests = profile.get("interests", [])
+    if isinstance(interests, list):
+        interests_json = json.dumps(interests)
+    else:
+        interests_json = None
+    
+    # Update the personality table with new info (append, don't overwrite)
+    try:
+        # Get existing personality
+        existing = supabase.table("agent_personality").select("*").eq("avatar_id", avatar_id).execute()
+        
+        if existing.data and len(existing.data) > 0:
+            current = existing.data[0]
+            
+            # Append to existing profile summary
+            new_profile = current.get("profile_summary", "") or ""
+            if profile_summary:
+                if new_profile:
+                    new_profile = f"{new_profile}\n\n[Latest observation]: {profile_summary}"
+                else:
+                    new_profile = profile_summary
+            
+            # Update communication style (keep latest)
+            new_comm_style = communication_style or current.get("communication_style")
+            
+            # Merge interests
+            existing_interests = current.get("interests", []) or []
+            if isinstance(existing_interests, str):
+                try:
+                    existing_interests = json.loads(existing_interests)
+                except:
+                    existing_interests = []
+            
+            all_interests = list(set(existing_interests + interests))[:20]  # Keep top 20
+            
+            # Update personality notes
+            personality_notes = None
+            if profile.get("personality_traits"):
+                traits = profile["personality_traits"]
+                if isinstance(traits, list):
+                    personality_notes = f"Observed traits: {', '.join(traits)}"
+            
+            # Update the record
+            update_data = {
+                "profile_summary": new_profile[:2000] if new_profile else None,  # Limit size
+                "communication_style": new_comm_style[:500] if new_comm_style else None,
+                "interests": json.dumps(all_interests) if all_interests else None,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            if personality_notes:
+                existing_notes = current.get("personality_notes", "") or ""
+                if existing_notes:
+                    update_data["personality_notes"] = f"{existing_notes}; {personality_notes}"[:1000]
+                else:
+                    update_data["personality_notes"] = personality_notes
+            
+            supabase.table("agent_personality").update(update_data).eq("avatar_id", avatar_id).execute()
+            print(f"[Profile] Updated personality profile for {name}")
+        else:
+            # Create new personality record
+            supabase.table("agent_personality").insert({
+                "avatar_id": avatar_id,
+                "profile_summary": profile_summary[:2000] if profile_summary else None,
+                "communication_style": communication_style[:500] if communication_style else None,
+                "interests": json.dumps(interests) if interests else None,
+                "sociability": 0.5,
+                "curiosity": 0.5,
+                "agreeableness": 0.5,
+                "energy_baseline": 0.5
+            }).execute()
+            print(f"[Profile] Created personality profile for {name}")
+    except Exception as e:
+        print(f"Error updating personality profile for {name}: {e}")
+
+
+def update_social_memory_detailed(
+    db_client,
+    from_avatar_id: str,
+    to_avatar_id: str,
+    sentiment_delta: float = 0.0,
+    familiarity_delta: float = 0.05,
+    topic: Optional[str] = None,
+    mutual_interests: Optional[List[str]] = None,
+    relationship_notes: Optional[str] = None,
+    conversation_summary: Optional[str] = None
+):
+    """Update social memory with detailed relationship information."""
+    try:
+        # Try to use the database function first
+        supabase.rpc("update_social_memory_detailed", {
+            "p_from_avatar_id": from_avatar_id,
+            "p_to_avatar_id": to_avatar_id,
+            "p_sentiment_delta": sentiment_delta,
+            "p_familiarity_delta": familiarity_delta,
+            "p_topic": topic,
+            "p_mutual_interests": json.dumps(mutual_interests) if mutual_interests else None,
+            "p_relationship_notes": relationship_notes,
+            "p_conversation_summary": conversation_summary
+        }).execute()
+    except Exception as e:
+        print(f"RPC failed, using fallback: {e}")
+        # Fallback to basic update
+        agent_db.update_social_memory(
+            db_client,
+            from_avatar_id,
+            to_avatar_id,
+            sentiment_delta=sentiment_delta,
+            familiarity_delta=familiarity_delta,
+            conversation_topic=topic
+        )
+
+
+def build_person_summary_text(profile: Dict, name: str) -> str:
+    """Build a detailed text summary of a person from their profile."""
+    if not profile:
+        return ""
+    
+    parts = []
+    
+    if profile.get("personality_traits"):
+        traits = profile["personality_traits"]
+        if isinstance(traits, list) and traits:
+            parts.append(f"{name} comes across as {', '.join(traits[:4])}")
+    
+    if profile.get("communication_style"):
+        parts.append(f"Communication style: {profile['communication_style']}")
+    
+    if profile.get("interests"):
+        interests = profile["interests"]
+        if isinstance(interests, list) and interests:
+            parts.append(f"Interests include: {', '.join(interests[:5])}")
+    
+    if profile.get("revealed_info"):
+        parts.append(f"Personal info: {profile['revealed_info']}")
+    
+    if profile.get("mood_in_conversation"):
+        parts.append(f"Mood during conversation: {profile['mood_in_conversation']}")
+    
+    return ". ".join(parts)
+
+
+def analyze_conversation(transcript: List[Dict], name_a: str, name_b: str) -> Dict[str, Any]:
+    """
+    Analyze a conversation to extract detailed information about both participants.
+    
+    Returns a comprehensive analysis including:
+    - Summary of conversation
+    - Sentiment for both participants
+    - Topics discussed
+    - Person profiles (what we learned about each person)
+    - Communication styles
+    - Interests revealed
+    - Important quotes
+    - Mutual interests
+    - Relationship dynamic
+    """
+    if not client:
+        # Fallback without LLM
+        return {
+            "summary": "Had a conversation",
+            "sentiment_a": 0.1,
+            "sentiment_b": 0.1,
+            "topics": [],
+            "person_a_profile": None,
+            "person_b_profile": None,
+            "mutual_interests": [],
+            "relationship_notes": None
+        }
+    
+    # Format transcript
+    transcript_text = ""
+    for msg in transcript:
+        sender = msg.get("senderName", "Unknown")
+        content = msg.get("content", "")
+        transcript_text += f"{sender}: {content}\n"
+    
+    analysis_prompt = f"""Analyze this conversation between {name_a} and {name_b} in EXTREME DETAIL.
+
+TRANSCRIPT:
+{transcript_text}
+
+You are building a psychological profile of each person. Extract EVERYTHING you can learn about them.
+
+Return JSON with:
+{{
+  "summary": "2-3 sentence summary of what they discussed",
+  "sentiment_a": (float -1.0 to 1.0) How {name_a} feels toward {name_b} after this,
+  "sentiment_b": (float -1.0 to 1.0) How {name_b} feels toward {name_a} after this,
+  "topics": ["list", "of", "main", "topics"],
+  
+  "person_a_profile": {{
+    "personality_traits": ["observed traits like: friendly, sarcastic, curious, shy, etc."],
+    "communication_style": "How they communicate: formal/casual, uses emojis?, verbose/brief, humor style",
+    "interests": ["hobbies", "things they mentioned liking"],
+    "revealed_info": "Personal info they shared: job, location, experiences, opinions",
+    "notable_quotes": ["up to 3 memorable things they said"],
+    "mood_in_conversation": "How they seemed: excited, bored, engaged, distracted"
+  }},
+  
+  "person_b_profile": {{
+    "personality_traits": ["observed traits"],
+    "communication_style": "How they communicate",
+    "interests": ["their interests"],
+    "revealed_info": "What they shared about themselves",
+    "notable_quotes": ["memorable quotes"],
+    "mood_in_conversation": "Their mood"
+  }},
+  
+  "mutual_interests": ["shared interests or topics both engaged with enthusiastically"],
+  "relationship_notes": "The dynamic between them: do they click? tension? awkwardness? chemistry?",
+  "conversation_quality": "Rate the conversation: deep/meaningful, casual/fun, awkward, boring, etc."
+}}
+
+Be thorough. This data will be used to simulate these people realistically in future conversations.
+Output only valid JSON:
+"""
+
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are a personality analyst. Extract detailed psychological profiles from conversations. Be thorough and specific. Output valid JSON only."},
+                {"role": "user", "content": analysis_prompt}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=1000
+        )
+        
+        result = json.loads(completion.choices[0].message.content)
+        return {
+            "summary": result.get("summary", "Had a conversation"),
+            "sentiment_a": float(result.get("sentiment_a", 0)),
+            "sentiment_b": float(result.get("sentiment_b", 0)),
+            "topics": result.get("topics", []),
+            "person_a_profile": result.get("person_a_profile"),
+            "person_b_profile": result.get("person_b_profile"),
+            "mutual_interests": result.get("mutual_interests", []),
+            "relationship_notes": result.get("relationship_notes"),
+            "conversation_quality": result.get("conversation_quality")
+        }
+    except Exception as e:
+        print(f"Error analyzing conversation: {e}")
+        return {
+            "summary": "Had a conversation",
+            "sentiment_a": 0.1,
+            "sentiment_b": 0.1,
+            "topics": [],
+            "person_a_profile": None,
+            "person_b_profile": None,
+            "mutual_interests": [],
+            "relationship_notes": None
+        }
+
+
+def update_agent_state_after_conversation(db_client, avatar_id: str, sentiment: float):
+    """Update agent state after a conversation ends."""
+    state = agent_db.get_state(db_client, avatar_id)
+    if not state:
+        return
+    
+    # Decrease loneliness (conversations help!)
+    new_loneliness = max(0, state.loneliness - 0.15)
+    
+    # Adjust mood based on conversation sentiment
+    mood_change = sentiment * 0.1
+    new_mood = max(-1.0, min(1.0, state.mood + mood_change))
+    
+    # Slight energy decrease (talking is tiring)
+    new_energy = max(0, state.energy - 0.05)
+    
+    # Update state
+    state.loneliness = new_loneliness
+    state.mood = new_mood
+    state.energy = new_energy
+    
+    agent_db.update_state(db_client, state)
+
+
+# ============================================================================
+# CONVERSATION RECORD MANAGEMENT
+# ============================================================================
+
+def get_or_create_conversation(participant_a: str, participant_b: str) -> Optional[str]:
+    """Get or create a conversation record between two participants."""
+    try:
+        result = supabase.rpc(
+            "get_or_create_conversation",
+            {"p_participant_a": participant_a, "p_participant_b": participant_b}
+        ).execute()
+        return result.data if result.data else None
+    except Exception as e:
+        print(f"Error getting/creating conversation: {e}")
+        # Fallback: create directly
+        try:
+            result = supabase.table("conversations").insert({
+                "participant_a": participant_a,
+                "participant_b": participant_b,
+                "is_onboarding": False,
+                "started_at": datetime.utcnow().isoformat(),
+                "conversation_type": "chat",
+                "active_transcript": []
+            }).execute()
+            return result.data[0]["id"] if result.data else None
+        except Exception as e2:
+            print(f"Fallback conversation creation failed: {e2}")
+            return None
+
+
+def add_message_to_conversation(conversation_id: str, sender_id: str, sender_name: str, content: str) -> Optional[Dict]:
+    """Add a message to an active conversation."""
+    try:
+        result = supabase.rpc(
+            "add_conversation_message",
+            {
+                "p_conversation_id": conversation_id,
+                "p_sender_id": sender_id,
+                "p_sender_name": sender_name,
+                "p_content": content
+            }
+        ).execute()
+        return result.data if result.data else None
+    except Exception as e:
+        print(f"Error adding message: {e}")
+        # Fallback: manual update
+        try:
+            import uuid
+            message = {
+                "id": str(uuid.uuid4()),
+                "senderId": sender_id,
+                "senderName": sender_name,
+                "content": content,
+                "timestamp": datetime.utcnow().timestamp() * 1000
+            }
+            # Get current transcript
+            conv = supabase.table("conversations").select("active_transcript").eq("id", conversation_id).single().execute()
+            if conv.data:
+                transcript = conv.data.get("active_transcript", [])
+                transcript.append(message)
+                supabase.table("conversations").update({
+                    "active_transcript": transcript
+                }).eq("id", conversation_id).execute()
+                return message
+        except Exception as e2:
+            print(f"Fallback message add failed: {e2}")
+        return None
+
+
+def get_conversation_transcript(conversation_id: str) -> List[Dict]:
+    """Get the current transcript of a conversation."""
+    try:
+        result = supabase.table("conversations")\
+            .select("active_transcript")\
+            .eq("id", conversation_id)\
+            .single()\
+            .execute()
+        return result.data.get("active_transcript", []) if result.data else []
+    except Exception as e:
+        print(f"Error getting transcript: {e}")
+        return []
