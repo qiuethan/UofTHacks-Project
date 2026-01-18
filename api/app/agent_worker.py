@@ -187,7 +187,7 @@ def execute_action(
                         expires_at = expires_at.replace(tzinfo=None)
                     
                     if datetime.utcnow() >= expires_at:
-                        # Activity completed! Apply remaining effects
+                        # Activity completed! Apply the FULL effects now
                         state = apply_interaction_effects(state, location.effects)
                         state.current_action = 'idle'
                         state.current_action_target = None
@@ -196,35 +196,15 @@ def execute_action(
                         
                         short_id = context.avatar_id[:8]
                         print(f"✅ {short_id} | COMPLETED {action.action_type.value} at {location.name}")
+                        print(f"   Applied effects: {location.effects}")
                         print(f"   Stats now: E:{state.energy:.0%} H:{state.hunger:.0%} L:{state.loneliness:.0%} M:{state.mood:.0%}")
                         result = "activity_completed"
                     else:
-                        # Still doing the activity - apply gradual effects per tick
+                        # Still doing the activity - just wait (effects apply at completion)
                         remaining = (expires_at - datetime.utcnow()).total_seconds()
-                        
-                        # Get started_at for progress calculation
-                        started_at = context.state.action_started_at
-                        if isinstance(started_at, str):
-                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-                        if started_at and started_at.tzinfo:
-                            started_at = started_at.replace(tzinfo=None)
-                        
-                        # Calculate total duration and apply proportional effects per tick
-                        if started_at:
-                            total_duration = (expires_at - started_at).total_seconds()
-                            if total_duration > 0:
-                                # Apply a fraction of effects each tick
-                                # AI loop runs every ~1 second, so apply 1/total_duration of effects
-                                tick_fraction = 1.0 / total_duration
-                                partial_effects = {
-                                    stat: value * tick_fraction
-                                    for stat, value in location.effects.items()
-                                }
-                                state = apply_interaction_effects(state, partial_effects)
-                                short_id = context.avatar_id[:8]
-                                logger.debug(f"{short_id} applying partial effects {partial_effects} from {location.name}")
-                        
-                        logger.info(f"Avatar {context.avatar_id} doing {action.action_type.value} at {location.name} - {remaining:.0f}s remaining")
+                        short_id = context.avatar_id[:8]
+                        # Show current stats while waiting
+                        print(f"⏳ {short_id} | {action.action_type.value} at {location.name} - {remaining:.0f}s left | E:{state.energy:.0%}")
                         result = "activity_in_progress"
                 else:
                     # Starting the activity fresh - fast 6-second activities
@@ -364,8 +344,10 @@ def process_agent_tick(
         else:
             elapsed = 300  # Default 5 minutes
         
-        # Apply state decay
-        context.state = apply_state_decay(context.state, elapsed)
+        # Skip decay during restorative activities (doesn't make sense to get MORE tired while resting!)
+        restorative_actions = ['interact_rest', 'interact_food']
+        if context.state.current_action not in restorative_actions:
+            context.state = apply_state_decay(context.state, elapsed)
         
         # Check if agent is mid-activity and should continue
         # Don't make a new decision if we're doing an activity or walking somewhere!
@@ -384,28 +366,31 @@ def process_agent_tick(
                 if expires_at.tzinfo:
                     expires_at = expires_at.replace(tzinfo=None)
                 
-                if datetime.utcnow() < expires_at:
-                    # Activity still in progress - continue it
-                    location = next(
-                        (loc for loc in context.world_locations if loc.id == target_id),
-                        None
+                # Activity in progress OR just expired - need to process it either way
+                location = next(
+                    (loc for loc in context.world_locations if loc.id == target_id),
+                    None
+                )
+                if location:
+                    action = SelectedAction(
+                        action_type=ActionType(context.state.current_action),
+                        target=ActionTarget(
+                            target_type="location",
+                            target_id=location.id,
+                            name=location.name,
+                            x=location.x,
+                            y=location.y
+                        ),
+                        utility_score=10.0,  # High score - we're committed
+                        duration_seconds=location.duration_seconds
                     )
-                    if location:
-                        action = SelectedAction(
-                            action_type=ActionType(context.state.current_action),
-                            target=ActionTarget(
-                                target_type="location",
-                                target_id=location.id,
-                                name=location.name,
-                                x=location.x,
-                                y=location.y
-                            ),
-                            utility_score=10.0,  # High score - we're committed
-                            duration_seconds=location.duration_seconds
-                        )
+                    if datetime.utcnow() < expires_at:
                         remaining = (expires_at - datetime.utcnow()).total_seconds()
                         short_id = avatar_id[:8]
                         print(f"⏳ {short_id} | CONTINUING {context.state.current_action} at {location.name} - {remaining:.0f}s remaining")
+                    else:
+                        short_id = avatar_id[:8]
+                        print(f"🏁 {short_id} | {context.state.current_action} at {location.name} EXPIRED - processing completion")
         
         # Check if agent is mid-walk and should continue to destination
         if action is None and context.state.current_action == 'walk_to_location' and context.state.current_action_target:
