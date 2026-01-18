@@ -348,7 +348,7 @@ export default function CreateAvatar() {
         <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
           <div className="text-6xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold mb-2 text-black">Avatar Created!</h2>
-          <p className="text-black">Entering the world...</p>
+          <p className="text-black">Entering the Identity Matrix...</p>
         </div>
       </div>
     )

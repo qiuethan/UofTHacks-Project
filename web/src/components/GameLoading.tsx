@@ -40,7 +40,7 @@ export default function GameLoading({ onComplete, minDuration = 2000 }: GameLoad
           style={{ width: `${progress}%` }}
         />
       </div>
-      <p className="mt-4 text-black font-semibold">Loading world...</p>
+      <p className="mt-4 text-black font-semibold">Loading Identity Matrix...</p>
     </div>
   )
 }

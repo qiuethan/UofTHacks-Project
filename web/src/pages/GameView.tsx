@@ -206,7 +206,7 @@ export default function GameView() {
       {showStatusModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4">
           <div className="panel-fun p-8 max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <h2 className="text-2xl font-bold text-black mb-4 text-center">World Simulation</h2>
+            <h2 className="text-2xl font-bold text-black mb-4 text-center">Identity Matrix</h2>
             
             <div className="flex flex-col items-center gap-4 mb-6">
               <ConnectionStatus connected={connected} />

@@ -420,7 +420,7 @@ export default function Profile() {
                 {directions.map(dir => {
                   const spriteUrl = regeneratedSprites[dir]
                   return (
-                    <div key={dir} className="p-2 bg-white border border-black">
+                    <div key={dir} className="p-2 bg-[#FFF8F0] border border-black">
                       {spriteUrl ? (
                         <img
                           src={spriteUrl}
@@ -462,7 +462,7 @@ export default function Profile() {
             onClick={() => navigate('/play')}
             className="btn-primary px-8 py-4 text-white font-bold text-lg border-0"
           >
-            Enter the World
+            Enter the Identity Matrix
           </button>
         </div>
       </div>

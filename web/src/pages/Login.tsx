@@ -62,10 +62,10 @@ export default function Login() {
     <div className="h-full flex items-center justify-center p-4">
       <div className="panel-fun p-8 w-full max-w-md">
         <h1 className="text-3xl font-bold mb-2 text-center text-black">
-          {isSignUp ? 'Join Avatar World' : 'Welcome Back'}
+          {isSignUp ? 'Join Identity Matrix' : 'Welcome Back'}
         </h1>
         <p className="text-black text-center mb-6">
-          {isSignUp ? 'Create an account to enter the world' : 'Sign in to continue your adventure'}
+          {isSignUp ? 'Create an account to enter the Identity Matrix' : 'Sign in to continue your adventure'}
         </p>
 
         {error && (

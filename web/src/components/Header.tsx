@@ -58,8 +58,8 @@ export default function Header() {
         </div>
 
         {/* Center logo */}
-        <Link to="/" className="absolute left-1/2 -translate-x-1/2 text-white font-bold text-2xl drop-shadow-sm">
-          WORLD
+        <Link to="/" className="absolute left-1/2 -translate-x-1/2">
+          <img src="/logo.png" alt="Logo" className="h-12" style={{ imageRendering: 'pixelated' }} />
         </Link>
         <div className="flex items-center gap-4">
           {!loading && user ? (
