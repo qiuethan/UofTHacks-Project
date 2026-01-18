@@ -3,7 +3,7 @@ import type { GameEntity } from '../game/types'
 import { 
   Moon, Footprints, MapPin, MessageCircle, Utensils, Sofa, Mic, 
   User, Clock, Zap, Apple, Users, Smile, Search, Heart,
-  ChevronDown, ChevronRight, X, Crosshair, Bot, Radio
+  ChevronDown, ChevronRight, X, Crosshair, Bot, Radio, Compass
 } from 'lucide-react'
 
 interface ActionObject {
@@ -68,6 +68,9 @@ function getActionName(action: string | ActionObject): string {
   return action.action || 'idle'
 }
 
+// Player activity state type
+type PlayerActivityState = 'idle' | 'walking' | 'talking' | 'eating' | 'resting' | 'socializing' | 'singing' | 'wandering'
+
 interface AgentSidebarProps {
   isOpen: boolean
   onToggle: () => void
@@ -75,6 +78,9 @@ interface AgentSidebarProps {
   followingAgentId?: string | null
   // Real-time entity data from WebSocket
   entities?: Map<string, GameEntity>
+  // Current user's activity state (for showing in the sidebar)
+  myEntityId?: string | null
+  myActivityState?: PlayerActivityState
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003'
@@ -88,6 +94,8 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   interact_food: <Utensils size={16} />,
   interact_rest: <Sofa size={16} />,
   interact_karaoke: <Mic size={16} />,
+  interact_social_hub: <Users size={16} />,
+  interact_wander_point: <Compass size={16} />,
   stand_still: <User size={16} />,
 }
 
@@ -183,22 +191,42 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
     statusIcon = <Clock size={16} className="text-[#7a5224]" />
     statusText = 'Waiting for response...'
     statusColor = 'text-[#7a5224]'
-  } else if (agent.is_moving) {
-    // Detected from real-time position changes
-    statusIcon = <Footprints size={16} className="text-[#007a28]" />
-    statusText = 'Walking...'
+  } 
+  // Activity states
+  else if (actionName === 'interact_food') {
+    statusIcon = <Utensils size={16} className="text-[#007a28]" />
+    statusText = 'Eating...'
     statusColor = 'text-[#007a28]'
-  } else if (actionName === 'idle' || actionName === 'stand_still') {
-    // Standing still - check if resting based on low energy
-    if (agent.state.energy < 0.3) {
-      statusIcon = <Sofa size={16} className="text-[#7a5224]" />
-      statusText = 'Resting...'
-      statusColor = 'text-[#7a5224]'
-    } else {
-      statusIcon = <Moon size={16} className="text-black/60" />
-      statusText = 'Idle'
-      statusColor = 'text-black/60'
-    }
+  } else if (actionName === 'interact_karaoke') {
+    statusIcon = <Mic size={16} className="text-[#007a28]" />
+    statusText = 'Singing karaoke...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'interact_rest') {
+    statusIcon = <Sofa size={16} className="text-[#7a5224]" />
+    statusText = 'Resting...'
+    statusColor = 'text-[#7a5224]'
+  } else if (actionName === 'interact_social_hub') {
+    statusIcon = <Users size={16} className="text-[#007a28]" />
+    statusText = 'Socializing...'
+    statusColor = 'text-[#007a28]'
+  } else if (actionName === 'interact_wander_point') {
+    statusIcon = <Compass size={16} className="text-[#007a28]" />
+    statusText = 'Exploring...'
+    statusColor = 'text-[#007a28]'
+  } 
+  // Movement states - walking or wandering
+  else if (actionName === 'walk_to_location' || actionName === 'wander' || agent.is_moving) {
+    // Any movement is just "Walking"
+    statusIcon = <Footprints size={16} className="text-black/60" />
+    statusText = 'Walking...'
+    statusColor = 'text-black/60'
+  } 
+  // Idle states - not doing anything specific
+  else {
+    // Default to idling when not doing any other action
+    statusIcon = <Moon size={16} className="text-black/40" />
+    statusText = 'Idling'
+    statusColor = 'text-black/40'
   }
   
   return (
@@ -334,7 +362,7 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
   )
 }
 
-export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followingAgentId, entities }: AgentSidebarProps) {
+export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followingAgentId, entities, myEntityId, myActivityState }: AgentSidebarProps) {
   // Agent metadata from API (personality, current_action) - fetched less frequently
   const [agentMetadata, setAgentMetadata] = useState<Map<string, AgentMetadata>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -459,6 +487,20 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
     return () => clearInterval(interval)
   }, [isOpen, entities])
   
+  // Map player activity state to action string for display
+  const activityToAction = (activity: PlayerActivityState): string => {
+    switch (activity) {
+      case 'eating': return 'interact_food'
+      case 'resting': return 'interact_rest'
+      case 'socializing': return 'interact_social_hub'
+      case 'singing': return 'interact_karaoke'
+      case 'wandering': return 'interact_wander_point'
+      case 'walking': return 'wander'
+      case 'talking': return 'in_conversation'
+      default: return 'idle'
+    }
+  }
+
   // Combine real-time entity data with agent metadata
   const agents = useMemo<AgentData[]>(() => {
     if (!entities) return []
@@ -470,6 +512,15 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
       
       const metadata = agentMetadata.get(entityId)
       const isMoving = movingAgents.has(entityId)
+      const isMe = entityId === myEntityId
+      
+      // Prefer real-time current_action from WebSocket, fall back to API metadata
+      // For the current user, use their local activity state if provided
+      let currentAction: string | ActionObject = 
+        entity.stats?.current_action || metadata?.current_action || 'idle'
+      if (isMe && myActivityState) {
+        currentAction = activityToAction(myActivityState)
+      }
       
       result.push({
         avatar_id: entityId,
@@ -490,13 +541,13 @@ export default function AgentSidebar({ isOpen, onToggle, onFollowAgent, followin
           curiosity: 0.5,
           agreeableness: 0.5,
         },
-        current_action: metadata?.current_action ?? 'idle',
+        current_action: currentAction,
         last_action_time: metadata?.last_action_time ?? null,
       })
     }
     
     return result
-  }, [entities, agentMetadata, movingAgents])
+  }, [entities, agentMetadata, movingAgents, myEntityId, myActivityState])
   
   const toggleAgent = (avatarId: string) => {
     setExpandedAgents(prev => {

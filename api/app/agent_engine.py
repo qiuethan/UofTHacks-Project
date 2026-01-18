@@ -33,23 +33,31 @@ class DecisionConfig:
     """Configuration for the decision engine"""
     # Scoring weights
     NEED_WEIGHT = 1.0
-    PERSONALITY_WEIGHT = 0.6
-    SOCIAL_WEIGHT = 0.4
-    AFFINITY_WEIGHT = 0.5
+    PERSONALITY_WEIGHT = 0.8  # Increased from 0.6 - personality matters more
+    SOCIAL_WEIGHT = 0.6  # Increased from 0.4 - social interactions more valuable
+    AFFINITY_WEIGHT = 1.2  # Increased from 0.5 - activities they enjoy are much more appealing
     RECENCY_WEIGHT = 0.3
-    RANDOMNESS_WEIGHT = 0.2
+    RANDOMNESS_WEIGHT = 0.15  # Reduced from 0.2 - less random behavior
+    
+    # Activity base bonus - agents are generally attracted to activities
+    ACTIVITY_BASE_BONUS = 0.4  # Base attractiveness for any activity
+    
+    # Conversation base bonus - agents WANT to talk to each other!
+    # This makes conversation the PREFERRED action unless needs are critical
+    CONVERSATION_BASE_BONUS = 0.8  # High base appeal for conversations
     
     # Softmax temperature (lower = more deterministic)
-    SOFTMAX_TEMPERATURE = 0.5
+    SOFTMAX_TEMPERATURE = 0.4  # Reduced from 0.5 - more likely to pick best action
     
     # Thresholds
     CRITICAL_HUNGER = 0.8
     CRITICAL_ENERGY = 0.15
     HIGH_LONELINESS = 0.7
+    LOW_MOOD = 0.3  # New - when mood is low, prefer fun activities
     
     # Social parameters
-    CONVERSATION_RADIUS = 8
-    RECENT_INTERACTION_HOURS = 2
+    CONVERSATION_RADIUS = 10  # Increased from 8 - agents can initiate from further away
+    RECENT_INTERACTION_HOURS = 1  # Reduced from 2 - can talk again sooner
     
     # Time decay rates (per tick)
     ENERGY_DECAY = 0.02
@@ -71,42 +79,73 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
     """
     Calculate how much an action satisfies current needs.
     Higher scores for actions that address urgent needs.
+    Activities have a base attractiveness to encourage agents to actually do things.
     """
     score = 0.0
+    
+    # All location activities get a base attractiveness bonus
+    if action in [ActionType.INTERACT_FOOD, ActionType.INTERACT_REST, ActionType.INTERACT_KARAOKE,
+                  ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
+        score += DecisionConfig.ACTIVITY_BASE_BONUS
+    
+    # Walking to a location also gets a smaller base bonus
+    if action == ActionType.WALK_TO_LOCATION and location:
+        score += DecisionConfig.ACTIVITY_BASE_BONUS * 0.5
     
     # Food-related actions
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD]:
         if location and location.location_type == LocationType.FOOD:
             # Higher score when hungrier
-            score += state.hunger * 1.5
+            score += state.hunger * 2.0  # Increased from 1.5
             # Bonus if critically hungry
             if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-                score += 0.5
+                score += 0.8  # Increased from 0.5
     
     # Rest-related actions
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
         if action == ActionType.IDLE:
-            score += (1.0 - state.energy) * 0.3  # Small boost for idle when tired
+            score += (1.0 - state.energy) * 0.2  # Small boost for idle when tired
         elif location and location.location_type == LocationType.REST_AREA:
-            score += (1.0 - state.energy) * 1.5
+            score += (1.0 - state.energy) * 2.0  # Increased from 1.5
             if state.energy < DecisionConfig.CRITICAL_ENERGY:
-                score += 0.5
+                score += 0.8  # Increased from 0.5
     
-    # Social actions address loneliness
+    # Social actions - conversations are ALWAYS appealing (with base bonus)
+    # Agents are social creatures and WANT to talk, not just when lonely
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += 0.8  # Base boost to make conversations more likely
-        score += state.loneliness * 2.0  # Increased from 1.2
+        # High base appeal - agents enjoy conversations even when not lonely!
+        score += DecisionConfig.CONVERSATION_BASE_BONUS
+        # Additional appeal based on loneliness
+        score += state.loneliness * 1.0
+        # Bonus when very lonely
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.6  # Increased from 0.4
+            score += 0.5
     
-    # Karaoke addresses loneliness and boosts mood
+    # Karaoke addresses loneliness and boosts mood - fun activity!
     if action == ActionType.INTERACT_KARAOKE:
-        score += state.loneliness * 0.8
-        score += (1.0 - state.mood) * 0.5  # More appealing when mood is low
+        score += state.loneliness * 1.0  # Increased from 0.8
+        score += (1.0 - state.mood) * 0.8  # Increased - more appealing when mood is low
+        if state.mood < DecisionConfig.LOW_MOOD:
+            score += 0.5  # Extra bonus when mood is really low
     
-    # Wander satisfies curiosity need (implicit)
+    # Social hub addresses loneliness
+    if action == ActionType.INTERACT_SOCIAL_HUB:
+        score += state.loneliness * 1.2  # Increased from 1.0
+        if state.loneliness > DecisionConfig.HIGH_LONELINESS:
+            score += 0.4  # Increased from 0.3
+    
+    # Wander point satisfies curiosity and improves mood
+    if action == ActionType.INTERACT_WANDER_POINT:
+        score += 0.4  # Increased base exploration appeal
+        score += (1.0 - state.mood) * 0.4  # Increased - more appealing when mood is low
+    
+    # Wander has low base appeal - agents should prefer activities or conversations
     if action == ActionType.WANDER:
-        score += 0.2  # Base wander appeal
+        score += 0.05  # Very low - almost never choose to just wander
+    
+    # Idle has very low appeal - only when really tired or no other options
+    if action == ActionType.IDLE:
+        score += 0.02  # Minimal base appeal - agents should DO things, not idle!
     
     return score
 
@@ -121,7 +160,9 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     """
     score = 0.0
     
-    # Sociable personalities prefer social actions
+    # Sociable personalities STRONGLY prefer social actions
+    # Even introverts will occasionally chat (0.3 * 1.2 = 0.36 bonus)
+    # Extroverts love to talk (0.9 * 1.2 = 1.08 bonus)
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
         score += personality.sociability * 1.2  # Increased from 0.8
     
@@ -139,8 +180,16 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
         score += (1.0 - personality.energy_baseline) * 0.4
     
     # High energy baseline = prefers active actions
-    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE]:
+    if action in [ActionType.WANDER, ActionType.INTERACT_KARAOKE, ActionType.INTERACT_WANDER_POINT]:
         score += personality.energy_baseline * 0.3
+    
+    # Sociable personalities prefer social hubs
+    if action == ActionType.INTERACT_SOCIAL_HUB:
+        score += personality.sociability * 0.6
+    
+    # Curious personalities prefer wander points
+    if action == ActionType.INTERACT_WANDER_POINT:
+        score += personality.curiosity * 0.5
     
     return score
 
@@ -172,21 +221,22 @@ def calculate_social_bias(
     if social_memory:
         # Positive sentiment increases desire to interact
         if action == ActionType.INITIATE_CONVERSATION:
-            score += social_memory.sentiment * 0.5
-            # Familiarity makes interaction more comfortable
-            score += social_memory.familiarity * 0.3
+            # Positive relationships strongly encourage conversation
+            score += social_memory.sentiment * 0.8  # Increased from 0.5
+            # Familiarity makes interaction much more comfortable
+            score += social_memory.familiarity * 0.5  # Increased from 0.3
             
             # More interactions = stronger desire to continue relationship
             if social_memory.interaction_count > 3:
-                score += 0.1
+                score += 0.2  # Increased from 0.1
             if social_memory.interaction_count > 10:
-                score += 0.1  # Extra bonus for established relationships
+                score += 0.2  # Extra bonus for established relationships
             
             # Mutual interests give a bonus (more to talk about)
             if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
                 interests = social_memory.mutual_interests
                 if isinstance(interests, list) and len(interests) > 0:
-                    score += min(len(interests) * 0.05, 0.2)  # Cap at 0.2 bonus
+                    score += min(len(interests) * 0.1, 0.4)  # Increased cap
         
         # Very negative sentiment discourages interaction
         if social_memory.sentiment < -0.5:
@@ -201,8 +251,10 @@ def calculate_social_bias(
             if target_avatar.distance <= 3:
                 score += 0.5
     else:
-        # Unknown avatars get curiosity bonus (want to meet new people)
-        score += 0.15
+        # Unknown avatars get curiosity bonus (want to meet new people!)
+        # Meeting strangers is exciting - high bonus for new connections
+        if action == ActionType.INITIATE_CONVERSATION:
+            score += 0.4  # Increased from 0.15 - agents want to meet new people!
     
     # Prefer online players for social interactions
     if target_avatar.is_online and action == ActionType.INITIATE_CONVERSATION:
@@ -222,6 +274,15 @@ def calculate_world_affinity(
 ) -> float:
     """
     Calculate affinity bonus based on personality preferences for locations.
+    
+    Agents with high affinity for a location type get a significant bonus,
+    making them much more likely to choose activities they enjoy.
+    
+    Affinity ranges from 0.0 (dislikes) to 1.0 (loves).
+    - 0.0-0.3: Dislikes, negative score
+    - 0.3-0.5: Neutral, small bonus
+    - 0.5-0.7: Likes, moderate bonus
+    - 0.7-1.0: Loves, large bonus
     """
     if not location:
         return 0.0
@@ -229,8 +290,21 @@ def calculate_world_affinity(
     affinity = personality.world_affinities.get(location.location_type.value, 0.5)
     
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD, 
-                  ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST]:
-        return affinity * 0.8
+                  ActionType.INTERACT_KARAOKE, ActionType.INTERACT_REST,
+                  ActionType.INTERACT_SOCIAL_HUB, ActionType.INTERACT_WANDER_POINT]:
+        # Non-linear scaling - high affinity gives much bigger bonus
+        if affinity >= 0.7:
+            # Loves this activity - strong bonus
+            return 0.6 + (affinity - 0.7) * 2.0  # 0.6 to 1.2
+        elif affinity >= 0.5:
+            # Likes this activity - moderate bonus
+            return 0.2 + (affinity - 0.5) * 2.0  # 0.2 to 0.6
+        elif affinity >= 0.3:
+            # Neutral - small bonus
+            return (affinity - 0.3) * 1.0  # 0.0 to 0.2
+        else:
+            # Dislikes - penalty
+            return (affinity - 0.3) * 1.0  # -0.3 to 0.0
     
     return 0.0
 
@@ -433,6 +507,10 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
                 action_type = ActionType.INTERACT_KARAOKE
             elif location.location_type == LocationType.REST_AREA:
                 action_type = ActionType.INTERACT_REST
+            elif location.location_type == LocationType.SOCIAL_HUB:
+                action_type = ActionType.INTERACT_SOCIAL_HUB
+            elif location.location_type == LocationType.WANDER_POINT:
+                action_type = ActionType.INTERACT_WANDER_POINT
             else:
                 continue
         else:
@@ -638,11 +716,20 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
         if food_locations:
             # Pick closest food location
             closest = min(food_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            return SelectedAction(
-                action_type=ActionType.WALK_TO_LOCATION,
-                target=ActionTarget(target_type="location", target_id=closest.id, x=closest.x, y=closest.y),
-                utility_score=10.0  # High priority
-            )
+            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
+            # If already at location, interact; otherwise walk there
+            if distance <= 2:
+                return SelectedAction(
+                    action_type=ActionType.INTERACT_FOOD,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
+            else:
+                return SelectedAction(
+                    action_type=ActionType.WALK_TO_LOCATION,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0  # High priority
+                )
     
     # Critical energy - must rest
     if state.energy < DecisionConfig.CRITICAL_ENERGY:
@@ -651,11 +738,20 @@ def check_for_interrupts(context: AgentContext) -> Optional[SelectedAction]:
                          and l.id not in context.active_cooldowns]
         if rest_locations:
             closest = min(rest_locations, key=lambda l: math.sqrt((l.x - context.x)**2 + (l.y - context.y)**2))
-            return SelectedAction(
-                action_type=ActionType.WALK_TO_LOCATION,
-                target=ActionTarget(target_type="location", target_id=closest.id, x=closest.x, y=closest.y),
-                utility_score=10.0
-            )
+            distance = math.sqrt((closest.x - context.x)**2 + (closest.y - context.y)**2)
+            # If already at location, interact; otherwise walk there
+            if distance <= 2:
+                return SelectedAction(
+                    action_type=ActionType.INTERACT_REST,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
+            else:
+                return SelectedAction(
+                    action_type=ActionType.WALK_TO_LOCATION,
+                    target=ActionTarget(target_type="location", target_id=closest.id, name=closest.name, x=closest.x, y=closest.y),
+                    utility_score=10.0
+                )
         else:
             # No rest area available, just idle
             return SelectedAction(

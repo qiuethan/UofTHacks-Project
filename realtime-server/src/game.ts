@@ -236,11 +236,12 @@ export function startGameLoop() {
 }
 
 // Track previous stats to only send updates when changed
-const previousStats = new Map<string, { energy: number; hunger: number; loneliness: number; mood: number }>();
+const previousStats = new Map<string, { energy: number; hunger: number; loneliness: number; mood: number; current_action?: string }>();
 
 /**
  * Sync agent stats from database and broadcast any changes to clients.
  * This runs periodically to keep clients updated with stats from the AI engine.
+ * Also syncs current_action for activity visibility.
  */
 export async function syncAgentStats(force: boolean = false) {
   const currentStats = await getAllAgentStats();
@@ -249,19 +250,33 @@ export async function syncAgentStats(force: boolean = false) {
   for (const [avatarId, stats] of currentStats) {
     const prev = previousStats.get(avatarId);
     
-    // Check if stats changed (with some tolerance for floating point)
+    // Check if stats or current_action changed
     const changed = force || !prev || 
       Math.abs(prev.energy - stats.energy) > 0.001 ||
       Math.abs(prev.hunger - stats.hunger) > 0.001 ||
       Math.abs(prev.loneliness - stats.loneliness) > 0.001 ||
-      Math.abs(prev.mood - stats.mood) > 0.001;
+      Math.abs(prev.mood - stats.mood) > 0.001 ||
+      prev.current_action !== stats.current_action;
     
     if (changed) {
-      previousStats.set(avatarId, stats);
+      previousStats.set(avatarId, {
+        energy: stats.energy,
+        hunger: stats.hunger,
+        loneliness: stats.loneliness,
+        mood: stats.mood,
+        current_action: stats.current_action
+      });
       events.push({
         type: 'ENTITY_STATS_UPDATED',
         entityId: avatarId,
-        stats
+        stats: {
+          energy: stats.energy,
+          hunger: stats.hunger,
+          loneliness: stats.loneliness,
+          mood: stats.mood,
+          current_action: stats.current_action,
+          current_action_target: stats.current_action_target
+        }
       });
     }
   }

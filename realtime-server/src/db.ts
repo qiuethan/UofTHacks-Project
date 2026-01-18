@@ -289,24 +289,35 @@ export async function updatePosition(
  * Fetch stats for all agents from agent_state table.
  * Returns a map of avatar_id -> stats object.
  */
-export async function getAllAgentStats(): Promise<Map<string, { energy: number; hunger: number; loneliness: number; mood: number }>> {
+export interface AgentStats {
+  energy: number;
+  hunger: number;
+  loneliness: number;
+  mood: number;
+  current_action?: string;
+  current_action_target?: Record<string, any>;
+}
+
+export async function getAllAgentStats(): Promise<Map<string, AgentStats>> {
   const { data, error } = await supabase
     .from('agent_state')
-    .select('avatar_id, energy, hunger, loneliness, mood');
+    .select('avatar_id, energy, hunger, loneliness, mood, current_action, current_action_target');
   
   if (error) {
     console.error('[DB] getAllAgentStats error:', error);
     return new Map();
   }
   
-  const statsMap = new Map<string, { energy: number; hunger: number; loneliness: number; mood: number }>();
+  const statsMap = new Map<string, AgentStats>();
   
   for (const row of data || []) {
     statsMap.set(row.avatar_id, {
       energy: row.energy ?? 0.5,
       hunger: row.hunger ?? 0.5,
       loneliness: row.loneliness ?? 0.5,
-      mood: row.mood ?? 0.5
+      mood: row.mood ?? 0.5,
+      current_action: row.current_action || 'idle',
+      current_action_target: row.current_action_target || null
     });
   }
   

@@ -1,4 +1,4 @@
-import type { SpriteUrls, ChatMessage } from '../types/game'
+import type { SpriteUrls, ChatMessage, WorldLocation, PlayerActivityState } from '../types/game'
 
 export interface GameEntity {
   entityId: string
@@ -16,8 +16,18 @@ export interface GameEntity {
     hunger?: number
     loneliness?: number
     mood?: number
+    current_action?: string
+    current_action_target?: {
+      target_type?: string
+      target_id?: string
+      name?: string
+      x?: number
+      y?: number
+    }
   }
 }
+
+export type { WorldLocation, PlayerActivityState }
 
 export interface GameProps {
   entities: Map<string, GameEntity>
@@ -33,6 +43,11 @@ export interface GameProps {
   watchZoom?: number
   watchPan?: { x: number; y: number }
   followEntityId?: string | null
+  // World locations
+  worldLocations?: WorldLocation[]
+  // Player activity state
+  playerActivityState?: PlayerActivityState
+  currentLocationId?: string | null
 }
 
 export interface SceneData {
@@ -49,4 +64,9 @@ export interface SceneData {
   watchZoom?: number
   watchPan?: { x: number; y: number }
   followEntityId?: string | null
+  // World locations
+  worldLocations?: WorldLocation[]
+  // Player activity state
+  playerActivityState?: PlayerActivityState
+  currentLocationId?: string | null
 }

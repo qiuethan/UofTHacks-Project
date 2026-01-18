@@ -20,6 +20,8 @@ class ActionType(str, Enum):
     INTERACT_FOOD = "interact_food"
     INTERACT_KARAOKE = "interact_karaoke"
     INTERACT_REST = "interact_rest"
+    INTERACT_SOCIAL_HUB = "interact_social_hub"
+    INTERACT_WANDER_POINT = "interact_wander_point"
     # Social actions
     INITIATE_CONVERSATION = "initiate_conversation"
     JOIN_CONVERSATION = "join_conversation"
@@ -127,8 +129,8 @@ class AgentState(BaseModel):
         return self.energy < 0.2
 
     def needs_socialization(self) -> bool:
-        """Check if loneliness is high"""
-        return self.loneliness > 0.6
+        """Check if loneliness is high enough to seek conversation"""
+        return self.loneliness > 0.3  # Reduced from 0.6 - agents are more social!
 
 
 # ============================================================================

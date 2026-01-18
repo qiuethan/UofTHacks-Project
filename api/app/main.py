@@ -16,6 +16,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -143,6 +144,49 @@ def get_agent_decision(req: AgentRequest):
             return response
         
         # =====================================================================
+        # PRIORITY 2.5: Check if agent is busy with a location activity
+        # =====================================================================
+        client = agent_db.get_supabase_client()
+        if client:
+            state = agent_db.get_state(client, req.robot_id)
+            if state and state.action_expires_at:
+                expires_at = state.action_expires_at
+                if isinstance(expires_at, str):
+                    from datetime import datetime
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if expires_at.tzinfo:
+                    expires_at = expires_at.replace(tzinfo=None)
+                
+                from datetime import datetime
+                now = datetime.utcnow()
+                current_action = state.current_action or 'idle'
+                
+                # Walking actions should NOT block - agent needs to keep moving!
+                # Only actual activities (interact_*) should lock the agent in place
+                is_activity = current_action.startswith('interact_')
+                
+                if now < expires_at and is_activity:
+                    # Agent is busy with an activity - keep standing still
+                    remaining = (expires_at - now).total_seconds()
+                    duration = min(remaining, 5.0)  # Check again in 5s or when done
+                    target_name = ""
+                    if state.current_action_target:
+                        target_name = state.current_action_target.get("name", "")
+                    short_id = req.robot_id[:8]
+                    
+                    # Format activity name nicely for logging
+                    activity_display = {
+                        'interact_food': '🍽️  EATING',
+                        'interact_rest': '😴 RESTING',
+                        'interact_karaoke': '🎤 SINGING',
+                        'interact_social_hub': '💬 SOCIALIZING',
+                        'interact_wander_point': '🧭 EXPLORING',
+                    }.get(current_action, f'📍 {current_action}')
+                    
+                    print(f"🔒 {short_id} | {activity_display} at '{target_name}' - {remaining:.0f}s left")
+                    return {"action": "STAND_STILL", "duration": duration}
+        
+        # =====================================================================
         # PRIORITY 3: Try utility-based agent decision system
         # =====================================================================
         agent_response = try_agent_decision_system(req)
@@ -226,13 +270,24 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
             target_name = f"→ ({target.get('x')},{target.get('y')})"
     
     # State summary
-    e = state.get('energy', 0)
-    h = state.get('hunger', 0)
-    l = state.get('loneliness', 0)
-    m = state.get('mood', 0)
-    state_str = f"E:{e:.0%} H:{h:.0%} L:{l:.0%} M:{m:.0%}"
+    ene = state.get('energy', 0)
+    hun = state.get('hunger', 0)
+    lon = state.get('loneliness', 0)
+    moo = state.get('mood', 0)
+    state_str = f"E:{ene:.0%} H:{hun:.0%} L:{lon:.0%} M:{moo:.0%}"
     
-    print(f"🤖 {short_id} | {action_type:20} {target_name:15} | score:{score:.2f} | {state_str}")
+    # Use nicer names for activities
+    action_display = {
+        'interact_food': 'EATING',
+        'interact_rest': 'RESTING',
+        'interact_karaoke': 'SINGING',
+        'interact_social_hub': 'SOCIALIZING',
+        'interact_wander_point': 'EXPLORING',
+        'walk_to_location': 'walking',
+        'initiate_conversation': 'chat_request',
+    }.get(action_type, action_type)
+    
+    print(f"🤖 {short_id} | {action_display:20} {target_name:15} | score:{score:.2f} | {state_str}")
     
     # Map action types to API responses
     if action_type in ["idle", "stand_still"]:
@@ -243,7 +298,8 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
             return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
         return get_random_move_target(req)
     
-    elif action_type in ["walk_to_location", "interact_food", "interact_karaoke", "interact_rest"]:
+    elif action_type == "walk_to_location":
+        # Walking to a location - just move there
         if target:
             if target.get("x") is not None and target.get("y") is not None:
                 return {"action": "MOVE", "target_x": target["x"], "target_y": target["y"]}
@@ -252,10 +308,41 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
                 client = agent_db.get_supabase_client()
                 if client:
                     locations = agent_db.get_all_world_locations(client)
-                    location = next((l for l in locations if l.id == target["target_id"]), None)
+                    location = next((loc for loc in locations if loc.id == target["target_id"]), None)
                     if location:
                         return {"action": "MOVE", "target_x": location.x, "target_y": location.y}
         return None
+    
+    elif action_type in ["interact_food", "interact_karaoke", "interact_rest", "interact_social_hub", "interact_wander_point"]:
+        # Interacting with a location - stand still for the remaining duration
+        # Use duration from agent worker if available, otherwise look up from location
+        duration = result.get("duration_seconds")
+        
+        if duration is None or duration <= 0:
+            # Try to get the actual location duration
+            duration = 30  # Default
+            if target and target.get("target_id"):
+                client = agent_db.get_supabase_client()
+                if client:
+                    locations = agent_db.get_all_world_locations(client)
+                    location = next((loc for loc in locations if loc.id == target["target_id"]), None)
+                    if location:
+                        duration = location.duration_seconds
+        
+        # Log the activity with nice activity names
+        target_name = target.get("name", "") if target else ""
+        short_id = req.robot_id[:8]
+        activity_display = {
+            'interact_food': '🍽️  EATING',
+            'interact_rest': '😴 RESTING',
+            'interact_karaoke': '🎤 SINGING',
+            'interact_social_hub': '💬 SOCIALIZING',
+            'interact_wander_point': '🧭 EXPLORING',
+        }.get(action_type, f'📍 {action_type}')
+        
+        print(f"🎯 {short_id} | {activity_display} at '{target_name}' for {duration:.0f}s")
+        
+        return {"action": "STAND_STILL", "duration": float(duration)}
     
     elif action_type == "initiate_conversation":
         if target and target.get("target_id"):
@@ -1262,6 +1349,166 @@ def get_relationship(from_id: str, to_id: str):
 # AGENT MONITORING ENDPOINTS
 # ============================================================================
 
+class CompleteActivityRequest(BaseModel):
+    location_type: Optional[str] = None
+    location_id: Optional[str] = None
+    effects: Optional[dict] = None
+    progress: float = 1.0  # 0.0 to 1.0 - how much of the activity was completed
+    completed_full: bool = True  # Whether the activity was completed fully
+
+@app.post("/agent/{avatar_id}/complete-activity")
+def complete_activity(avatar_id: str, request: CompleteActivityRequest):
+    """
+    Complete a location activity and update agent stats.
+    
+    Stats are updated proportionally based on progress (0.0 to 1.0).
+    If completed_full is True, stats are fully restored. Otherwise, partial benefit.
+    
+    Based on the location type, the relevant stat is boosted:
+    - food: hunger -> 0 (fully fed)
+    - rest_area: energy -> 1 (fully rested)
+    - social_hub: loneliness -> 0 (fully social)
+    - karaoke: mood -> 1 (max happy)
+    - wander_point: applies effects or small mood boost
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    location_type = request.location_type
+    effects = request.effects
+    progress = max(0.0, min(1.0, request.progress))  # Clamp to 0-1
+    completed_full = request.completed_full
+    
+    try:
+        state = agent_db.get_state(client, avatar_id)
+        if not state:
+            # Initialize if doesn't exist
+            personality, state = agent_db.initialize_agent(client, avatar_id)
+        
+        # Apply effects based on location type
+        # If completed_full, set to max/min. Otherwise, apply proportional benefit.
+        if location_type == 'food':
+            if completed_full:
+                state.hunger = 0.0  # Fully fed
+            else:
+                # Reduce hunger proportionally (e.g., 50% progress = reduce hunger by 50% of current)
+                state.hunger = max(0.0, state.hunger * (1 - progress))
+            state.mood = min(1.0, state.mood + 0.1 * progress)
+        elif location_type == 'rest_area':
+            if completed_full:
+                state.energy = 1.0  # Fully rested
+            else:
+                # Increase energy proportionally
+                state.energy = min(1.0, state.energy + (1.0 - state.energy) * progress)
+            state.mood = min(1.0, state.mood + 0.1 * progress)
+        elif location_type == 'social_hub':
+            if completed_full:
+                state.loneliness = 0.0  # Fully social
+            else:
+                # Reduce loneliness proportionally
+                state.loneliness = max(0.0, state.loneliness * (1 - progress))
+            state.mood = min(1.0, state.mood + 0.1 * progress)
+        elif location_type == 'karaoke':
+            if completed_full:
+                state.mood = 1.0  # Max happy
+            else:
+                # Increase mood proportionally
+                state.mood = min(1.0, state.mood + (1.0 - state.mood) * progress)
+            state.loneliness = max(0.0, state.loneliness - 0.3 * progress)
+        elif location_type == 'wander_point':
+            state.mood = min(1.0, state.mood + 0.1 * progress)
+            state.energy = max(0.0, state.energy - 0.05 * progress)
+        
+        # If custom effects are provided, apply them proportionally
+        if effects:
+            for stat_name, delta in effects.items():
+                adjusted_delta = delta * progress
+                if stat_name == 'hunger':
+                    state.hunger = max(0.0, min(1.0, state.hunger + adjusted_delta))
+                elif stat_name == 'energy':
+                    state.energy = max(0.0, min(1.0, state.energy + adjusted_delta))
+                elif stat_name == 'loneliness':
+                    state.loneliness = max(0.0, min(1.0, state.loneliness + adjusted_delta))
+                elif stat_name == 'mood':
+                    state.mood = max(-1.0, min(1.0, state.mood + adjusted_delta))
+        
+        # Save updated state
+        agent_db.update_state(client, state)
+        
+        print(f"[Activity] {avatar_id[:8]} completed {location_type} ({progress*100:.0f}% progress)")
+        print(f"[Activity] New stats: E:{state.energy:.0%} H:{state.hunger:.0%} L:{state.loneliness:.0%} M:{state.mood:.0%}")
+        
+        # Also update current_action to 'idle' to show they're done
+        state.current_action = 'idle'
+        state.current_action_target = None
+        agent_db.update_state(client, state)
+        
+        return {
+            "ok": True,
+            "updated_stats": {
+                "energy": state.energy,
+                "hunger": state.hunger,
+                "loneliness": state.loneliness,
+                "mood": state.mood
+            },
+            "progress": progress,
+            "completed_full": completed_full
+        }
+        
+    except Exception as e:
+        print(f"Error completing activity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class StartActivityRequest(BaseModel):
+    location_type: str
+    location_id: str
+    location_name: Optional[str] = None
+
+@app.post("/agent/{avatar_id}/start-activity")
+def start_activity(avatar_id: str, request: StartActivityRequest):
+    """
+    Mark an agent as starting a location activity.
+    Updates the agent's current_action for visibility in the UI.
+    """
+    client = agent_db.get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    try:
+        state = agent_db.get_state(client, avatar_id)
+        if not state:
+            personality, state = agent_db.initialize_agent(client, avatar_id)
+        
+        # Map location type to action
+        action_map = {
+            'food': 'interact_food',
+            'rest_area': 'interact_rest',
+            'social_hub': 'interact_social_hub',
+            'karaoke': 'interact_karaoke',
+            'wander_point': 'interact_wander_point'
+        }
+        
+        action = action_map.get(request.location_type, 'idle')
+        state.current_action = action
+        state.current_action_target = {
+            'target_type': 'location',
+            'target_id': request.location_id,
+            'name': request.location_name or request.location_type
+        }
+        
+        agent_db.update_state(client, state)
+        
+        print(f"[Activity] {avatar_id[:8]} started {action} at {request.location_name or request.location_type}")
+        
+        return {"ok": True, "action": action}
+        
+    except Exception as e:
+        print(f"Error starting activity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/agents/all")
 def get_all_agents():
     """
@@ -1305,6 +1552,10 @@ def get_all_agents():
             personality = personalities.get(avatar_id, {})
             decision = latest_decisions.get(avatar_id, {})
             
+                        # Prefer current_action from agent_state (for players doing activities)
+            # Fall back to agent_decisions (for AI-controlled agents)
+            current_action = state.get("current_action") or decision.get("selected_action", "idle")
+            
             agents.append({
                 "avatar_id": avatar_id,
                 "display_name": position.get("display_name", "Unknown"),
@@ -1322,7 +1573,8 @@ def get_all_agents():
                     "curiosity": personality.get("curiosity", 0.5),
                     "agreeableness": personality.get("agreeableness", 0.5),
                 },
-                "current_action": decision.get("selected_action", "idle"),
+                "current_action": current_action,
+                "current_action_target": state.get("current_action_target"),
                 "last_action_time": decision.get("tick_timestamp"),
             })
         
