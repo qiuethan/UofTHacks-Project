@@ -42,6 +42,8 @@ export default function WatchView() {
   const [mapSize, setMapSize] = useState({ width: MAP_DEFAULTS.WIDTH, height: MAP_DEFAULTS.HEIGHT })
   const [entities, setEntities] = useState<Map<string, Entity>>(new Map())
   const [error, setError] = useState<string | null>(null)
+  const [zoom, setZoom] = useState<number | undefined>(undefined)
+  const [pan, setPan] = useState<{ x: number; y: number } | undefined>(undefined)
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
@@ -192,8 +194,30 @@ export default function WatchView() {
     })
   }
 
+  // Zoom controls - pan only works via drag when zoomed in
+  // Default zoom (undefined) means fit-to-screen, which Phaser calculates
+  // Zoom multiplier: 1.0 = default, >1 = zoomed in, <1 would zoom out (but we prevent that)
+  const handleZoomIn = () => {
+    setZoom(prev => {
+      const currentZoom = prev || 1.0 // 1.0 means default/baseline
+      return Math.min(currentZoom * 1.3, 4) // Max zoom 4x the default
+    })
+  }
+
+  const handleZoomOut = () => {
+    setZoom(prev => {
+      if (!prev || prev <= 1.0) return undefined // Return to default
+      return prev / 1.3
+    })
+  }
+
+  const handleResetView = () => {
+    setZoom(undefined)
+    setPan(undefined)
+  }
+
   return (
-    <div className="w-full h-[calc(100vh-64px)] overflow-hidden">
+    <div className="w-full h-[calc(100vh-64px)] overflow-hidden relative">
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
           {error}
@@ -204,12 +228,44 @@ export default function WatchView() {
         <ConnectionStatus connected={connected} />
       </div>
       
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 z-50">
+        <div className="bg-gray-900/90 backdrop-blur-md rounded-lg p-2 flex flex-col gap-1 border border-gray-700/50">
+          <button
+            onClick={handleZoomIn}
+            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-lg font-bold transition-colors"
+            title="Zoom In (scroll wheel also works)"
+          >
+            +
+          </button>
+          <button
+            onClick={handleZoomOut}
+            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-lg font-bold transition-colors"
+            title="Zoom Out (scroll wheel also works)"
+          >
+            −
+          </button>
+          <button
+            onClick={handleResetView}
+            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs transition-colors"
+            title="Reset View"
+          >
+            ⟲
+          </button>
+        </div>
+        <div className="text-gray-500 text-xs mt-2 text-center">
+          Drag to pan<br/>when zoomed
+        </div>
+      </div>
+      
       {/* Phaser Game Canvas - Watch mode (no input) */}
       <PhaserGame
         entities={gameEntities}
         mapSize={mapSize}
         mode="watch"
         inputEnabled={false}
+        watchZoom={zoom}
+        watchPan={pan}
       />
     </div>
   )

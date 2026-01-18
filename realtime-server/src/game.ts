@@ -76,6 +76,7 @@ export async function loadExistingUsers(): Promise<void> {
       ...createAvatar(user.userId, user.displayName || 'Anonymous', user.x, user.y, facing),
       kind: 'ROBOT', // Override to ROBOT so AI can control them
       sprites: user.sprites,
+      stats: user.stats,
       direction: { x: 0, y: 0 },
       targetPosition: undefined,
       plannedPath: undefined

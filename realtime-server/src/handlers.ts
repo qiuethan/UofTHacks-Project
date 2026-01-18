@@ -78,7 +78,8 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   const facing = pos.facing as { x: 0 | 1 | -1; y: 0 | 1 | -1 } | undefined;
   const avatar: any = {
     ...createAvatar(userId, actualDisplayName, pos.x, pos.y, facing),
-    sprites: pos.sprites
+    sprites: pos.sprites,
+    stats: pos.stats
   };
   
   const result = world.addEntity(avatar);

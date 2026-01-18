@@ -21,7 +21,9 @@ export default function PhaserGame({
   inputEnabled = true,
   inConversationWith,
   chatMessages = [],
-  allEntityMessages = new Map()
+  allEntityMessages = new Map(),
+  watchZoom,
+  watchPan
 }: GameProps) {
   const gameRef = useRef<Phaser.Game | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -38,7 +40,9 @@ export default function PhaserGame({
     inputEnabled,
     inConversationWith,
     chatMessages,
-    allEntityMessages
+    allEntityMessages,
+    watchZoom,
+    watchPan
   })
 
   // Use layout effect to set size before paint
@@ -71,7 +75,9 @@ export default function PhaserGame({
       inputEnabled,
       inConversationWith,
       chatMessages,
-      allEntityMessages
+      allEntityMessages,
+      watchZoom,
+      watchPan
     }
     
     // Update the running scene with new data
@@ -88,8 +94,12 @@ export default function PhaserGame({
       if (scene && scene.updateAllEntityBubbles) {
         scene.updateAllEntityBubbles(allEntityMessages)
       }
+      // Update camera for watch mode zoom/pan
+      if (scene && scene.updateWatchCamera && mode === 'watch') {
+        scene.updateWatchCamera(watchZoom, watchPan)
+      }
     }
-  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages])
+  }, [entities, mapSize, myEntityId, mode, onDirectionChange, onRequestConversation, inputEnabled, inConversationWith, chatMessages, allEntityMessages, watchZoom, watchPan])
 
   // Listen for conversation initiation events from Phaser
   useEffect(() => {
@@ -127,12 +137,12 @@ export default function PhaserGame({
     }
   }, [isReady]) // Initialize once ready
 
-  // Update game size when viewport changes
+  // Update game size when viewport changes (only for play mode which needs responsive sizing)
   useEffect(() => {
-    if (gameRef.current) {
+    if (gameRef.current && mode === 'play') {
       gameRef.current.scale.resize(viewportWidth, viewportHeight)
     }
-  }, [viewportWidth, viewportHeight])
+  }, [viewportWidth, viewportHeight, mode])
 
   return (
     <div 

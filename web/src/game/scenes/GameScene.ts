@@ -40,6 +40,14 @@ export class GameScene extends Phaser.Scene {
   private isInConversation = false
   private conversationZoomTween?: Phaser.Tweens.Tween
   private lastProcessedMessageId?: string
+  // Watch mode drag-to-pan state
+  private isDragging = false
+  private dragStartX = 0
+  private dragStartY = 0
+  private cameraStartX = 0
+  private cameraStartY = 0
+  private defaultWatchZoom = 1 // Stores the fit-to-screen zoom level
+  private watchModeInputSetup = false // Prevent duplicate event listeners
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -115,15 +123,102 @@ export class GameScene extends Phaser.Scene {
   private setupWatchModeCamera() {
     const viewportWidth = this.cameras.main.width
     const viewportHeight = this.cameras.main.height
+    const { watchZoom } = this.sceneDataRef.current
     
-    // Calculate zoom to fit entire background in viewport
+    // Calculate default zoom to fit entire background in viewport
     const zoomX = viewportWidth / this.worldWidth
     const zoomY = viewportHeight / this.worldHeight
-    const zoom = Math.min(zoomX, zoomY)
+    this.defaultWatchZoom = Math.min(zoomX, zoomY)
     
-    this.cameras.main.setZoom(zoom)
+    // watchZoom is a multiplier: undefined/1.0 = default, 2.0 = 2x default, etc.
+    const zoomMultiplier = watchZoom !== undefined ? watchZoom : 1.0
+    const actualZoom = this.defaultWatchZoom * zoomMultiplier
+    
+    this.cameras.main.setZoom(actualZoom)
     this.cameras.main.removeBounds()
+    
+    // Always center on world center
     this.cameras.main.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+    
+    // Enable drag-to-pan in watch mode
+    this.setupWatchModeDragPan()
+  }
+
+  private setupWatchModeDragPan() {
+    // Only setup once to prevent duplicate event listeners
+    if (this.watchModeInputSetup) return
+    this.watchModeInputSetup = true
+    
+    // Enable drag-to-pan (only when zoomed in past default)
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.sceneDataRef.current.mode !== 'watch') return
+      // Only allow dragging when zoomed in past default
+      if (this.cameras.main.zoom <= this.defaultWatchZoom * 1.05) return
+      
+      this.isDragging = true
+      this.dragStartX = pointer.x
+      this.dragStartY = pointer.y
+      this.cameraStartX = this.cameras.main.scrollX
+      this.cameraStartY = this.cameras.main.scrollY
+    })
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!this.isDragging || this.sceneDataRef.current.mode !== 'watch') return
+      
+      const camera = this.cameras.main
+      const dx = (this.dragStartX - pointer.x) / camera.zoom
+      const dy = (this.dragStartY - pointer.y) / camera.zoom
+      
+      camera.scrollX = this.cameraStartX + dx
+      camera.scrollY = this.cameraStartY + dy
+    })
+
+    this.input.on('pointerup', () => {
+      this.isDragging = false
+    })
+
+    this.input.on('pointerupoutside', () => {
+      this.isDragging = false
+    })
+
+    // Mouse wheel zoom - zoom relative to default
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
+      if (this.sceneDataRef.current.mode !== 'watch') return
+      
+      const camera = this.cameras.main
+      const currentZoom = camera.zoom
+      const zoomFactor = deltaY > 0 ? 0.9 : 1.1 // Scroll down = zoom out, scroll up = zoom in
+      
+      // Calculate new zoom, clamped between default and 4x default
+      const minZoom = this.defaultWatchZoom
+      const maxZoom = this.defaultWatchZoom * 4
+      const newZoom = Phaser.Math.Clamp(currentZoom * zoomFactor, minZoom, maxZoom)
+      
+      camera.setZoom(newZoom)
+      
+      // If at or near default zoom, ensure centered
+      if (newZoom <= this.defaultWatchZoom * 1.05) {
+        camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+      }
+    })
+  }
+
+  // Public method to update camera from React props
+  updateWatchCamera(zoomMultiplier?: number, _pan?: { x: number; y: number }) {
+    if (this.sceneDataRef.current.mode !== 'watch') return
+    
+    const camera = this.cameras.main
+    
+    // zoomMultiplier: undefined/1.0 = default, 2.0 = 2x default, etc.
+    const multiplier = zoomMultiplier !== undefined ? zoomMultiplier : 1.0
+    const actualZoom = this.defaultWatchZoom * multiplier
+    
+    camera.setZoom(actualZoom)
+    
+    // If at default zoom (multiplier <= 1), center on world
+    if (multiplier <= 1.05) {
+      camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
+    }
   }
 
   updateEntities(entities: Map<string, GameEntity>, myEntityId: string | null) {
@@ -802,7 +897,6 @@ export class GameScene extends Phaser.Scene {
     
     // Stats display (if available)
     if (hasStats && entity.stats) {
-      const statsY = showButton ? -22 + 35 : 35
       const barWidth = 220
       const barHeight = 12
       const barSpacing = 18
@@ -814,8 +908,12 @@ export class GameScene extends Phaser.Scene {
         { label: '😊', value: entity.stats.mood !== undefined ? (entity.stats.mood + 1) / 2 : undefined, color: 0x10b981, name: 'Mood' }
       ].filter(s => s.value !== undefined)
       
+      // Calculate total height of stats block and center it
+      const totalStatsHeight = stats.length * barSpacing
+      const statsStartY = showButton ? -22 + 20 : -(totalStatsHeight / 2) + 10
+      
       stats.forEach((stat, i) => {
-        const y = statsY + i * barSpacing
+        const y = statsStartY + i * barSpacing
         
         // Stat label
         const label = this.add.text(-barWidth / 2 - 15, y, stat.label, {

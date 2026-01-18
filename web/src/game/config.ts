@@ -18,8 +18,10 @@ export const createGameConfig = (
   transparent: true, // Transparent background - only show the game world
   scene: scenes,
   scale: {
-    mode: Phaser.Scale.RESIZE, // Resize canvas to match container
-    autoCenter: Phaser.Scale.CENTER_BOTH
+    mode: Phaser.Scale.FIT, // Keep canvas at fixed size, fit within container
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width,
+    height
   },
   render: {
     antialias: false,
