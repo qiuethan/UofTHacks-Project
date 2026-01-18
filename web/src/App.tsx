@@ -2,7 +2,6 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
 import WatchView from './pages/WatchView'
-import CreateAvatar from './pages/CreateAvatar'
 import Onboarding from './pages/Onboarding'
 import Profile from './pages/Profile'
 import Login from './pages/Login'
@@ -37,10 +36,10 @@ function ProtectedRoute({
     return <Navigate to="/login" replace />
   }
   
-  // If route requires avatar and user doesn't have one, redirect to create
+  // If route requires avatar and user doesn't have one, redirect to onboarding
   if (requireAvatar && hasAvatar === false) {
-    console.log('[ProtectedRoute] No avatar, redirecting to /create')
-    return <Navigate to="/create" replace />
+    console.log('[ProtectedRoute] No avatar, redirecting to /onboarding')
+    return <Navigate to="/onboarding" replace />
   }
 
   // If route requires onboarding and user hasn't finished, redirect to onboarding
@@ -54,9 +53,8 @@ function ProtectedRoute({
 }
 
 function AppContent() {
-  const { user } = useAuth()
   const location = useLocation()
-  const hideHeader = location.pathname === '/onboarding' || location.pathname === '/create'
+  const hideHeader = location.pathname === '/onboarding'
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#FFF8F0]">
@@ -67,8 +65,8 @@ function AppContent() {
           <Route path="/" element={<Landing />} />
           <Route path="/play" element={<ProtectedRoute requireAvatar requireOnboarding><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
-          <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />
-          <Route path="/onboarding" element={<ProtectedRoute requireAvatar><Onboarding /></ProtectedRoute>} />
+          <Route path="/create" element={<Navigate to="/onboarding" replace />} />
+          <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute requireAvatar><Profile /></ProtectedRoute>} />
         </Routes>
       </main>

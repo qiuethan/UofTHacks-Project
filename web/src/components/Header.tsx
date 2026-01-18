@@ -51,8 +51,8 @@ export default function Header() {
             </div>
           )}
           {user && !hasAvatar && (
-            <Link to="/create" className="text-white hover:text-[#bae854] font-semibold text-sm transition-colors">
-              Create Avatar
+            <Link to="/onboarding" className="btn-primary px-4 py-1.5 text-sm font-semibold text-white">
+              Get Started
             </Link>
           )}
         </div>
