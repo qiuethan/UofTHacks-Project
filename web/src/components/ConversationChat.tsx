@@ -142,6 +142,9 @@ export function ConversationChat({
                 <span className={getSentimentInfo(relationshipStats.sentiment).color.replace('text-', 'text-')}>
                   {getSentimentInfo(relationshipStats.sentiment).emoji} {getSentimentInfo(relationshipStats.sentiment).label}
                 </span>
+                <span className="text-black/40 font-mono">
+                  ({(relationshipStats.sentiment * 100).toFixed(0)}%)
+                </span>
               </div>
               
               {/* Familiarity */}
@@ -149,6 +152,9 @@ export function ConversationChat({
                 <span className="text-black/60">Familiarity:</span>
                 <span className={getFamiliarityInfo(relationshipStats.familiarity).color.replace('text-', 'text-')}>
                   {getFamiliarityInfo(relationshipStats.familiarity).label}
+                </span>
+                <span className="text-black/40 font-mono">
+                  ({(relationshipStats.familiarity * 100).toFixed(0)}%)
                 </span>
               </div>
               

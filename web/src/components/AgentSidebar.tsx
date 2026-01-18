@@ -285,8 +285,8 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
                       style={{ width: `${relationshipStats.sentiment * 100}%` }}
                     />
                   </div>
-                  <span className={`w-20 text-right text-xs font-medium ${getSentimentInfo(relationshipStats.sentiment).color}`}>
-                    {getSentimentInfo(relationshipStats.sentiment).label}
+                  <span className={`w-24 text-right text-xs font-medium ${getSentimentInfo(relationshipStats.sentiment).color}`}>
+                    {getSentimentInfo(relationshipStats.sentiment).label} <span className="text-black/40 font-mono">({(relationshipStats.sentiment * 100).toFixed(0)}%)</span>
                   </span>
                 </div>
                 
@@ -300,8 +300,8 @@ function AgentCard({ agent, isExpanded, onToggle, onFollow, isFollowing, entitie
                       style={{ width: `${relationshipStats.familiarity * 100}%` }}
                     />
                   </div>
-                  <span className={`w-20 text-right text-xs font-medium ${getFamiliarityInfo(relationshipStats.familiarity).color}`}>
-                    {getFamiliarityInfo(relationshipStats.familiarity).label}
+                  <span className={`w-24 text-right text-xs font-medium ${getFamiliarityInfo(relationshipStats.familiarity).color}`}>
+                    {getFamiliarityInfo(relationshipStats.familiarity).label} <span className="text-black/40 font-mono">({(relationshipStats.familiarity * 100).toFixed(0)}%)</span>
                   </span>
                 </div>
                 
