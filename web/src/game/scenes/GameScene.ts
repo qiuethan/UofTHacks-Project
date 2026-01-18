@@ -12,8 +12,10 @@ const SPRITE_LOAD_MAX_RETRIES = 3
 const SPRITE_LOAD_RETRY_DELAY = 1000
 
 // Chat bubble configuration
-const CHAT_BUBBLE_WIDTH = 200
-const CHAT_BUBBLE_DISPLAY_TIME = 5000  // ms to show each message
+const CHAT_BUBBLE_MAX_WIDTH = 220
+const CHAT_BUBBLE_MIN_WIDTH = 80
+const CHAT_BUBBLE_MAX_CHARS = 80  // Max characters before truncation
+const CHAT_BUBBLE_DISPLAY_TIME = 6000  // ms to show each message
 
 interface EntitySprite {
   container: Phaser.GameObjects.Container
@@ -426,52 +428,72 @@ export class GameScene extends Phaser.Scene {
       entitySprite.chatBubble.destroy()
     }
     
-    // Create new chat bubble
-    const bubble = this.add.container(0, -SPRITE_HEIGHT - 30)
+    // Truncate long messages with ellipsis
+    let displayMessage = message.trim()
+    if (displayMessage.length > CHAT_BUBBLE_MAX_CHARS) {
+      displayMessage = displayMessage.substring(0, CHAT_BUBBLE_MAX_CHARS - 3) + '...'
+    }
+    
+    // Create new chat bubble - position above sprite
+    const bubble = this.add.container(0, -SPRITE_HEIGHT - 25)
     bubble.setDepth(2000)
     
-    // Truncate long messages
-    const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message
-    
-    // Calculate text dimensions first
+    // Text style with word wrap
     const textStyle = {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
+      fontFamily: '"Nunito", Arial, sans-serif',
+      fontSize: '13px',
       color: '#000000',
-      wordWrap: { width: CHAT_BUBBLE_WIDTH - 20 }
+      wordWrap: { width: CHAT_BUBBLE_MAX_WIDTH - 20, useAdvancedWrap: true }
     }
+    
+    // Create temp text to measure dimensions
     const tempText = this.add.text(0, 0, displayMessage, textStyle)
-    const textWidth = Math.min(tempText.width + 24, CHAT_BUBBLE_WIDTH)
-    const textHeight = tempText.height + 16
+    const measuredWidth = tempText.width
+    const measuredHeight = tempText.height
     tempText.destroy()
     
-    // Background with tail
-    const bgColor = isMe ? 0x000000 : 0xffffff
+    // Calculate bubble dimensions
+    const padding = 12
+    const bubbleWidth = Math.max(CHAT_BUBBLE_MIN_WIDTH, Math.min(measuredWidth + padding * 2, CHAT_BUBBLE_MAX_WIDTH))
+    const bubbleHeight = Math.max(28, measuredHeight + padding)
+    
+    // Background colors based on who's speaking
+    const bgColor = isMe ? 0x007a28 : 0xFFF8F0  // Green for me, cream for others
+    const borderColor = isMe ? 0x005018 : 0x000000
     const textColor = isMe ? '#ffffff' : '#000000'
+    
+    // Draw background
     const bg = this.add.graphics()
     
-    // Draw rectangle (no rounded corners)
-    bg.fillStyle(bgColor, 0.95)
-    bg.fillRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight)
+    // Main bubble rectangle with slight rounding effect via shadow
+    bg.fillStyle(borderColor, 1)
+    bg.fillRect(-bubbleWidth / 2 - 2, -bubbleHeight / 2 - 2, bubbleWidth + 4, bubbleHeight + 4)
+    bg.fillStyle(bgColor, 1)
+    bg.fillRect(-bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight)
     
-    // Draw tail pointing down
+    // Draw tail pointing down (small triangle)
+    const tailOffset = isMe ? 8 : -8
+    bg.fillStyle(borderColor, 1)
     bg.fillTriangle(
-      isMe ? 10 : -10, textHeight / 2 - 2,
-      isMe ? 20 : -20, textHeight / 2 + 12,
-      isMe ? 25 : -25, textHeight / 2 - 2
+      tailOffset - 6, bubbleHeight / 2,
+      tailOffset + 6, bubbleHeight / 2,
+      tailOffset, bubbleHeight / 2 + 10
     )
-    
-    // Add border
-    bg.lineStyle(2, 0x000000, 1)
-    bg.strokeRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight)
+    bg.fillStyle(bgColor, 1)
+    bg.fillTriangle(
+      tailOffset - 4, bubbleHeight / 2 - 1,
+      tailOffset + 4, bubbleHeight / 2 - 1,
+      tailOffset, bubbleHeight / 2 + 6
+    )
     
     bubble.add(bg)
     
-    // Add text
+    // Add text centered in bubble
     const text = this.add.text(0, 0, displayMessage, {
       ...textStyle,
       color: textColor,
-      wordWrap: { width: textWidth - 20 }
+      wordWrap: { width: bubbleWidth - padding * 2, useAdvancedWrap: true },
+      align: 'center'
     }).setOrigin(0.5)
     bubble.add(text)
     
@@ -479,13 +501,16 @@ export class GameScene extends Phaser.Scene {
     entitySprite.container.add(bubble)
     entitySprite.chatBubble = bubble
     
-    // Fade in animation
+    // Fade in animation with bounce
     bubble.setAlpha(0)
+    bubble.setScale(0.8)
     this.tweens.add({
       targets: bubble,
       alpha: 1,
-      y: bubble.y - 10,
-      duration: 200,
+      scaleX: 1,
+      scaleY: 1,
+      y: bubble.y - 8,
+      duration: 250,
       ease: 'Back.easeOut'
     })
     
@@ -495,8 +520,11 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({
           targets: bubble,
           alpha: 0,
-          y: bubble.y - 20,
+          y: bubble.y - 15,
+          scaleX: 0.9,
+          scaleY: 0.9,
           duration: 300,
+          ease: 'Quad.easeIn',
           onComplete: () => {
             if (entitySprite.chatBubble === bubble) {
               bubble.destroy()

@@ -4,7 +4,7 @@ import AgentSidebar from '../components/AgentSidebar'
 import { PhaserGame } from '../game'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 import type { GameEntity } from '../game/types'
-import type { SpriteUrls } from '../types/game'
+import type { SpriteUrls, ChatMessage } from '../types/game'
 import { Plus, Minus, RotateCcw } from 'lucide-react'
 
 interface Entity {
@@ -24,6 +24,7 @@ interface Entity {
   }
   conversationState?: string
   conversationPartnerId?: string
+  conversationTargetId?: string
 }
 
 interface WorldSnapshot {
@@ -32,7 +33,8 @@ interface WorldSnapshot {
 }
 
 interface WorldEvent {
-  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED' | 'ENTITY_STATS_UPDATED'
+  type: 'ENTITY_JOINED' | 'ENTITY_LEFT' | 'ENTITY_MOVED' | 'ENTITY_TURNED' | 'ENTITY_STATS_UPDATED' | 
+        'ENTITY_STATE_CHANGED' | 'CONVERSATION_STARTED' | 'CONVERSATION_ENDED'
   entityId?: string
   entity?: Entity
   x?: number
@@ -44,6 +46,13 @@ interface WorldEvent {
     loneliness?: number
     mood?: number
   }
+  // Conversation fields
+  conversationState?: string
+  conversationTargetId?: string
+  conversationPartnerId?: string
+  participant1Id?: string
+  participant2Id?: string
+  conversationId?: string
 }
 
 
@@ -57,6 +66,9 @@ export default function WatchView() {
   const [isLoading, setIsLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [followingAgentId, setFollowingAgentId] = useState<string | null>(null)
+  
+  // Track chat messages for all entities (for speech bubbles)
+  const [allEntityMessages, setAllEntityMessages] = useState<Map<string, ChatMessage>>(new Map())
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
@@ -116,7 +128,8 @@ export default function WatchView() {
               if (e.kind !== 'WALL') {
                 console.log(`  - ${e.displayName} (${e.kind}):`, {
                   hasSprites: !!e.sprites,
-                  frontSprite: e.sprites?.front ? e.sprites.front.substring(0, 60) + '...' : 'none'
+                  inConversation: e.conversationState === 'IN_CONVERSATION',
+                  partnerId: e.conversationPartnerId
                 })
               }
             })
@@ -126,40 +139,95 @@ export default function WatchView() {
           case 'EVENTS':
             setEntities(prev => {
               const next = new Map(prev)
-              for (const event of msg.events as WorldEvent[]) {
-                switch (event.type) {
+              for (const worldEvent of msg.events as WorldEvent[]) {
+                switch (worldEvent.type) {
                   case 'ENTITY_JOINED':
-                    if (event.entity) next.set(event.entity.entityId, event.entity)
+                    if (worldEvent.entity) next.set(worldEvent.entity.entityId, worldEvent.entity)
                     break
                   case 'ENTITY_LEFT':
-                    if (event.entityId) next.delete(event.entityId)
+                    if (worldEvent.entityId) next.delete(worldEvent.entityId)
                     break
                   case 'ENTITY_MOVED':
-                    if (event.entityId) {
-                      const entity = next.get(event.entityId)
-                      if (entity && event.x !== undefined && event.y !== undefined) {
-                        next.set(event.entityId, { 
+                    if (worldEvent.entityId) {
+                      const entity = next.get(worldEvent.entityId)
+                      if (entity && worldEvent.x !== undefined && worldEvent.y !== undefined) {
+                        next.set(worldEvent.entityId, { 
                           ...entity, 
-                          x: event.x, 
-                          y: event.y,
-                          facing: event.facing || entity.facing
+                          x: worldEvent.x, 
+                          y: worldEvent.y,
+                          facing: worldEvent.facing || entity.facing
                         })
                       }
                     }
                     break
                   case 'ENTITY_TURNED':
-                    if (event.entityId && event.facing) {
-                      const entity = next.get(event.entityId)
+                    if (worldEvent.entityId && worldEvent.facing) {
+                      const entity = next.get(worldEvent.entityId)
                       if (entity) {
-                        next.set(event.entityId, { ...entity, facing: event.facing })
+                        next.set(worldEvent.entityId, { ...entity, facing: worldEvent.facing })
                       }
                     }
                     break
                   case 'ENTITY_STATS_UPDATED':
-                    if (event.entityId && event.stats) {
-                      const entity = next.get(event.entityId)
+                    if (worldEvent.entityId && worldEvent.stats) {
+                      const entity = next.get(worldEvent.entityId)
                       if (entity) {
-                        next.set(event.entityId, { ...entity, stats: event.stats })
+                        next.set(worldEvent.entityId, { ...entity, stats: worldEvent.stats })
+                      }
+                    }
+                    break
+                  case 'ENTITY_STATE_CHANGED':
+                    if (worldEvent.entityId) {
+                      const entity = next.get(worldEvent.entityId)
+                      if (entity) {
+                        next.set(worldEvent.entityId, { 
+                          ...entity, 
+                          conversationState: worldEvent.conversationState || entity.conversationState,
+                          conversationTargetId: worldEvent.conversationTargetId,
+                          conversationPartnerId: worldEvent.conversationPartnerId
+                        })
+                      }
+                    }
+                    break
+                  case 'CONVERSATION_STARTED':
+                    // Update both participants to be in conversation
+                    if (worldEvent.participant1Id && worldEvent.participant2Id) {
+                      const p1 = next.get(worldEvent.participant1Id)
+                      const p2 = next.get(worldEvent.participant2Id)
+                      if (p1) {
+                        next.set(worldEvent.participant1Id, {
+                          ...p1,
+                          conversationState: 'IN_CONVERSATION',
+                          conversationPartnerId: worldEvent.participant2Id
+                        })
+                      }
+                      if (p2) {
+                        next.set(worldEvent.participant2Id, {
+                          ...p2,
+                          conversationState: 'IN_CONVERSATION',
+                          conversationPartnerId: worldEvent.participant1Id
+                        })
+                      }
+                    }
+                    break
+                  case 'CONVERSATION_ENDED':
+                    // Clear conversation state for both participants
+                    if (worldEvent.participant1Id && worldEvent.participant2Id) {
+                      const p1 = next.get(worldEvent.participant1Id)
+                      const p2 = next.get(worldEvent.participant2Id)
+                      if (p1) {
+                        next.set(worldEvent.participant1Id, {
+                          ...p1,
+                          conversationState: 'IDLE',
+                          conversationPartnerId: undefined
+                        })
+                      }
+                      if (p2) {
+                        next.set(worldEvent.participant2Id, {
+                          ...p2,
+                          conversationState: 'IDLE',
+                          conversationPartnerId: undefined
+                        })
                       }
                     }
                     break
@@ -167,6 +235,42 @@ export default function WatchView() {
               }
               return next
             })
+            break
+
+          case 'CHAT_MESSAGE':
+            // Handle chat messages for speech bubbles
+            if (msg.messageId && msg.senderId && msg.content) {
+              const chatMessage: ChatMessage = {
+                id: msg.messageId,
+                senderId: msg.senderId,
+                senderName: msg.senderName || 'Unknown',
+                content: msg.content,
+                timestamp: msg.timestamp || Date.now(),
+                conversationId: msg.conversationId
+              }
+              
+              console.log(`[Watch] Chat: ${chatMessage.senderName}: ${chatMessage.content.substring(0, 50)}...`)
+              
+              // Track for entity chat bubbles
+              setAllEntityMessages(prev => {
+                const next = new Map(prev)
+                next.set(msg.senderId, chatMessage)
+                return next
+              })
+              
+              // Auto-clear the entity message after 8 seconds (longer for watch mode)
+              setTimeout(() => {
+                setAllEntityMessages(prev => {
+                  const next = new Map(prev)
+                  const current = next.get(msg.senderId)
+                  // Only delete if it's still the same message
+                  if (current?.id === msg.messageId) {
+                    next.delete(msg.senderId)
+                  }
+                  return next
+                })
+              }, 8000)
+            }
             break
 
           case 'ERROR':
@@ -307,6 +411,7 @@ export default function WatchView() {
         watchZoom={zoom}
         watchPan={pan}
         followEntityId={followingAgentId}
+        allEntityMessages={allEntityMessages}
       />
     </div>
   )

@@ -55,6 +55,12 @@ class DecisionConfig:
     ENERGY_DECAY = 0.02
     HUNGER_GROWTH = 0.015  # Reduced from 0.03
     LONELINESS_GROWTH = 0.02
+    
+    # Wander influence parameters
+    SOCIAL_WANDER_INFLUENCE = 0.5  # How much sentiment influences wander direction (0-1)
+    WANDER_RANDOMNESS = 0.5  # Remaining randomness in wander (should = 1 - SOCIAL_WANDER_INFLUENCE)
+    MAP_WIDTH = 75
+    MAP_HEIGHT = 56
 
 
 # ============================================================================
@@ -264,6 +270,124 @@ def calculate_recency_penalty(
 
 
 # ============================================================================
+# SOCIAL-BIASED WANDER CALCULATION
+# ============================================================================
+
+def calculate_social_wander_target(context: AgentContext) -> tuple[int, int]:
+    """
+    Calculate a wander target position influenced by social relationships.
+    
+    - Moves towards entities with positive sentiment (likes)
+    - Moves away from entities with negative sentiment (dislikes)
+    - Adds randomness to prevent predictable behavior
+    - Considers loneliness (high loneliness = seek out people)
+    
+    Returns:
+        tuple: (x, y) target position
+    """
+    current_x = context.x
+    current_y = context.y
+    
+    # Start with a random direction as base
+    base_angle = random.uniform(0, 2 * math.pi)
+    base_distance = random.uniform(5, 15)
+    
+    # Calculate social influence vector
+    social_dx = 0.0
+    social_dy = 0.0
+    total_weight = 0.0
+    
+    for nearby in context.nearby_avatars:
+        # Find sentiment for this avatar
+        memory = next(
+            (m for m in context.social_memories if m.to_avatar_id == nearby.avatar_id),
+            None
+        )
+        
+        # Calculate direction to/from this avatar
+        dx = nearby.x - current_x
+        dy = nearby.y - current_y
+        distance = max(1, nearby.distance)
+        
+        # Normalize direction
+        if distance > 0:
+            dx_norm = dx / distance
+            dy_norm = dy / distance
+        else:
+            continue
+        
+        # Determine influence based on sentiment
+        if memory:
+            sentiment = memory.sentiment
+            familiarity = memory.familiarity
+        else:
+            # Unknown person - slight attraction if lonely, neutral otherwise
+            sentiment = 0.1 if context.state.loneliness > 0.5 else 0.0
+            familiarity = 0.0
+        
+        # Calculate weight based on distance (closer = more influence)
+        distance_weight = 1.0 / (1.0 + distance * 0.1)
+        
+        # Sentiment determines direction:
+        # Positive sentiment -> move towards (attraction)
+        # Negative sentiment -> move away (repulsion)
+        influence_strength = sentiment * distance_weight
+        
+        # Familiarity increases the influence
+        influence_strength *= (1.0 + familiarity * 0.5)
+        
+        # High loneliness makes positive sentiments more attractive
+        if sentiment > 0 and context.state.loneliness > 0.5:
+            influence_strength *= (1.0 + context.state.loneliness)
+        
+        # Low mood makes negative sentiments more repulsive
+        if sentiment < 0 and context.state.mood < 0.3:
+            influence_strength *= 1.5
+        
+        # Accumulate social influence
+        social_dx += dx_norm * influence_strength
+        social_dy += dy_norm * influence_strength
+        total_weight += abs(influence_strength)
+    
+    # Normalize social influence vector if we had any influences
+    if total_weight > 0:
+        social_dx /= total_weight
+        social_dy /= total_weight
+        
+        # Scale to reasonable movement distance
+        social_magnitude = math.sqrt(social_dx**2 + social_dy**2)
+        if social_magnitude > 0:
+            social_dx = (social_dx / social_magnitude) * base_distance
+            social_dy = (social_dy / social_magnitude) * base_distance
+    
+    # Calculate random component
+    random_dx = math.cos(base_angle) * base_distance
+    random_dy = math.sin(base_angle) * base_distance
+    
+    # Blend social and random influences
+    social_weight = DecisionConfig.SOCIAL_WANDER_INFLUENCE
+    random_weight = DecisionConfig.WANDER_RANDOMNESS
+    
+    # If no nearby avatars, just use random
+    if len(context.nearby_avatars) == 0:
+        final_dx = random_dx
+        final_dy = random_dy
+    else:
+        final_dx = social_dx * social_weight + random_dx * random_weight
+        final_dy = social_dy * social_weight + random_dy * random_weight
+    
+    # Calculate final target position
+    target_x = int(current_x + final_dx)
+    target_y = int(current_y + final_dy)
+    
+    # Clamp to map bounds with some margin
+    target_x = max(2, min(DecisionConfig.MAP_WIDTH - 2, target_x))
+    target_y = max(2, min(DecisionConfig.MAP_HEIGHT - 2, target_y))
+    
+    return (target_x, target_y)
+
+
+# ============================================================================
 # ACTION GENERATION
 # ============================================================================
 
@@ -279,13 +403,14 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
         target=None
     ))
     
-    # Always available: Wander
+    # Always available: Wander (with social-biased target)
+    wander_x, wander_y = calculate_social_wander_target(context)
     actions.append(CandidateAction(
         action_type=ActionType.WANDER,
         target=ActionTarget(
             target_type="position",
-            x=random.randint(0, 30),  # Will be replaced with actual map bounds
-            y=random.randint(0, 30)
+            x=wander_x,
+            y=wander_y
         )
     ))
     
