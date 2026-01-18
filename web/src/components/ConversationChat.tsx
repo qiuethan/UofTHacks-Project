@@ -1,11 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ChatMessage } from '../types/game'
 
+interface RelationshipStats {
+  sentiment: number
+  familiarity: number
+  interaction_count: number
+  is_new: boolean
+}
+
 interface ConversationChatProps {
   messages: ChatMessage[]
   partnerName: string
   partnerSpriteUrl?: string
   myEntityId: string | null
+  partnerId: string | null
   isWaitingForResponse: boolean
   onSendMessage: (content: string) => void
   onEndConversation: () => void
@@ -16,13 +24,34 @@ export function ConversationChat({
   partnerName,
   partnerSpriteUrl,
   myEntityId,
+  partnerId,
   isWaitingForResponse,
   onSendMessage,
   onEndConversation
 }: ConversationChatProps) {
   const [inputValue, setInputValue] = useState('')
+  const [relationshipStats, setRelationshipStats] = useState<RelationshipStats | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch relationship stats when conversation starts or after each message
+  useEffect(() => {
+    if (myEntityId && partnerId) {
+      fetch(`http://localhost:8000/relationship/${myEntityId}/${partnerId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.ok) {
+            setRelationshipStats({
+              sentiment: data.sentiment,
+              familiarity: data.familiarity,
+              interaction_count: data.interaction_count,
+              is_new: data.is_new
+            })
+          }
+        })
+        .catch(err => console.error('Error fetching relationship:', err))
+    }
+  }, [myEntityId, partnerId, messages.length])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -33,6 +62,24 @@ export function ConversationChat({
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+  
+  // Helper to get sentiment label and color
+  const getSentimentInfo = (sentiment: number) => {
+    if (sentiment >= 0.7) return { label: 'Loves you', color: 'text-green-400', emoji: '💚' }
+    if (sentiment >= 0.6) return { label: 'Likes you', color: 'text-green-300', emoji: '😊' }
+    if (sentiment >= 0.45) return { label: 'Neutral', color: 'text-gray-400', emoji: '😐' }
+    if (sentiment >= 0.3) return { label: 'Dislikes', color: 'text-orange-400', emoji: '😒' }
+    return { label: 'Hates you', color: 'text-red-400', emoji: '😠' }
+  }
+  
+  // Helper to get familiarity label
+  const getFamiliarityInfo = (familiarity: number) => {
+    if (familiarity >= 0.8) return { label: 'Best friends', color: 'text-purple-400' }
+    if (familiarity >= 0.6) return { label: 'Good friends', color: 'text-blue-400' }
+    if (familiarity >= 0.4) return { label: 'Acquaintances', color: 'text-cyan-400' }
+    if (familiarity >= 0.2) return { label: 'Just met', color: 'text-gray-400' }
+    return { label: 'Strangers', color: 'text-gray-500' }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,17 +114,46 @@ export function ConversationChat({
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4">
         <div className="panel-fun overflow-hidden relative">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b-2 border-black bg-[#FFF8F0]">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-[#007a28] animate-pulse"></div>
-            <span className="text-black font-medium">Chatting with {partnerName}</span>
+        <div className="px-4 py-3 border-b-2 border-black bg-[#FFF8F0]">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-[#007a28] animate-pulse"></div>
+              <span className="text-black font-medium">Chatting with {partnerName}</span>
+            </div>
+            <button
+              onClick={onEndConversation}
+              className="px-3 py-1 text-sm text-black hover:underline transition-colors"
+            >
+              End
+            </button>
           </div>
-          <button
-            onClick={onEndConversation}
-            className="px-3 py-1 text-sm text-black hover:underline transition-colors"
-          >
-            End
-          </button>
+          
+          {/* Relationship Stats Bar */}
+          {relationshipStats && (
+            <div className="flex items-center gap-4 text-xs">
+              {/* Sentiment */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-black/60">Sentiment:</span>
+                <span className={getSentimentInfo(relationshipStats.sentiment).color.replace('text-', 'text-')}>
+                  {getSentimentInfo(relationshipStats.sentiment).emoji} {getSentimentInfo(relationshipStats.sentiment).label}
+                </span>
+              </div>
+              
+              {/* Familiarity */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-black/60">Familiarity:</span>
+                <span className={getFamiliarityInfo(relationshipStats.familiarity).color.replace('text-', 'text-')}>
+                  {getFamiliarityInfo(relationshipStats.familiarity).label}
+                </span>
+              </div>
+              
+              {/* Interaction Count */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-black/60">Chats:</span>
+                <span className="text-[#007a28] font-medium">{relationshipStats.interaction_count}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Messages */}

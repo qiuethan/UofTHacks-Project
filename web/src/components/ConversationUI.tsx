@@ -98,10 +98,18 @@ export function IncomingRequests({ requests, onAccept, onReject }: IncomingReque
   
   return (
     <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-      <div className="panel-fun px-8 py-5 min-w-[360px]">
-        <p className="text-black mb-4 text-center font-sans text-xl">
+      <div className="panel-fun px-8 py-5 min-w-[360px] max-w-[450px]">
+        <p className="text-black mb-2 text-center font-sans text-xl">
           <strong>{mostRecentRequest.initiatorName}</strong> wants to talk!
         </p>
+        {/* Show the reason/message if provided */}
+        {mostRecentRequest.reason && (
+          <div className="mb-4 text-center">
+            <p className="text-black/70 text-sm italic bg-white border-2 border-black/20 px-4 py-2">
+              "{mostRecentRequest.reason}"
+            </p>
+          </div>
+        )}
         <div className="flex gap-3 justify-center">
           <button
             className="btn-primary px-6 py-3 text-white text-base font-bold border-0"

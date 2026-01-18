@@ -49,6 +49,7 @@ export class GameScene extends Phaser.Scene {
   private watchModeInputSetup = false // Prevent duplicate event listeners
   private lastWheelTime = 0 // Track last wheel event to debounce
   private wheelDebounceMs = 50 // Minimum time between wheel events
+  private followingEntityId: string | null = null
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -235,6 +236,48 @@ export class GameScene extends Phaser.Scene {
     if (multiplier <= 1.05) {
       camera.centerOn(this.worldWidth / 2, this.worldHeight / 2)
     }
+  }
+
+  // Follow a specific entity by ID (for agent monitor)
+  followEntity(entityId: string | null) {
+    this.followingEntityId = entityId
+    
+    if (!entityId) {
+      // Stop following the selected agent
+      this.cameras.main.stopFollow()
+      
+      if (this.sceneDataRef.current.mode === 'play') {
+        // In play mode, return to following the player
+        const myEntityId = this.sceneDataRef.current.myEntityId
+        if (myEntityId) {
+          const mySprite = this.entitySprites.get(myEntityId)
+          if (mySprite) {
+            this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+            this.cameras.main.startFollow(mySprite.container, true, 0.1, 0.1)
+            this.cameras.main.setZoom(0.75)
+            this.cameras.main.setDeadzone(0, 0)
+          }
+        }
+      } else {
+        // In watch mode, return to overview
+        this.setupWatchModeCamera()
+      }
+      return
+    }
+    
+    const entitySprite = this.entitySprites.get(entityId)
+    if (entitySprite) {
+      // Match exact play mode camera settings
+      this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight)
+      this.cameras.main.startFollow(entitySprite.container, true, 0.1, 0.1)
+      this.cameras.main.setZoom(0.75)
+      this.cameras.main.setDeadzone(0, 0)
+    }
+  }
+  
+  // Get the currently followed entity ID
+  getFollowingEntityId(): string | null {
+    return this.followingEntityId
   }
 
   updateEntities(entities: Map<string, GameEntity>, myEntityId: string | null) {
@@ -713,7 +756,7 @@ export class GameScene extends Phaser.Scene {
     this.load.start()
   }
 
-  private showFallbackSprite(container: Phaser.GameObjects.Container, entity: GameEntity, isMe: boolean) {
+  private showFallbackSprite(container: Phaser.GameObjects.Container, entity: GameEntity, _isMe: boolean) {
     // Remove loading elements
     container.getAll().forEach(child => {
       if (child instanceof Phaser.GameObjects.Rectangle || child instanceof Phaser.GameObjects.Graphics) {
@@ -873,7 +916,7 @@ export class GameScene extends Phaser.Scene {
     const padding = 10
     const bannerWidth = nameText.width + padding * 2
     const bannerHeight = nameText.height + padding
-    const cornerRadius = 2 // Sharp corners for pixel aesthetic
+    // Sharp corners for pixel aesthetic (cornerRadius = 2)
     
     // Background with border
     const bg = this.add.graphics()
@@ -892,17 +935,6 @@ export class GameScene extends Phaser.Scene {
     banner.setDepth(1000)
     
     return banner
-  }
-
-  private initiateConversation(targetEntityId: string) {
-    // Emit event to parent React component to handle conversation initiation
-    const myEntityId = this.sceneDataRef.current.myEntityId
-    if (myEntityId && myEntityId !== targetEntityId) {
-      // Dispatch a custom event that React can listen to
-      window.dispatchEvent(new CustomEvent('initiateConversation', {
-        detail: { targetEntityId }
-      }))
-    }
   }
 
   private getSpriteUrl(entity: GameEntity): string | undefined {

@@ -34,7 +34,8 @@ if OPENROUTER_API_KEY:
     except Exception as e:
         print(f"Failed to init OpenAI/OpenRouter client: {e}")
 
-MODEL_NAME = "x-ai/grok-4.1-fast"
+# Use Grok-4-fast for good quality with better speed
+MODEL_NAME = "x-ai/grok-4-fast"
 
 async def get_current_user(request: Request):
     auth_header = request.headers.get("Authorization")
@@ -135,6 +136,7 @@ async def chat_onboarding(req: OnboardingChatRequest, user = Depends(get_current
     5. If the user asks you questions, answer briefly and steer back to the interview.
     6. When you are satisfied that you have answers to ALL specific questions (or the user has declined to answer enough times), 
        you MUST signal completion by calling the 'end_interview' tool.
+    7. IMPORTANT: Use plain text only. Do not use any markdown formatting such as bold, italics, bullet points, numbered lists, or any other formatting. Write naturally as if texting a friend.
     
     Current Progress:
     Review the transcript below. See which questions have been answered. Ask the next one.
@@ -279,7 +281,16 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         "formality": "casual/formal/mixed",
         "emoji_usage": "none/light/heavy",
         "response_length": "brief/moderate/detailed",
-        "tone": "..."
+        "tone": "description of their overall communication tone"
+      }},
+      "personality_traits": ["list of personality traits observed like: friendly, curious, sarcastic, etc."],
+      "interests": ["list of hobbies and interests they mentioned"],
+      "conversation_topics": ["topics they mentioned enjoying or wanting to discuss"],
+      "personality_scores": {{
+        "sociability": 0.0 to 1.0 (how social/extroverted they seem),
+        "curiosity": 0.0 to 1.0 (how curious/exploratory they are),
+        "agreeableness": 0.0 to 1.0 (how agreeable/friendly they are),
+        "energy_baseline": 0.0 to 1.0 (their natural energy level)
       }}
     }}
     """
@@ -324,7 +335,106 @@ async def complete_onboarding(req: OnboardingCompleteRequest, user = Depends(get
         "conversation_score": 10
     }).execute()
 
-    # 4. Update User Metadata
+    # 4. Update agent_personality with onboarding data
+    try:
+        # Extract personality data from analysis
+        personality_traits = summary_data.get("personality_traits", [])
+        interests = summary_data.get("interests", [])
+        conversation_topics = summary_data.get("conversation_topics", [])
+        comm_style = summary_data.get("communication_style", {})
+        personality_scores = summary_data.get("personality_scores", {})
+        facts = summary_data.get("facts", {})
+        
+        # Build communication style string
+        comm_style_str = ""
+        if comm_style:
+            parts = []
+            if comm_style.get("formality"):
+                parts.append(f"Formality: {comm_style['formality']}")
+            if comm_style.get("emoji_usage"):
+                parts.append(f"Emoji usage: {comm_style['emoji_usage']}")
+            if comm_style.get("response_length"):
+                parts.append(f"Response length: {comm_style['response_length']}")
+            if comm_style.get("tone"):
+                parts.append(f"Tone: {comm_style['tone']}")
+            comm_style_str = ". ".join(parts)
+        
+        # Build personality notes
+        personality_notes = ""
+        if personality_traits:
+            personality_notes = f"Traits: {', '.join(personality_traits)}"
+        if facts.get("occupation"):
+            personality_notes += f". Occupation: {facts['occupation']}"
+        if facts.get("name"):
+            personality_notes += f". Preferred name: {facts['name']}"
+        
+        # Get personality scores with defaults
+        sociability = float(personality_scores.get("sociability", 0.5))
+        curiosity = float(personality_scores.get("curiosity", 0.5))
+        agreeableness = float(personality_scores.get("agreeableness", 0.5))
+        energy_baseline = float(personality_scores.get("energy_baseline", 0.5))
+        
+        # Clamp values to valid range
+        sociability = max(0.0, min(1.0, sociability))
+        curiosity = max(0.0, min(1.0, curiosity))
+        agreeableness = max(0.0, min(1.0, agreeableness))
+        energy_baseline = max(0.0, min(1.0, energy_baseline))
+        
+        # Upsert to agent_personality
+        personality_data = {
+            "avatar_id": user.id,
+            "sociability": sociability,
+            "curiosity": curiosity,
+            "agreeableness": agreeableness,
+            "energy_baseline": energy_baseline,
+            "profile_summary": person_summary[:2000] if person_summary else None,
+            "communication_style": comm_style_str[:500] if comm_style_str else None,
+            "interests": json.dumps(interests) if interests else None,
+            "conversation_topics": json.dumps(conversation_topics) if conversation_topics else None,
+            "personality_notes": personality_notes[:1000] if personality_notes else None,
+            "world_affinities": json.dumps({
+                "food": 0.5,
+                "karaoke": 0.5,
+                "rest_area": 0.5,
+                "social_hub": 0.5,
+                "wander_point": 0.5
+            })
+        }
+        
+        supabase.table("agent_personality").upsert(personality_data).execute()
+        print(f"[onboarding] Saved personality data for {user.id}")
+        print(f"[onboarding] Personality scores: sociability={sociability:.2f}, curiosity={curiosity:.2f}, agreeableness={agreeableness:.2f}, energy={energy_baseline:.2f}")
+        print(f"[onboarding] Interests: {interests}")
+        print(f"[onboarding] Conversation topics: {conversation_topics}")
+        
+        # Also initialize agent_state with HEALTHY defaults (100% stats)
+        # All users start fully rested, not hungry, social, and happy
+        existing_state = supabase.table("agent_state").select("*").eq("avatar_id", user.id).execute()
+        if not existing_state.data:
+            supabase.table("agent_state").insert({
+                "avatar_id": user.id,
+                "energy": 1.0,      # Fully rested - 100%
+                "hunger": 0.0,      # Not hungry at all - 0%
+                "loneliness": 0.0,  # Not lonely at all - 0%
+                "mood": 1.0,        # Great mood - 100%
+                "current_action": "idle"
+            }).execute()
+            print(f"[onboarding] Initialized agent state for {user.id} (100% healthy)")
+        else:
+            # Reset existing state to healthy defaults as well
+            supabase.table("agent_state").update({
+                "energy": 1.0,
+                "hunger": 0.0,
+                "loneliness": 0.0,
+                "mood": 1.0
+            }).eq("avatar_id", user.id).execute()
+            print(f"[onboarding] Reset agent state to healthy for {user.id}")
+        
+    except Exception as e:
+        print(f"[onboarding] Error saving personality data: {e}")
+        # Don't fail the whole onboarding if personality save fails
+
+    # 5. Update User Metadata
     try:
         print(f"[onboarding] Attempting to update user metadata for user {user.id}")
         result = supabase.auth.admin.update_user_by_id(

@@ -97,6 +97,8 @@ export interface ConversationRequestedEvent {
   readonly initiatorType: 'PLAYER' | 'ROBOT';
   readonly targetType: 'PLAYER' | 'ROBOT';
   readonly expiresAt: number;
+  readonly initiatorName?: string;
+  readonly reason?: string;  // Why the agent wants to talk
 }
 
 /** Emitted when a conversation request is accepted */
@@ -105,6 +107,8 @@ export interface ConversationAcceptedEvent {
   readonly requestId: string;
   readonly initiatorId: string;
   readonly targetId: string;
+  readonly acceptorName?: string;
+  readonly reason?: string;  // Why the agent accepted
 }
 
 /** Emitted when a conversation request is rejected */
@@ -114,6 +118,8 @@ export interface ConversationRejectedEvent {
   readonly initiatorId: string;
   readonly targetId: string;
   readonly cooldownUntil: number;
+  readonly rejectorName?: string;
+  readonly reason?: string;  // Why the agent rejected
 }
 
 /** Emitted when a conversation starts (both parties are adjacent) */
@@ -130,6 +136,12 @@ export interface ConversationEndedEvent {
   readonly conversationId: string;
   readonly participant1Id: string;
   readonly participant2Id: string;
+  /** Who ended the conversation (their ID) */
+  readonly endedBy?: string;
+  /** Name of who ended the conversation */
+  readonly endedByName?: string;
+  /** Reason for ending (if agent-initiated) */
+  readonly reason?: string;
 }
 
 /** Emitted when entity state changes (for real-time sync) */
@@ -139,6 +151,18 @@ export interface EntityStateChangedEvent {
   readonly conversationState?: 'IDLE' | 'PENDING_REQUEST' | 'WALKING_TO_CONVERSATION' | 'IN_CONVERSATION';
   readonly conversationTargetId?: string;
   readonly conversationPartnerId?: string;
+}
+
+/** Emitted when entity stats change (energy, hunger, etc.) */
+export interface EntityStatsUpdatedEvent {
+  readonly type: 'ENTITY_STATS_UPDATED';
+  readonly entityId: string;
+  readonly stats: {
+    energy?: number;
+    hunger?: number;
+    loneliness?: number;
+    mood?: number;
+  };
 }
 
 /** Discriminated union of all world events */
@@ -152,7 +176,8 @@ export type WorldEvent =
   | ConversationRejectedEvent
   | ConversationStartedEvent
   | ConversationEndedEvent
-  | EntityStateChangedEvent;
+  | EntityStateChangedEvent
+  | EntityStatsUpdatedEvent;
 
 // ============================================================================
 // RESULT TYPE - World never throws, returns Result instead

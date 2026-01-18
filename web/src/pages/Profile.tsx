@@ -13,6 +13,38 @@ interface UserProfile {
   has_avatar: boolean
 }
 
+interface Relationship {
+  partner_id: string
+  partner_name: string
+  partner_sprite: string | null
+  sentiment: number
+  familiarity: number
+  interaction_count: number
+  last_interaction: string | null
+  last_topic: string | null
+  mutual_interests: string[]
+  conversation_summary: string | null
+  relationship_notes: string | null
+}
+
+interface Conversation {
+  id: string
+  partner_id: string
+  partner_name: string
+  partner_sprite: string | null
+  created_at: string
+  ended_at: string | null
+  message_count: number
+  summary: string | null
+  score: number | null
+  transcript: Array<{
+    senderId: string
+    senderName: string
+    content: string
+    timestamp: number
+  }>
+}
+
 type PreviewDirection = 'front' | 'back' | 'left' | 'right'
 
 export default function Profile() {
@@ -38,11 +70,21 @@ export default function Profile() {
   
   // Preview
   const [previewDirection, setPreviewDirection] = useState<PreviewDirection>('front')
+  
+  // Relationships and conversations
+  const [relationships, setRelationships] = useState<Relationship[]>([])
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [loadingRelationships, setLoadingRelationships] = useState(false)
+  const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null)
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
+  const [activeTab, setActiveTab] = useState<'relationships' | 'conversations'>('relationships')
 
   // Load profile data
   useEffect(() => {
     if (user) {
       loadProfile()
+      loadRelationships()
+      loadConversations()
     }
   }, [user])
 
@@ -74,6 +116,37 @@ export default function Profile() {
       setError('Failed to load profile')
     } finally {
       setLoading(false)
+    }
+  }
+  
+  const loadRelationships = async () => {
+    if (!user) return
+    
+    setLoadingRelationships(true)
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/user/${user.id}/relationships`)
+      const data = await response.json()
+      if (data.ok) {
+        setRelationships(data.data || [])
+      }
+    } catch (err) {
+      console.error('Failed to load relationships:', err)
+    } finally {
+      setLoadingRelationships(false)
+    }
+  }
+  
+  const loadConversations = async () => {
+    if (!user) return
+    
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/user/${user.id}/conversations`)
+      const data = await response.json()
+      if (data.ok) {
+        setConversations(data.data || [])
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err)
     }
   }
 
@@ -452,6 +525,253 @@ export default function Profile() {
                   {saving ? 'Saving...' : 'Use This Avatar'}
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Relationships & Conversations Section */}
+        <div className="panel-fun p-6 mb-6">
+          <h2 className="text-xl font-bold mb-4 text-black">Your Connections</h2>
+          
+          {/* Tab Switcher */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setActiveTab('relationships')}
+              className={`px-4 py-2 font-medium transition border-2 border-black ${
+                activeTab === 'relationships' 
+                  ? 'btn-primary text-white' 
+                  : 'bg-white text-black hover:bg-gray-100'
+              }`}
+            >
+              👥 People ({relationships.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('conversations')}
+              className={`px-4 py-2 font-medium transition border-2 border-black ${
+                activeTab === 'conversations' 
+                  ? 'btn-primary text-white' 
+                  : 'bg-white text-black hover:bg-gray-100'
+              }`}
+            >
+              💬 Conversations ({conversations.length})
+            </button>
+          </div>
+          
+          {/* Relationships Tab */}
+          {activeTab === 'relationships' && (
+            <div className="space-y-3">
+              {loadingRelationships ? (
+                <div className="text-center text-black/60 py-8">Loading relationships...</div>
+              ) : relationships.length === 0 ? (
+                <div className="text-center text-black/60 py-8">
+                  <p className="text-lg mb-2">No connections yet</p>
+                  <p className="text-sm">Start conversations with others to build relationships!</p>
+                </div>
+              ) : (
+                relationships.map(rel => (
+                  <div 
+                    key={rel.partner_id}
+                    onClick={() => setSelectedRelationship(selectedRelationship?.partner_id === rel.partner_id ? null : rel)}
+                    className={`bg-white border-2 p-4 cursor-pointer transition hover:shadow-md ${
+                      selectedRelationship?.partner_id === rel.partner_id 
+                        ? 'border-[#007a28] shadow-[3px_3px_0_#007a28]' 
+                        : 'border-black'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Partner Avatar */}
+                      <div className="w-14 h-14 bg-[#FFF8F0] border-2 border-black overflow-hidden flex-shrink-0">
+                        {rel.partner_sprite ? (
+                          <img 
+                            src={rel.partner_sprite} 
+                            alt={rel.partner_name}
+                            className="w-full h-full object-contain"
+                            style={{ imageRendering: 'pixelated' }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-2xl">👤</div>
+                        )}
+                      </div>
+                      
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-black truncate">{rel.partner_name}</div>
+                        <div className="text-sm text-black/60">
+                          {rel.interaction_count} conversation{rel.interaction_count !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                      
+                      {/* Sentiment Indicator */}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-2xl">
+                          {rel.sentiment > 0.7 ? '💚' : rel.sentiment > 0.3 ? '😊' : rel.sentiment > -0.3 ? '😐' : '😠'}
+                        </span>
+                        <span className={`text-xs font-medium ${
+                          rel.sentiment > 0.5 ? 'text-[#007a28]' : 
+                          rel.sentiment > 0 ? 'text-black/60' : 'text-red-600'
+                        }`}>
+                          {rel.sentiment > 0.7 ? 'Great' : rel.sentiment > 0.3 ? 'Good' : rel.sentiment > -0.3 ? 'Neutral' : 'Poor'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Expanded Details */}
+                    {selectedRelationship?.partner_id === rel.partner_id && (
+                      <div className="mt-4 pt-4 border-t-2 border-black/20 space-y-3">
+                        {/* Stats */}
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-black/60 font-medium">Familiarity</span>
+                            <div className="mt-1 bg-gray-200 border border-black h-3 overflow-hidden">
+                              <div 
+                                className="bg-[#7a5224] h-full transition-all"
+                                style={{ width: `${rel.familiarity * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-black/60 font-medium">Sentiment</span>
+                            <div className="mt-1 bg-gray-200 border border-black h-3 overflow-hidden">
+                              <div 
+                                className={`h-full transition-all ${rel.sentiment > 0 ? 'bg-[#007a28]' : 'bg-red-500'}`}
+                                style={{ width: `${Math.abs(rel.sentiment) * 50 + 50}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Last Topic */}
+                        {rel.last_topic && (
+                          <div>
+                            <span className="text-black/60 text-sm font-medium">Last talked about:</span>
+                            <p className="text-black text-sm mt-1">{rel.last_topic}</p>
+                          </div>
+                        )}
+                        
+                        {/* Mutual Interests */}
+                        {rel.mutual_interests && rel.mutual_interests.length > 0 && (
+                          <div>
+                            <span className="text-black/60 text-sm font-medium">Shared interests:</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {rel.mutual_interests.slice(0, 5).map((interest, i) => (
+                                <span key={i} className="px-2 py-1 bg-[#bae854] text-black text-xs font-medium border border-black">
+                                  {interest}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Relationship Notes */}
+                        {rel.relationship_notes && (
+                          <div>
+                            <span className="text-black/60 text-sm font-medium">Relationship dynamic:</span>
+                            <p className="text-black text-sm mt-1 italic">"{rel.relationship_notes}"</p>
+                          </div>
+                        )}
+                        
+                        {/* Conversation Summary */}
+                        {rel.conversation_summary && (
+                          <div>
+                            <span className="text-black/60 text-sm font-medium">Conversation history:</span>
+                            <p className="text-black text-sm mt-1 bg-white border border-black p-2 max-h-32 overflow-y-auto">
+                              {rel.conversation_summary}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+          
+          {/* Conversations Tab */}
+          {activeTab === 'conversations' && (
+            <div className="space-y-3">
+              {conversations.length === 0 ? (
+                <div className="text-center text-black/60 py-8">
+                  <p className="text-lg mb-2">No conversations yet</p>
+                  <p className="text-sm">Your chat history will appear here!</p>
+                </div>
+              ) : (
+                conversations.map(conv => (
+                  <div 
+                    key={conv.id}
+                    onClick={() => setSelectedConversation(selectedConversation?.id === conv.id ? null : conv)}
+                    className={`bg-white border-2 p-4 cursor-pointer transition hover:shadow-md ${
+                      selectedConversation?.id === conv.id 
+                        ? 'border-[#7a5224] shadow-[3px_3px_0_#7a5224]' 
+                        : 'border-black'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Partner Avatar */}
+                      <div className="w-12 h-12 bg-[#FFF8F0] border-2 border-black overflow-hidden flex-shrink-0">
+                        {conv.partner_sprite ? (
+                          <img 
+                            src={conv.partner_sprite} 
+                            alt={conv.partner_name}
+                            className="w-full h-full object-contain"
+                            style={{ imageRendering: 'pixelated' }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xl">👤</div>
+                        )}
+                      </div>
+                      
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-black truncate">{conv.partner_name}</div>
+                        <div className="text-xs text-black/60">
+                          {conv.message_count} message{conv.message_count !== 1 ? 's' : ''} • {
+                            new Date(conv.created_at).toLocaleDateString()
+                          }
+                        </div>
+                        {conv.summary && (
+                          <div className="text-sm text-black/80 truncate mt-1">{conv.summary}</div>
+                        )}
+                      </div>
+                      
+                      {/* Score */}
+                      {conv.score && (
+                        <div className="flex flex-col items-center">
+                          <span className="text-lg">
+                            {conv.score >= 8 ? '⭐' : conv.score >= 5 ? '👍' : '😐'}
+                          </span>
+                          <span className="text-xs text-black/60 font-medium">{conv.score}/10</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Expanded Transcript */}
+                    {selectedConversation?.id === conv.id && conv.transcript && conv.transcript.length > 0 && (
+                      <div className="mt-4 pt-4 border-t-2 border-black/20">
+                        <div className="max-h-64 overflow-y-auto space-y-2 bg-[#FFF8F0] border border-black p-2">
+                          {conv.transcript.map((msg, i) => (
+                            <div 
+                              key={i}
+                              className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div className={`max-w-[80%] px-3 py-2 text-sm border-2 ${
+                                msg.senderId === user?.id 
+                                  ? 'bg-[#007a28] text-white border-[#005018]' 
+                                  : 'bg-white text-black border-black'
+                              }`}>
+                                <div className={`text-xs mb-1 ${msg.senderId === user?.id ? 'text-white/70' : 'text-black/60'}`}>
+                                  {msg.senderName}
+                                </div>
+                                {msg.content}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>

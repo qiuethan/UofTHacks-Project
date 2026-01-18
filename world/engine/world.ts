@@ -632,10 +632,14 @@ export class World {
   /**
    * Request a conversation with another entity.
    * Returns the conversation request event if successful.
+   * @param initiatorId - The entity requesting the conversation
+   * @param targetId - The entity being requested
+   * @param reason - Optional reason why the initiator wants to talk
    */
   requestConversation(
     initiatorId: string, 
-    targetId: string
+    targetId: string,
+    reason?: string
   ): Result<WorldEvent[]> {
     const initiator = this.state.entities.get(initiatorId);
     const target = this.state.entities.get(targetId);
@@ -669,7 +673,7 @@ export class World {
     );
     
     if (!request) {
-      return err('REQUEST_FAILED', 'Could not create request (on cooldown or already pending)');
+      return err('REQUEST_FAILED', 'Please wait 30 seconds before requesting another conversation.');
     }
     
     // Update initiator state
@@ -688,7 +692,9 @@ export class World {
       targetId,
       initiatorType,
       targetType,
-      expiresAt: request.expiresAt
+      expiresAt: request.expiresAt,
+      initiatorName: initiator.displayName,
+      reason: reason
     };
     
     return ok([event]);
@@ -696,8 +702,11 @@ export class World {
 
   /**
    * Accept a conversation request.
+   * @param acceptorId - The entity accepting the request
+   * @param requestId - The conversation request ID
+   * @param reason - Optional reason why the acceptor is accepting
    */
-  acceptConversation(acceptorId: string, requestId: string): Result<WorldEvent[]> {
+  acceptConversation(acceptorId: string, requestId: string, reason?: string): Result<WorldEvent[]> {
     const request = this.conversationRequests.getRequest(requestId);
     if (!request) return err('REQUEST_NOT_FOUND', 'Conversation request not found');
     if (request.targetId !== acceptorId) return err('NOT_TARGET', 'Only the target can accept');
@@ -782,7 +791,9 @@ export class World {
         type: 'CONVERSATION_ACCEPTED',
         requestId,
         initiatorId: request.initiatorId,
-        targetId: request.targetId
+        targetId: request.targetId,
+        acceptorName: target.displayName,
+        reason: reason
       },
       {
         type: 'ENTITY_STATE_CHANGED',
@@ -808,8 +819,11 @@ export class World {
 
   /**
    * Reject a conversation request.
+   * @param rejectorId - The entity rejecting the request
+   * @param requestId - The conversation request ID
+   * @param reason - Optional reason why the rejector is declining
    */
-  rejectConversation(rejectorId: string, requestId: string): Result<WorldEvent[]> {
+  rejectConversation(rejectorId: string, requestId: string, reason?: string): Result<WorldEvent[]> {
     const request = this.conversationRequests.getRequest(requestId);
     if (!request) return err('REQUEST_NOT_FOUND', 'Conversation request not found');
     if (request.targetId !== rejectorId) return err('NOT_TARGET', 'Only the target can reject');
@@ -819,6 +833,7 @@ export class World {
     
     // Reset initiator state and clear any pathfinding
     const initiator = this.state.entities.get(request.initiatorId);
+    const rejector = this.state.entities.get(rejectorId);
     if (initiator) {
       const updatedInitiator = {
         ...initiator,
@@ -838,7 +853,9 @@ export class World {
       requestId,
       initiatorId: request.initiatorId,
       targetId: request.targetId,
-      cooldownUntil
+      cooldownUntil,
+      rejectorName: rejector?.displayName,
+      reason: reason
     };
     
     return ok([
@@ -853,8 +870,11 @@ export class World {
 
   /**
    * End an active conversation.
+   * @param entityId - The entity ending the conversation
+   * @param endedByName - Optional name of who ended it (for notification)
+   * @param reason - Optional reason for ending (if agent-initiated)
    */
-  endConversation(entityId: string): Result<WorldEvent[]> {
+  endConversation(entityId: string, endedByName?: string, reason?: string): Result<WorldEvent[]> {
     const entity = this.state.entities.get(entityId);
     if (!entity) return err('ENTITY_NOT_FOUND', 'Entity not found');
     if (entity.conversationState !== 'IN_CONVERSATION') {
@@ -904,7 +924,10 @@ export class World {
         type: 'CONVERSATION_ENDED',
         conversationId: conversationId || 'unknown',
         participant1Id: entityId,
-        participant2Id: partnerId
+        participant2Id: partnerId,
+        endedBy: entityId,
+        endedByName: endedByName || entity.displayName,
+        reason: reason
       },
       {
         type: 'ENTITY_STATE_CHANGED',

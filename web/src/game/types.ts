@@ -32,6 +32,7 @@ export interface GameProps {
   allEntityMessages?: Map<string, ChatMessage>
   watchZoom?: number
   watchPan?: { x: number; y: number }
+  followEntityId?: string | null
 }
 
 export interface SceneData {
@@ -47,4 +48,5 @@ export interface SceneData {
   allEntityMessages?: Map<string, ChatMessage>
   watchZoom?: number
   watchPan?: { x: number; y: number }
+  followEntityId?: string | null
 }

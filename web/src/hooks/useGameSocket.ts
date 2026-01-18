@@ -150,6 +150,18 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
             }
           }
           break
+        case 'ENTITY_STATS_UPDATED':
+          // Update agent stats (energy, hunger, loneliness, mood)
+          if (event.entityId && event.stats) {
+            const entity = next.get(event.entityId)
+            if (entity) {
+              next.set(event.entityId, { 
+                ...entity, 
+                stats: event.stats
+              })
+            }
+          }
+          break
       }
       return next
     })
@@ -159,16 +171,23 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const handleConversationEvent = useCallback((event: WorldEvent) => {
     switch (event.type) {
       case 'CONVERSATION_REQUESTED':
-        // If we're the target, show the request
+        // If we're the target, show the request with reason
         if (event.targetId === myEntityId && event.requestId && event.initiatorId) {
           setEntities(currentEntities => {
             const initiator = currentEntities.get(event.initiatorId!)
+            const initiatorName = event.initiatorName || initiator?.displayName || 'Someone'
             setPendingRequests(prev => [...prev, {
               requestId: event.requestId!,
               initiatorId: event.initiatorId!,
-              initiatorName: initiator?.displayName || 'Someone',
-              expiresAt: event.expiresAt || Date.now() + 30000
+              initiatorName: initiatorName,
+              expiresAt: event.expiresAt || Date.now() + 30000,
+              reason: event.reason
             }])
+            // Show notification with reason if provided
+            if (event.reason) {
+              setNotification(`${initiatorName}: "${event.reason}"`)
+              setTimeout(() => setNotification(null), 5000)
+            }
             return currentEntities
           })
         }
@@ -176,6 +195,15 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
       case 'CONVERSATION_ACCEPTED':
         // Clear pending requests when accepted
         setPendingRequests([])
+        // Show notification if we initiated and someone accepted
+        if (event.initiatorId === myEntityId && event.acceptorName) {
+          if (event.reason) {
+            setNotification(`${event.acceptorName} accepted: "${event.reason}"`)
+          } else {
+            setNotification(`${event.acceptorName} accepted your request!`)
+          }
+          setTimeout(() => setNotification(null), 4000)
+        }
         break
       case 'CONVERSATION_STARTED':
         // No manual sync needed, useEffect handles it from entity state
@@ -193,21 +221,51 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
           })
         }
 
-        // Show notification if we were part of this
+        // Show notification if we were part of this - include reason
         if (event.initiatorId === myEntityId) {
           setEntities(current => {
             const target = current.get(event.targetId!)
-            setNotification(`Conversation request to ${target?.displayName || 'target'} was rejected.`)
+            const targetName = event.rejectorName || target?.displayName || 'They'
+            if (event.reason) {
+              setNotification(`${targetName} declined: "${event.reason}"`)
+            } else {
+              setNotification(`${targetName} declined your conversation request.`)
+            }
             return current
           })
-          setTimeout(() => setNotification(null), 5000)
+          setTimeout(() => setNotification(null), 6000)
         } else if (event.targetId === myEntityId) {
-          setNotification('You rejected the conversation request.')
-          setTimeout(() => setNotification(null), 5000)
+          setEntities(current => {
+            const initiator = current.get(event.initiatorId!)
+            setNotification(`You declined ${initiator?.displayName || 'their'}'s request.`)
+            return current
+          })
+          setTimeout(() => setNotification(null), 4000)
         }
         break
       case 'CONVERSATION_ENDED':
-        // No manual sync needed, useEffect handles it from entity state
+        // Show notification if the OTHER person ended the conversation
+        // We can determine this by checking if we're still in a conversation state
+        if (inConversationWith) {
+          // Get the partner's name from entities
+          setEntities(current => {
+            const partner = current.get(inConversationWith)
+            // Check if we were a participant
+            const wasParticipant = event.participant1Id === myEntityId || event.participant2Id === myEntityId
+            
+            if (wasParticipant && (partner || event.endedByName)) {
+              const enderName = event.endedByName || partner?.displayName || 'Partner'
+              // Include reason if provided (agent-initiated end)
+              if (event.reason) {
+                setNotification(`${enderName} ended the conversation: "${event.reason}"`)
+              } else {
+                setNotification(`${enderName} ended the conversation.`)
+              }
+              setTimeout(() => setNotification(null), 6000)
+            }
+            return current
+          })
+        }
         break
     }
   }, [myEntityId])

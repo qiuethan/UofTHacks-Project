@@ -149,6 +149,13 @@ def calculate_social_bias(
 ) -> float:
     """
     Calculate bias based on relationship with target avatar.
+    
+    Uses:
+    - sentiment: positive = more likely to chat
+    - familiarity: more familiar = more comfortable chatting
+    - mutual_interests: shared interests = more to talk about
+    - relationship_notes: positive dynamic = more likely to interact
+    - interaction_count: more interactions = stronger relationship
     """
     if not target_avatar:
         return 0.0
@@ -161,6 +168,18 @@ def calculate_social_bias(
             score += social_memory.sentiment * 0.5
             # Familiarity makes interaction more comfortable
             score += social_memory.familiarity * 0.3
+            
+            # More interactions = stronger desire to continue relationship
+            if social_memory.interaction_count > 3:
+                score += 0.1
+            if social_memory.interaction_count > 10:
+                score += 0.1  # Extra bonus for established relationships
+            
+            # Mutual interests give a bonus (more to talk about)
+            if hasattr(social_memory, 'mutual_interests') and social_memory.mutual_interests:
+                interests = social_memory.mutual_interests
+                if isinstance(interests, list) and len(interests) > 0:
+                    score += min(len(interests) * 0.05, 0.2)  # Cap at 0.2 bonus
         
         # Very negative sentiment discourages interaction
         if social_memory.sentiment < -0.5:
@@ -175,8 +194,8 @@ def calculate_social_bias(
             if target_avatar.distance <= 3:
                 score += 0.5
     else:
-        # Unknown avatars get curiosity bonus
-        score += 0.1
+        # Unknown avatars get curiosity bonus (want to meet new people)
+        score += 0.15
     
     # Prefer online players for social interactions
     if target_avatar.is_online and action == ActionType.INITIATE_CONVERSATION:
