@@ -534,8 +534,8 @@ def complete_world_interaction(client: Client, interaction_id: str) -> None:
 # AVATAR/POSITION OPERATIONS
 # ============================================================================
 
-def get_nearby_avatars(client: Client, avatar_id: str, radius: int = 10) -> list[NearbyAvatar]:
-    """Get avatars near a specific avatar."""
+def get_nearby_avatars(client: Client, avatar_id: str, radius: int = 5) -> list[NearbyAvatar]:
+    """Get avatars near a specific avatar. Radius 5 = must be close to consider conversation."""
     result = client.rpc(
         "get_nearby_avatars",
         {"p_avatar_id": avatar_id, "p_radius": radius}

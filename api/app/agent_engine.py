@@ -56,13 +56,13 @@ class DecisionConfig:
     LOW_MOOD = 0.3  # When mood is low, prefer fun activities
     
     # Social parameters
-    CONVERSATION_RADIUS = 15  # Very large - agents can initiate from far away
+    CONVERSATION_RADIUS = 15  # Must be CLOSE to start conversation (5 tiles)
     RECENT_INTERACTION_HOURS = 0.5  # Can talk again very soon (30 mins)
     
-    # Time decay rates (per tick)
-    ENERGY_DECAY = 0.02
-    HUNGER_GROWTH = 0.015  # Reduced from 0.03
-    LONELINESS_GROWTH = 0.02
+    # Time decay rates (per tick) - VERY SLOW decay
+    ENERGY_DECAY = 0.002  # 10x slower - energy lasts much longer
+    HUNGER_GROWTH = 0.005  # 3x slower
+    LONELINESS_GROWTH = 0.005  # Slower loneliness growth
     
     # Wander influence parameters
     SOCIAL_WANDER_INFLUENCE = 0.5  # How much sentiment influences wander direction (0-1)
@@ -591,13 +591,14 @@ def generate_candidate_actions(context: AgentContext) -> list[CandidateAction]:
                         y=flee_y
                     )
                 ))
-            # If we like them or neutral, consider talking
+            # If we like them or neutral, consider talking (must be CLOSE - within 5 tiles)
             elif nearby.distance <= DecisionConfig.CONVERSATION_RADIUS:
                 actions.append(CandidateAction(
                     action_type=ActionType.INITIATE_CONVERSATION,
                     target=ActionTarget(
                         target_type="avatar",
                         target_id=nearby.avatar_id,
+                        name=nearby.display_name or f"avatar {nearby.avatar_id[:8]}",
                         x=nearby.x,
                         y=nearby.y
                     )
