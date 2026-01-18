@@ -94,9 +94,10 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
     
     # Social actions address loneliness
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += state.loneliness * 1.2
+        score += 0.8  # Base boost to make conversations more likely
+        score += state.loneliness * 2.0  # Increased from 1.2
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.4
+            score += 0.6  # Increased from 0.4
     
     # Karaoke addresses loneliness and boosts mood
     if action == ActionType.INTERACT_KARAOKE:
@@ -122,7 +123,7 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     
     # Sociable personalities prefer social actions
     if action in [ActionType.INITIATE_CONVERSATION, ActionType.JOIN_CONVERSATION]:
-        score += personality.sociability * 0.8
+        score += personality.sociability * 1.2  # Increased from 0.8
     
     # Curious personalities prefer exploration
     if action == ActionType.WANDER:
@@ -130,7 +131,7 @@ def calculate_personality_alignment(action: ActionType, personality: AgentPerson
     
     # Agreeable personalities more likely to accept conversations
     if action == ActionType.JOIN_CONVERSATION:
-        score += personality.agreeableness * 0.3
+        score += personality.agreeableness * 0.5  # Increased from 0.3
     
     # Energy baseline affects rest preference
     if action in [ActionType.IDLE, ActionType.INTERACT_REST]:
