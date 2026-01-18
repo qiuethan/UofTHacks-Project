@@ -71,22 +71,13 @@ export function areAdjacent(
   x1: number, y1: number,
   x2: number, y2: number
 ): boolean {
-  // For 2x1 entities (width 2, height 1), check if they are in one of the 4 cardinal directions
+  // For 2x1 entities (width 2, height 1), check if they are close enough to converse
   // Entity 1 occupies: (x1, y1), (x1+1, y1)
   // Entity 2 occupies: (x2, y2), (x2+1, y2)
   
-  // Adjacent means one entity is directly next to another (not overlapping)
-  // Right: x2 = x1 + 2, y2 = y1
-  // Left:  x2 = x1 - 2, y2 = y1
-  // Down:  x2 = x1, y2 = y1 + 1 (height is 1)
-  // Up:    x2 = x1, y2 = y1 - 1 (height is 1)
-  
-  const isRight = x2 === x1 + 2 && y2 === y1;
-  const isLeft = x2 === x1 - 2 && y2 === y1;
-  const isDown = x2 === x1 && y2 === y1 + 1;
-  const isUp = x2 === x1 && y2 === y1 - 1;
-  
-  return isRight || isLeft || isDown || isUp;
+  // Adjacent means within conversation range (close enough to talk)
+  // Use center-to-center distance for more flexible positioning
+  return isWithinConversationRange(x1, y1, x2, y2);
 }
 
 // ============================================================================
@@ -228,14 +219,19 @@ export class ConversationRequestManager {
       return null;
     }
     
-    // Check if there's already a pending request between these entities
+    // Check if there's already a pending request from this initiator (to ANYONE)
+    // This prevents an entity from sending multiple conversation requests at once
     for (const request of this.requests.values()) {
-      if (
-        request.status === 'PENDING' &&
-        request.initiatorId === initiatorId &&
-        request.targetId === targetId
-      ) {
-        return null; // Already pending
+      if (request.status === 'PENDING' && request.initiatorId === initiatorId) {
+        return null; // Initiator already has a pending request
+      }
+    }
+    
+    // Also check if target already has a pending request FROM someone else
+    // This prevents overwhelming a target with multiple requests
+    for (const request of this.requests.values()) {
+      if (request.status === 'PENDING' && request.targetId === targetId) {
+        return null; // Target already has a pending request from someone
       }
     }
     

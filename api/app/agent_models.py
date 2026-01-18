@@ -58,6 +58,12 @@ class AgentPersonality(BaseModel):
         },
         description="Affinity scores for different location types"
     )
+    # Detailed profile learned from conversations
+    profile_summary: Optional[str] = Field(default=None, description="Detailed summary of who this person is")
+    communication_style: Optional[str] = Field(default=None, description="How this person communicates")
+    interests: Optional[list] = Field(default=None, description="Array of interests/hobbies")
+    conversation_topics: Optional[list] = Field(default=None, description="Topics they like to discuss")
+    personality_notes: Optional[str] = Field(default=None, description="Notes about observed personality traits")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -112,6 +118,10 @@ class SocialMemory(BaseModel):
     interaction_count: int = Field(default=0, ge=0)
     last_interaction: Optional[datetime] = None
     last_conversation_topic: Optional[str] = None
+    # Enhanced relationship data
+    mutual_interests: Optional[list] = Field(default=None, description="Shared interests between the two people")
+    conversation_history_summary: Optional[str] = Field(default=None, description="Summary of all past conversations")
+    relationship_notes: Optional[str] = Field(default=None, description="Notes about the relationship dynamic")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

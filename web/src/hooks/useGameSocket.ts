@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import type { Entity, WorldEvent, WorldSnapshot, ConversationRequest } from '../types/game'
+import type { Entity, WorldEvent, WorldSnapshot, ConversationRequest, ChatMessage } from '../types/game'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 
 interface UseGameSocketOptions {
@@ -19,6 +19,10 @@ interface GameSocketState {
   isWalkingToConversation: boolean
   cooldowns: Map<string, number>
   notification: string | null
+  chatMessages: ChatMessage[]
+  isWaitingForResponse: boolean
+  // All entity messages for displaying chat bubbles globally
+  allEntityMessages: Map<string, ChatMessage>
 }
 
 interface GameSocketActions {
@@ -28,6 +32,7 @@ interface GameSocketActions {
   rejectConversation: (requestId: string) => void
   endConversation: () => void
   clearNotification: () => void
+  sendChatMessage: (content: string) => void
 }
 
 /**
@@ -45,14 +50,27 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   const [isWalkingToConversation, setIsWalkingToConversation] = useState(false)
   const [cooldowns, setCooldowns] = useState<Map<string, number>>(new Map())
   const [notification, setNotification] = useState<string | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false)
+  const [allEntityMessages, setAllEntityMessages] = useState<Map<string, ChatMessage>>(new Map())
   
   // Sync conversation state from entities map
   useEffect(() => {
     if (myEntityId) {
       const me = entities.get(myEntityId)
       if (me?.conversationState === 'IN_CONVERSATION' && me.conversationPartnerId) {
-        setInConversationWith(me.conversationPartnerId)
+        setInConversationWith(prev => {
+          // Clear messages when starting a new conversation (different partner)
+          if (prev !== me.conversationPartnerId) {
+            setChatMessages([])
+          }
+          return me.conversationPartnerId!
+        })
       } else {
+        // Clear messages when conversation ends
+        if (inConversationWith !== null) {
+          setChatMessages([])
+        }
         setInConversationWith(null)
       }
 
@@ -270,6 +288,47 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
           }
           break
 
+        case 'CHAT_MESSAGE':
+          // Handle incoming chat message
+          if (msg.messageId && msg.senderId && msg.content) {
+            const chatMessage: ChatMessage = {
+              id: msg.messageId,
+              senderId: msg.senderId,
+              senderName: msg.senderName || 'Unknown',
+              content: msg.content,
+              timestamp: msg.timestamp || Date.now(),
+              conversationId: msg.conversationId
+            }
+            // Add to conversation-specific messages (for the chat UI)
+            setChatMessages(prev => [...prev, chatMessage])
+            
+            // Also track globally for all entity chat bubbles
+            setAllEntityMessages(prev => {
+              const next = new Map(prev)
+              next.set(msg.senderId, chatMessage)
+              return next
+            })
+            
+            // Auto-clear the entity message after 6 seconds
+            setTimeout(() => {
+              setAllEntityMessages(prev => {
+                const next = new Map(prev)
+                const current = next.get(msg.senderId)
+                // Only delete if it's still the same message
+                if (current?.id === msg.messageId) {
+                  next.delete(msg.senderId)
+                }
+                return next
+              })
+            }, 6000)
+            
+            // If this is a response to our message (from an agent), stop waiting
+            if (msg.senderId !== userId) {
+              setIsWaitingForResponse(false)
+            }
+          }
+          break
+
         case 'ERROR':
           setError(msg.error || 'Connection error')
           if (msg.error === 'ALREADY_CONNECTED') {
@@ -334,6 +393,20 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     setNotification(null)
   }, [])
 
+  const sendChatMessage = useCallback((content: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!content.trim()) return
+    
+    ws.send(JSON.stringify({ type: 'CHAT_MESSAGE', content: content.trim() }))
+    setIsWaitingForResponse(true)
+    
+    // Auto-reset waiting state after 10 seconds if no response comes
+    setTimeout(() => {
+      setIsWaitingForResponse(false)
+    }, 10000)
+  }, [])
+
   const state: GameSocketState = {
     connected,
     myEntityId,
@@ -344,7 +417,10 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     inConversationWith,
     isWalkingToConversation,
     cooldowns,
-    notification
+    notification,
+    chatMessages,
+    isWaitingForResponse,
+    allEntityMessages
   }
 
   const actions: GameSocketActions = {
@@ -353,7 +429,8 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
     acceptConversation,
     rejectConversation,
     endConversation,
-    clearNotification
+    clearNotification,
+    sendChatMessage
   }
 
   return [state, actions]

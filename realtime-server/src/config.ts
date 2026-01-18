@@ -12,6 +12,8 @@ export const MAP_HEIGHT = 56;
 export const TICK_RATE = 100; // ms
 export const AI_TICK_RATE = 1000; // ms
 export const API_URL = 'http://localhost:3003/agent/decision';
+export const API_BASE_URL = 'http://localhost:3003';
+export const CONVERSATION_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 export const SUPABASE_URL = process.env.SUPABASE_URL || '';
 export const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';

@@ -39,6 +39,7 @@ export type WorldEventType =
   | 'CONVERSATION_STARTED' 
   | 'CONVERSATION_ENDED' 
   | 'ENTITY_STATE_CHANGED'
+  | 'CHAT_MESSAGE'
 
 export interface WorldEvent {
   type: WorldEventType
@@ -71,4 +72,13 @@ export interface ConversationRequest {
 export interface Direction {
   x: -1 | 0 | 1
   y: -1 | 0 | 1
+}
+
+export interface ChatMessage {
+  id: string
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  conversationId?: string
 }

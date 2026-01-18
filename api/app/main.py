@@ -33,6 +33,7 @@ from .agent_models import (
 from . import agent_database as agent_db
 from .agent_worker import process_agent_tick
 from . import onboarding
+from . import conversation as conv
 
 # Reduce noisy logging from HTTP clients
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -130,6 +131,13 @@ def get_agent_decision(req: AgentRequest):
             return response
         
         if req.conversation_state == "WALKING_TO_CONVERSATION":
+            response = {"action": "STAND_STILL", "duration": 1.0}
+            print(f"AI Decision for {req.robot_id}: {response}")
+            return response
+        
+        if req.conversation_state == "PENDING_REQUEST":
+            # Robot has sent a conversation request and is waiting for response
+            # Stand still while waiting
             response = {"action": "STAND_STILL", "duration": 1.0}
             print(f"AI Decision for {req.robot_id}: {response}")
             return response
@@ -834,6 +842,81 @@ def get_agent_context(avatar_id: str):
             "social_memories_count": len(context.social_memories),
         }
     }
+
+
+# ============================================================================
+# CONVERSATION CHAT ENDPOINTS
+# ============================================================================
+
+@app.post("/conversation/agent-respond")
+def agent_respond(request: conv.AgentRespondRequest):
+    """
+    Generate an AI agent's response to a chat message.
+    
+    Called by the realtime server when a player sends a message to an offline agent.
+    """
+    try:
+        response = conv.generate_agent_response(
+            agent_id=request.agent_id,
+            partner_id=request.partner_id,
+            partner_name=request.partner_name,
+            message=request.message,
+            conversation_history=request.conversation_history
+        )
+        return conv.AgentRespondResponse(ok=True, response=response)
+    except Exception as e:
+        print(f"Error in agent-respond: {e}")
+        return conv.AgentRespondResponse(ok=False, error=str(e))
+
+
+@app.post("/conversation/end-process")
+def end_process(request: conv.ConversationEndRequest):
+    """
+    Process a conversation after it ends.
+    
+    Updates sentiment, mood, energy, and creates memory records.
+    Called by the realtime server when a conversation ends.
+    """
+    try:
+        result = conv.process_conversation_end(
+            conversation_id=request.conversation_id,
+            participant_a=request.participant_a,
+            participant_b=request.participant_b,
+            participant_a_name=request.participant_a_name,
+            participant_b_name=request.participant_b_name,
+            transcript=request.transcript,
+            participant_a_is_online=request.participant_a_is_online,
+            participant_b_is_online=request.participant_b_is_online
+        )
+        return conv.ConversationEndResponse(**result)
+    except Exception as e:
+        print(f"Error in end-process: {e}")
+        return conv.ConversationEndResponse(ok=False, error=str(e))
+
+
+@app.post("/conversation/get-or-create")
+def get_or_create_conversation(participant_a: str, participant_b: str):
+    """Get or create a conversation between two participants."""
+    conversation_id = conv.get_or_create_conversation(participant_a, participant_b)
+    if conversation_id:
+        return {"ok": True, "conversation_id": conversation_id}
+    return {"ok": False, "error": "Failed to get/create conversation"}
+
+
+@app.post("/conversation/{conversation_id}/message")
+def add_message(conversation_id: str, sender_id: str, sender_name: str, content: str):
+    """Add a message to an active conversation."""
+    message = conv.add_message_to_conversation(conversation_id, sender_id, sender_name, content)
+    if message:
+        return {"ok": True, "message": message}
+    return {"ok": False, "error": "Failed to add message"}
+
+
+@app.get("/conversation/{conversation_id}/transcript")
+def get_transcript(conversation_id: str):
+    """Get the transcript of a conversation."""
+    transcript = conv.get_conversation_transcript(conversation_id)
+    return {"ok": True, "transcript": transcript}
 
 
 if __name__ == "__main__":

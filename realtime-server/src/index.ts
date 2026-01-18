@@ -1,8 +1,8 @@
 import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
-import { startGameLoop, startAiLoop, loadExistingUsers, world } from './game';
+import { startGameLoop, startAiLoop, loadExistingUsers, world, startConversationTimeoutLoop, startAgentAgentConversationLoop } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
-import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation } from './handlers';
+import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation, handleChatMessage } from './handlers';
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
@@ -14,6 +14,8 @@ async function initialize() {
   // Start game loops
   startGameLoop();
   startAiLoop();
+  startConversationTimeoutLoop();
+  startAgentAgentConversationLoop();
   
   console.log('Game world initialized with existing users');
 }
@@ -52,6 +54,8 @@ playWss.on('connection', (ws) => {
         await handleRejectConversation(client, msg.requestId);
       } else if (msg.type === 'END_CONVERSATION' && client) {
         await handleEndConversation(client);
+      } else if (msg.type === 'CHAT_MESSAGE' && client && msg.content) {
+        await handleChatMessage(client, msg.content);
       }
     } catch (e) {
       send(ws, { type: 'ERROR', error: 'Invalid message format' });
