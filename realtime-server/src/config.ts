@@ -17,6 +17,7 @@ export const CONVERSATION_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 export const SUPABASE_URL = process.env.SUPABASE_URL || '';
 export const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+export const API_URL = process.env.API_URL || 'http://localhost:3003/agent/decision';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('ERROR: Supabase credentials required. Set SUPABASE_URL and SUPABASE_SERVICE_KEY.');

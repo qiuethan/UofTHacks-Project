@@ -6,18 +6,15 @@ import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversa
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
-// Initialize the world with existing users, then start loops
+// Initialize the world and start loops
 async function initialize() {
-  // Load all existing users from the database as ROBOTs
-  await loadExistingUsers();
-  
   // Start game loops
   startGameLoop();
   startAiLoop();
   startConversationTimeoutLoop();
   startAgentAgentConversationLoop();
   
-  console.log('Game world initialized with existing users');
+  console.log('Game world initialized - users will appear when they join');
 }
 
 // Run initialization

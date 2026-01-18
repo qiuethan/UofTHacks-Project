@@ -19,6 +19,7 @@ import {
   isWithinInitiationRange, 
   isWithinConversationRange,
   areAdjacent,
+  getDistance,
   CONVERSATION_CONFIG,
   type ConversationRequest 
 } from '../utils/conversation';
@@ -140,6 +141,40 @@ export class World {
       };
       this.state.entities.set(entityId, updated);
     }
+  }
+
+  /**
+   * Update entity kind in place (e.g., PLAYER -> ROBOT or vice versa).
+   * This avoids the remove/add pattern that causes visual flickering.
+   * Returns events for the kind change.
+   */
+  updateEntityKind(entityId: string, newKind: 'PLAYER' | 'ROBOT'): Result<WorldEvent[]> {
+    const entity = this.state.entities.get(entityId);
+    if (!entity) {
+      return err('ENTITY_NOT_FOUND', `Entity ${entityId} does not exist`);
+    }
+
+    if (entity.kind === newKind) {
+      return ok([]); // No change needed
+    }
+
+    // Update the entity kind and clear AI-specific properties if becoming PLAYER
+    const updated = {
+      ...entity,
+      kind: newKind,
+      direction: { x: 0 as const, y: 0 as const },
+      targetPosition: undefined,
+      plannedPath: undefined
+    };
+
+    this.state.entities.set(entityId, updated);
+
+    // Return a state changed event (no ENTITY_LEFT/ENTITY_JOINED)
+    return ok([{
+      type: 'ENTITY_STATE_CHANGED',
+      entityId,
+      conversationState: entity.conversationState
+    }]);
   }
 
   /**
@@ -574,7 +609,9 @@ export class World {
           ...initiator,
           conversationState: 'IDLE' as const,
           conversationTargetId: undefined,
-          pendingConversationRequestId: undefined
+          pendingConversationRequestId: undefined,
+          targetPosition: undefined,
+          direction: { x: 0 as const, y: 0 as const }
         };
         this.state.entities.set(req.initiatorId, updated);
         events.push({
@@ -677,24 +714,32 @@ export class World {
     }
     
     // Calculate position adjacent to target in the direction they're facing
-    // Initiator should stand IN FRONT of the target (in the direction they're facing)
-    // Entities are 2x1 (width 2, height 1), so offset depends on direction:
-    // - Horizontal: offset by 2 cells (width)
-    // - Vertical: offset by 1 cell (height)
-    // If target is facing down (0, 1), initiator should go below them (0, 1)
-    // If target is facing up (0, -1), initiator should go above them (0, -1)
-    // If target is facing right (1, 0), initiator should go to their right (2, 0)
-    // If target is facing left (-1, 0), initiator should go to their left (-2, 0)
-    const targetFacing = target.facing || { x: 0, y: 1 }; // Default facing down
-    const adjacentOffset = {
-      x: targetFacing.x * 2, // Same direction as facing, 2 cells for width
-      y: targetFacing.y * 1  // 1 cell for height
-    };
+    // Calculate the closest adjacent position to the initiator
+    // Entities are 2x1 (width 2, height 1), so adjacent positions are:
+    // - Right: x + 2, y
+    // - Left: x - 2, y
+    // - Down: x, y + 1
+    // - Up: x, y - 1
     
-    const adjacentPosition = {
-      x: target.x + adjacentOffset.x,
-      y: target.y + adjacentOffset.y
-    };
+    const possiblePositions = [
+      { x: target.x + 2, y: target.y }, // Right
+      { x: target.x - 2, y: target.y }, // Left
+      { x: target.x, y: target.y + 1 }, // Down
+      { x: target.x, y: target.y - 1 }  // Up
+    ];
+    
+    // Find the closest position to the initiator's current location
+    let adjacentPosition = possiblePositions[0];
+    let minDistance = getDistance(initiator.x, initiator.y, possiblePositions[0].x, possiblePositions[0].y);
+    
+    for (let i = 1; i < possiblePositions.length; i++) {
+      const pos = possiblePositions[i];
+      const dist = getDistance(initiator.x, initiator.y, pos.x, pos.y);
+      if (dist < minDistance) {
+        minDistance = dist;
+        adjacentPosition = pos;
+      }
+    }
     
     // Update both entities to WALKING_TO_CONVERSATION state
     // Initiator will walk to position adjacent to target
@@ -772,14 +817,16 @@ export class World {
     const rejected = this.conversationRequests.rejectRequest(requestId);
     if (!rejected) return err('REJECT_FAILED', 'Failed to reject request');
     
-    // Reset initiator state
+    // Reset initiator state and clear any pathfinding
     const initiator = this.state.entities.get(request.initiatorId);
     if (initiator) {
       const updatedInitiator = {
         ...initiator,
         conversationState: 'IDLE' as const,
         conversationTargetId: undefined,
-        pendingConversationRequestId: undefined
+        pendingConversationRequestId: undefined,
+        targetPosition: undefined,
+        direction: { x: 0 as const, y: 0 as const }
       };
       this.state.entities.set(request.initiatorId, updatedInitiator);
     }
@@ -827,14 +874,16 @@ export class World {
       }
     }
     
-    // Reset both entities
+    // Reset both entities and clear any pathfinding
     const partner = this.state.entities.get(partnerId);
     
     const updatedEntity = {
       ...entity,
       conversationState: 'IDLE' as const,
       conversationTargetId: undefined,
-      conversationPartnerId: undefined
+      conversationPartnerId: undefined,
+      targetPosition: undefined,
+      direction: { x: 0 as const, y: 0 as const }
     };
     this.state.entities.set(entityId, updatedEntity);
     
@@ -843,7 +892,9 @@ export class World {
         ...partner,
         conversationState: 'IDLE' as const,
         conversationTargetId: undefined,
-        conversationPartnerId: undefined
+        conversationPartnerId: undefined,
+        targetPosition: undefined,
+        direction: { x: 0 as const, y: 0 as const }
       };
       this.state.entities.set(partnerId, updatedPartner);
     }

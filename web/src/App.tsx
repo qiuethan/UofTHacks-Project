@@ -20,28 +20,35 @@ function ProtectedRoute({
 }) {
   const { user, loading, hasAvatar, checkingAvatar, onboardingCompleted } = useAuth()
   
+  console.log('[ProtectedRoute] State:', { loading, checkingAvatar, hasAvatar, onboardingCompleted, user: !!user, requireAvatar, requireOnboarding })
+  
   if (loading || checkingAvatar) {
+    console.log('[ProtectedRoute] Showing loading because:', { loading, checkingAvatar })
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+        <div className="text-gray-400">Loading... (loading={String(loading)}, checkingAvatar={String(checkingAvatar)})</div>
       </div>
     )
   }
   
   if (!user) {
+    console.log('[ProtectedRoute] No user, redirecting to /login')
     return <Navigate to="/login" replace />
   }
   
   // If route requires avatar and user doesn't have one, redirect to create
   if (requireAvatar && hasAvatar === false) {
+    console.log('[ProtectedRoute] No avatar, redirecting to /create')
     return <Navigate to="/create" replace />
   }
 
   // If route requires onboarding and user hasn't finished, redirect to onboarding
   if (requireOnboarding && !onboardingCompleted) {
+    console.log('[ProtectedRoute] Onboarding not complete, redirecting to /onboarding')
     return <Navigate to="/onboarding" replace />
   }
   
+  console.log('[ProtectedRoute] All checks passed, rendering children')
   return <>{children}</>
 }
 

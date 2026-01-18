@@ -3,8 +3,8 @@
 
 // WebSocket Configuration
 export const WS_CONFIG = {
-  PLAY_URL: 'ws://localhost:3001',
-  WATCH_URL: 'ws://localhost:3002',
+  PLAY_URL: import.meta.env.VITE_WS_PLAY_URL || 'ws://localhost:3001',
+  WATCH_URL: import.meta.env.VITE_WS_WATCH_URL || 'ws://localhost:3002',
   RECONNECT_DELAY_MS: 2000,
 }
 
