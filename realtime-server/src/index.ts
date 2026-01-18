@@ -1,21 +1,18 @@
 import { WebSocketServer } from 'ws';
 import { PLAY_PORT, WATCH_PORT } from './config';
-import { startGameLoop, startAiLoop, loadExistingUsers, world } from './game';
+import { startGameLoop, startAiLoop, world } from './game';
 import { generateOrderId, generateWatcherId, spectators } from './state';
 import { handleJoin, handleSetDirection, handleDisconnect, handleRequestConversation, handleAcceptConversation, handleRejectConversation, handleEndConversation } from './handlers';
 import { send } from './network';
 import type { ClientMessage, Client } from './types';
 
-// Initialize the world with existing users, then start loops
+// Initialize the world and start loops
 async function initialize() {
-  // Load all existing users from the database as ROBOTs
-  await loadExistingUsers();
-  
   // Start game loops
   startGameLoop();
   startAiLoop();
   
-  console.log('Game world initialized with existing users');
+  console.log('Game world initialized - users will appear when they join');
 }
 
 // Run initialization

@@ -92,8 +92,11 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
       // Entity exists - check if it's a ROBOT that needs to be converted to PLAYER
       const existingEntity = world.getEntity(userId);
       if (existingEntity && existingEntity.kind === 'ROBOT') {
-        // Update the entity kind to PLAYER so AI loop won't control it
+        // Update the entity kind to PLAYER and clear AI-specific properties
         (existingEntity as any).kind = 'PLAYER';
+        (existingEntity as any).direction = { x: 0, y: 0 };
+        (existingEntity as any).targetPosition = undefined;
+        (existingEntity as any).plannedPath = undefined;
         console.log(`Player took over ROBOT: ${actualDisplayName} (${userId})`);
       } else {
         console.log(`Player rejoined: ${actualDisplayName} (${userId})`);
