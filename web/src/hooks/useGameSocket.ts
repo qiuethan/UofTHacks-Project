@@ -207,18 +207,23 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   }, [handleConversationEvent])
 
   const connect = useCallback(() => {
+    console.log('[useGameSocket] connect() called, token:', !!token, 'connecting:', connectingRef.current, 'wsState:', wsRef.current?.readyState)
     if (connectingRef.current || wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[useGameSocket] Already connecting or connected, skipping')
       return
     }
     if (!token) {
+      console.log('[useGameSocket] No token, cannot connect')
       return
     }
     connectingRef.current = true
 
+    console.log('[useGameSocket] Creating WebSocket to:', WS_CONFIG.PLAY_URL)
     const ws = new WebSocket(WS_CONFIG.PLAY_URL)
     wsRef.current = ws
 
     ws.onopen = () => {
+      console.log('[useGameSocket] WebSocket opened, sending JOIN')
       connectingRef.current = false
       ws.send(JSON.stringify({
         type: 'JOIN',
@@ -228,26 +233,31 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
       }))
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log('[useGameSocket] WebSocket closed:', event.code, event.reason)
       connectingRef.current = false
       setConnected(false)
       setEntities(new Map())
       
       if (mountedRef.current && joinedRef.current && shouldReconnectRef.current) {
         joinedRef.current = false
+        console.log('[useGameSocket] Will reconnect in', WS_CONFIG.RECONNECT_DELAY_MS, 'ms')
         setTimeout(connect, WS_CONFIG.RECONNECT_DELAY_MS)
       }
     }
 
-    ws.onerror = () => {
+    ws.onerror = (error) => {
+      console.error('[useGameSocket] WebSocket error:', error)
       connectingRef.current = false
     }
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
+      console.log('[useGameSocket] Received message:', msg.type)
       
       switch (msg.type) {
         case 'WELCOME':
+          console.log('[useGameSocket] WELCOME received, entityId:', msg.entityId)
           setMyEntityId(msg.entityId)
           setConnected(true)
           joinedRef.current = true
@@ -281,15 +291,20 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
   }, [token, userId, displayName])
 
   useEffect(() => {
+    console.log('[useGameSocket] useEffect triggered, token:', !!token, 'wsRef:', !!wsRef.current)
     mountedRef.current = true
     shouldReconnectRef.current = true
     joinedRef.current = false
     
     if (token && !wsRef.current) {
+      console.log('[useGameSocket] Calling connect()')
       connect()
+    } else {
+      console.log('[useGameSocket] NOT connecting - token:', !!token, 'wsRef:', !!wsRef.current)
     }
 
     return () => {
+      console.log('[useGameSocket] Cleanup')
       mountedRef.current = false
       shouldReconnectRef.current = false
       if (wsRef.current) {

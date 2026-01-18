@@ -49,9 +49,12 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   
   // If user has an AI agent active, take over its position and replace it
   const existing = world.getEntity(userId);
+  console.log(`[handleJoin] Existing entity for ${userId}:`, existing ? { kind: existing.kind, x: existing.x, y: existing.y } : 'none');
   let existingConversationState: any = {};
+  let robotTakeover = false;
   
   if (existing && existing.kind === 'ROBOT') {
+    robotTakeover = true;
     pos = { ...pos, x: existing.x, y: existing.y, facing: existing.facing || pos.facing }; // Preserve facing from robot
     
     // Capture conversation state to restore it to the player
@@ -66,6 +69,10 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
     const removeResult = world.removeEntity(userId);
     if (removeResult.ok) {
        broadcast({ type: 'EVENTS', events: removeResult.value }, oderId);
+    } else {
+      console.error(`Failed to remove ROBOT for player takeover: ${userId}`, removeResult.error);
+      // Force remove from internal state if needed
+      robotTakeover = false;
     }
   }
   
@@ -82,8 +89,15 @@ export async function handleJoin(ws: WebSocket, oderId: string, msg: ClientMessa
   
   if (!result.ok) {
     if (result.error.code === 'ENTITY_EXISTS') {
-      // This is fine, entity is already there (seamless handover)
-      console.log(`Player rejoined: ${actualDisplayName} (${userId})`);
+      // Entity exists - check if it's a ROBOT that needs to be converted to PLAYER
+      const existingEntity = world.getEntity(userId);
+      if (existingEntity && existingEntity.kind === 'ROBOT') {
+        // Update the entity kind to PLAYER so AI loop won't control it
+        (existingEntity as any).kind = 'PLAYER';
+        console.log(`Player took over ROBOT: ${actualDisplayName} (${userId})`);
+      } else {
+        console.log(`Player rejoined: ${actualDisplayName} (${userId})`);
+      }
       send(ws, { type: 'WELCOME', entityId: userId });
       send(ws, { type: 'SNAPSHOT', snapshot: world.getSnapshot() });
       return client;
@@ -171,6 +185,7 @@ export async function handleEndConversation(client: Client): Promise<void> {
 }
 
 export async function handleDisconnect(client: Client, oderId: string) {
+    console.log(`[handleDisconnect] Called for ${client.userId}, isReplaced: ${client.isReplaced}`);
     // If this client was replaced by a new connection, don't remove the entity
     if (client.isReplaced) {
       console.log(`Client replaced: ${client.userId}`);
@@ -182,6 +197,7 @@ export async function handleDisconnect(client: Client, oderId: string) {
     
     // Save final position and convert to AI
     const entity = world.getEntity(client.userId);
+    console.log(`[handleDisconnect] Entity for ${client.userId}:`, entity ? { kind: entity.kind } : 'none');
     if (entity) {
       await updatePosition(
         client.userId, 
@@ -195,7 +211,8 @@ export async function handleDisconnect(client: Client, oderId: string) {
       );
 
       // Convert to ROBOT for AI control
-      world.removeEntity(client.userId);
+      const removeResult = world.removeEntity(client.userId);
+      console.log(`[handleDisconnect] removeEntity result:`, removeResult.ok ? 'ok' : removeResult.error);
       const robot: any = {
         ...entity,
         kind: 'ROBOT',
@@ -205,8 +222,11 @@ export async function handleDisconnect(client: Client, oderId: string) {
       };
       
       const result = world.addEntity(robot);
+      console.log(`[handleDisconnect] addEntity result:`, result.ok ? 'ok' : result.error);
       if (result.ok) {
         broadcast({ type: 'EVENTS', events: result.value });
+      } else {
+        console.error(`[handleDisconnect] Failed to convert to ROBOT:`, result.error);
       }
     }
     

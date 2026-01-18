@@ -10,7 +10,9 @@ import { useGameSocket } from '../hooks'
 import type { GameEntity } from '../game/types'
 
 export default function GameView() {
+  console.log('[GameView] Rendering...')
   const { user, session } = useAuth()
+  console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
 
   // Game socket connection and state management
@@ -19,6 +21,7 @@ export default function GameView() {
     userId: user?.id,
     displayName: user?.email?.split('@')[0] || 'Player'
   })
+  console.log('[GameView] Game state:', { connected: gameState.connected, myEntityId: gameState.myEntityId, entityCount: gameState.entities.size })
 
   const { 
     connected, 
