@@ -47,6 +47,8 @@ export class GameScene extends Phaser.Scene {
   private cameraStartY = 0
   private defaultWatchZoom = 1 // Stores the fit-to-screen zoom level
   private watchModeInputSetup = false // Prevent duplicate event listeners
+  private lastWheelTime = 0 // Track last wheel event to debounce
+  private wheelDebounceMs = 50 // Minimum time between wheel events
 
   constructor(sceneDataRef: React.MutableRefObject<SceneData>) {
     super({ key: 'GameScene' })
@@ -181,8 +183,20 @@ export class GameScene extends Phaser.Scene {
     })
 
     // Mouse wheel zoom - zoom relative to default
-    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number, event: WheelEvent) => {
       if (this.sceneDataRef.current.mode !== 'watch') return
+      
+      // Debounce wheel events to prevent glitches
+      const now = Date.now()
+      if (now - this.lastWheelTime < this.wheelDebounceMs) {
+        event.preventDefault()
+        return
+      }
+      this.lastWheelTime = now
+      
+      // Prevent default browser scroll behavior
+      event.preventDefault()
+      event.stopPropagation()
       
       const camera = this.cameras.main
       const currentZoom = camera.zoom
