@@ -215,7 +215,11 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     target_name = ""
     if target:
         if target.get("target_type") == "location":
-            target_name = f"→ ({target.get('x')},{target.get('y')})"
+            loc_name = target.get("name", "")
+            if loc_name:
+                target_name = f"→ '{loc_name}' ({target.get('x')},{target.get('y')})"
+            else:
+                target_name = f"→ ({target.get('x')},{target.get('y')})"
         elif target.get("target_type") == "avatar":
             target_name = f"→ avatar {target.get('target_id', '')[:8]}"
         elif target.get("x") is not None:

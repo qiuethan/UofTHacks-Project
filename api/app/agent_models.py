@@ -168,6 +168,7 @@ class ActionTarget(BaseModel):
     """Target for an action"""
     target_type: Literal["location", "avatar", "position"]
     target_id: Optional[str] = None
+    name: Optional[str] = None  # Location name for logging
     x: Optional[int] = None
     y: Optional[int] = None
 
