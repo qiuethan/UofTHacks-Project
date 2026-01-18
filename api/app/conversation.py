@@ -1575,6 +1575,21 @@ class AcceptConversationResponse(BaseModel):
     reason: Optional[str] = None
 
 
+class InitiateConversationRequest(BaseModel):
+    """Request for agent to decide whether to initiate a conversation."""
+    agent_id: str
+    agent_name: str
+    target_id: str
+    target_name: str
+
+
+class InitiateConversationResponse(BaseModel):
+    """Response with agent's decision on initiating conversation."""
+    ok: bool
+    should_initiate: bool = False
+    reason: Optional[str] = None
+
+
 class ShouldEndConversationRequest(BaseModel):
     """Request for agent to decide whether to end a conversation."""
     agent_id: str
@@ -1680,6 +1695,136 @@ def decide_accept_conversation(
     # Default: accept
     print(f"[AcceptDecision] Accepting conversation request")
     return {"should_accept": True, "reason": "Happy to chat"}
+
+
+def decide_initiate_conversation(
+    agent_id: str,
+    agent_name: str,
+    target_id: str,
+    target_name: str
+) -> Dict[str, Any]:
+    """
+    Decide whether an agent should initiate a conversation and provide a reason.
+    
+    Decision is based on:
+    - Social memory sentiment (positive = want to talk)
+    - Agent's current mood, energy, and loneliness
+    - Familiarity with the target
+    - Shared interests
+    
+    Returns whether to initiate and a reason why.
+    """
+    db_client = agent_db.get_supabase_client()
+    if not db_client:
+        return {"should_initiate": True, "reason": "Just wanted to say hi!"}
+    
+    # Get social memory with the target
+    social_memory = agent_db.get_social_memory(db_client, agent_id, target_id)
+    
+    # Get agent's current state
+    state = agent_db.get_state(db_client, agent_id)
+    
+    # Get agent's personality
+    personality = agent_db.get_personality(db_client, agent_id)
+    
+    print(f"[InitiateDecision] {agent_name} considering conversation with {target_name}")
+    
+    # Check if agent is too tired
+    if state and state.energy < 0.15:
+        print(f"[InitiateDecision] Too tired to start conversation")
+        return {"should_initiate": False, "reason": "Too tired"}
+    
+    # Check loneliness - high loneliness means strong desire to talk
+    loneliness_factor = state.loneliness if state else 0.3
+    
+    # No prior relationship - curious about new person
+    if not social_memory:
+        if personality and personality.curiosity > 0.5:
+            print(f"[InitiateDecision] New person + high curiosity = initiate")
+            return {
+                "should_initiate": True, 
+                "reason": f"Hey {target_name}! Don't think we've met properly yet."
+            }
+        elif loneliness_factor > 0.5:
+            return {
+                "should_initiate": True,
+                "reason": f"Hi {target_name}! Thought I'd say hello."
+            }
+        # Random chance for new acquaintances
+        import random
+        if random.random() < 0.4:
+            return {
+                "should_initiate": True,
+                "reason": f"Hey {target_name}, what's up?"
+            }
+        return {"should_initiate": False, "reason": "Not feeling social right now"}
+    
+    sentiment = social_memory.sentiment
+    familiarity = social_memory.familiarity
+    interaction_count = social_memory.interaction_count
+    mutual_interests = social_memory.mutual_interests or []
+    last_topic = social_memory.last_conversation_topic
+    
+    print(f"[InitiateDecision] Sentiment: {sentiment:.2f}, Familiarity: {familiarity:.2f}, Interactions: {interaction_count}")
+    
+    # Very negative sentiment - avoid this person
+    if sentiment < -0.5:
+        print(f"[InitiateDecision] Avoiding due to very negative sentiment")
+        return {"should_initiate": False, "reason": "Would rather not talk to them"}
+    
+    # Positive sentiment - want to catch up
+    if sentiment > 0.5:
+        # Build a personalized reason based on context
+        if mutual_interests and len(mutual_interests) > 0:
+            import random
+            interest = random.choice(mutual_interests[:3]) if len(mutual_interests) > 0 else None
+            if interest:
+                return {
+                    "should_initiate": True,
+                    "reason": f"Hey {target_name}! Been thinking about {interest}, wanted to chat about it."
+                }
+        
+        if last_topic:
+            return {
+                "should_initiate": True,
+                "reason": f"Hey {target_name}! Wanted to continue our chat about {last_topic}."
+            }
+        
+        return {
+            "should_initiate": True,
+            "reason": f"Hey {target_name}! Good to see you, how's it going?"
+        }
+    
+    # Neutral sentiment - consider mood and loneliness
+    if state:
+        if state.loneliness > 0.6:
+            return {
+                "should_initiate": True,
+                "reason": f"Hey {target_name}, was getting a bit bored. What are you up to?"
+            }
+        if state.mood > 0.5 and state.energy > 0.5:
+            return {
+                "should_initiate": True,
+                "reason": f"Hi {target_name}! Feeling good, wanted to say hi."
+            }
+    
+    # Check personality - high sociability wants to talk more
+    if personality and personality.sociability > 0.6:
+        return {
+            "should_initiate": True,
+            "reason": f"Hey {target_name}! Got a minute to chat?"
+        }
+    
+    # Default: random chance based on sociability
+    import random
+    sociability = personality.sociability if personality else 0.5
+    if random.random() < sociability * 0.5:
+        return {
+            "should_initiate": True,
+            "reason": f"Hey {target_name}, what's going on?"
+        }
+    
+    return {"should_initiate": False, "reason": "Not feeling chatty right now"}
 
 
 def decide_end_conversation(

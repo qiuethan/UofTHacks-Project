@@ -31,16 +31,27 @@ interface ShouldEndResult {
   reason?: string;
 }
 
+interface ShouldAcceptResult {
+  should_accept: boolean;
+  reason?: string;
+}
+
+interface ShouldInitiateResult {
+  should_initiate: boolean;
+  reason?: string;
+}
+
 /**
  * Check if an agent should accept a conversation request.
  * Based on sentiment, mood, energy, and relationship with requester.
+ * Returns the decision and reason.
  */
 async function checkShouldAcceptConversation(
   agentId: string,
   agentName: string,
   requesterId: string,
   requesterName: string
-): Promise<boolean> {
+): Promise<ShouldAcceptResult> {
   try {
     const response = await fetch(`${API_BASE_URL}/conversation/should-accept`, {
       method: 'POST',
@@ -54,10 +65,47 @@ async function checkShouldAcceptConversation(
     });
     const data = await response.json();
     console.log(`[AcceptCheck] ${agentName} → ${requesterName}: ${data.should_accept ? 'ACCEPT' : 'REJECT'} (${data.reason || 'no reason'})`);
-    return data.should_accept !== false; // Default to accept if API fails
+    return { 
+      should_accept: data.should_accept !== false,
+      reason: data.reason
+    };
   } catch (e) {
     console.error('Error checking should-accept:', e);
-    return true; // Default to accept on error
+    return { should_accept: true, reason: 'Happy to chat' };
+  }
+}
+
+/**
+ * Check if an agent should initiate a conversation with another entity.
+ * Based on sentiment, mood, loneliness, and shared interests.
+ * Returns the decision and a personalized reason/greeting.
+ */
+async function checkShouldInitiateConversation(
+  agentId: string,
+  agentName: string,
+  targetId: string,
+  targetName: string
+): Promise<ShouldInitiateResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/should-initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_id: agentId,
+        agent_name: agentName,
+        target_id: targetId,
+        target_name: targetName
+      })
+    });
+    const data = await response.json();
+    console.log(`[InitiateCheck] ${agentName} → ${targetName}: ${data.should_initiate ? 'YES' : 'NO'} (${data.reason || 'no reason'})`);
+    return { 
+      should_initiate: data.should_initiate === true,
+      reason: data.reason
+    };
+  } catch (e) {
+    console.error('Error checking should-initiate:', e);
+    return { should_initiate: false };
   }
 }
 
@@ -622,7 +670,22 @@ export function startAiLoop() {
                 
               case 'REQUEST_CONVERSATION':
                 if (data.target_entity_id) {
-                  const result = world.requestConversation(robot.entityId, data.target_entity_id);
+                  // Check if agent WANTS to initiate based on sentiment, interests, mood
+                  const targetEntity = world.getEntity(data.target_entity_id);
+                  const initiateResult = await checkShouldInitiateConversation(
+                    robot.entityId,
+                    robot.displayName || 'Agent',
+                    data.target_entity_id,
+                    targetEntity?.displayName || 'Unknown'
+                  );
+                  
+                  if (!initiateResult.should_initiate) {
+                    console.log(`[Agent] ${robot.displayName} decided NOT to initiate conversation with ${targetEntity?.displayName}`);
+                    break;
+                  }
+                  
+                  // Request conversation with the reason from the AI
+                  const result = world.requestConversation(robot.entityId, data.target_entity_id, initiateResult.reason);
                   if (result.ok) {
                     broadcast({ type: 'EVENTS', events: result.value });
                   }
@@ -635,36 +698,42 @@ export function startAiLoop() {
                   const pendingReq = pendingRequests.find(r => r.requestId === data.request_id);
                   if (pendingReq) {
                     const initiatorEntity = world.getEntity(pendingReq.initiatorId);
-                    const shouldAccept = await checkShouldAcceptConversation(
+                    const acceptResult = await checkShouldAcceptConversation(
                       robot.entityId,
                       robot.displayName || 'Agent',
                       pendingReq.initiatorId,
                       initiatorEntity?.displayName || 'Unknown'
                     );
                     
-                    if (!shouldAccept) {
-                      // Agent decided to reject based on sentiment/mood
-                      console.log(`[Agent] ${robot.displayName} REJECTED conversation from ${initiatorEntity?.displayName} (negative sentiment)`);
-                      const rejectResult = world.rejectConversation(robot.entityId, data.request_id);
+                    if (!acceptResult.should_accept) {
+                      // Agent decided to reject based on sentiment/mood - include reason
+                      console.log(`[Agent] ${robot.displayName} REJECTED conversation from ${initiatorEntity?.displayName}: ${acceptResult.reason}`);
+                      const rejectResult = world.rejectConversation(robot.entityId, data.request_id, acceptResult.reason);
                       if (rejectResult.ok) {
                         broadcast({ type: 'EVENTS', events: rejectResult.value });
                       }
                       break;
                     }
-                  }
-                  
-                  const result = world.acceptConversation(robot.entityId, data.request_id);
-                  if (result.ok) {
-                    broadcast({ type: 'EVENTS', events: result.value });
                     
-                    // Initialize conversation tracking for agent-agent conversations
-                    // Use conversationTargetId since partnerId is only set when conversation starts
-                    const updatedRobot = world.getEntity(robot.entityId);
-                    const partnerId = updatedRobot?.conversationTargetId || updatedRobot?.conversationPartnerId;
-                    if (partnerId) {
-                      const { initializeConversationTracking } = await import('./handlers');
-                      await initializeConversationTracking(robot.entityId, partnerId);
-                      console.log(`[Agent] Initialized conversation tracking: ${robot.entityId.substring(0, 8)} with ${partnerId.substring(0, 8)}`);
+                    // Accept with reason
+                    const result = world.acceptConversation(robot.entityId, data.request_id, acceptResult.reason);
+                    if (result.ok) {
+                      broadcast({ type: 'EVENTS', events: result.value });
+                      
+                      // Initialize conversation tracking for agent-agent conversations
+                      const updatedRobot = world.getEntity(robot.entityId);
+                      const partnerId = updatedRobot?.conversationTargetId || updatedRobot?.conversationPartnerId;
+                      if (partnerId) {
+                        const { initializeConversationTracking } = await import('./handlers');
+                        await initializeConversationTracking(robot.entityId, partnerId);
+                        console.log(`[Agent] Initialized conversation tracking: ${robot.entityId.substring(0, 8)} with ${partnerId.substring(0, 8)}`);
+                      }
+                    }
+                  } else {
+                    // No pending request found, just accept without extra checks
+                    const result = world.acceptConversation(robot.entityId, data.request_id);
+                    if (result.ok) {
+                      broadcast({ type: 'EVENTS', events: result.value });
                     }
                   }
                 }
@@ -672,7 +741,7 @@ export function startAiLoop() {
                 
               case 'REJECT_CONVERSATION':
                 if (data.request_id) {
-                  const result = world.rejectConversation(robot.entityId, data.request_id);
+                  const result = world.rejectConversation(robot.entityId, data.request_id, data.reason);
                   if (result.ok) {
                     broadcast({ type: 'EVENTS', events: result.value });
                   }

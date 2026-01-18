@@ -67,10 +67,14 @@ export interface WorldEvent {
   conversationState?: ConversationState
   conversationTargetId?: string
   conversationPartnerId?: string
+  // Conversation request/accept/reject fields
+  initiatorName?: string  // Name of who initiated the request
+  acceptorName?: string   // Name of who accepted
+  rejectorName?: string   // Name of who rejected
+  reason?: string         // Reason for the action
   // Conversation end fields
   endedBy?: string
   endedByName?: string
-  reason?: string
   // Stats update fields
   stats?: {
     energy?: number
@@ -85,6 +89,7 @@ export interface ConversationRequest {
   initiatorId: string
   initiatorName: string
   expiresAt: number
+  reason?: string  // Why the initiator wants to chat
 }
 
 export interface Direction {

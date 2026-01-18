@@ -756,7 +756,7 @@ export class GameScene extends Phaser.Scene {
     this.load.start()
   }
 
-  private showFallbackSprite(container: Phaser.GameObjects.Container, entity: GameEntity, isMe: boolean) {
+  private showFallbackSprite(container: Phaser.GameObjects.Container, entity: GameEntity, _isMe: boolean) {
     // Remove loading elements
     container.getAll().forEach(child => {
       if (child instanceof Phaser.GameObjects.Rectangle || child instanceof Phaser.GameObjects.Graphics) {
@@ -916,7 +916,7 @@ export class GameScene extends Phaser.Scene {
     const padding = 10
     const bannerWidth = nameText.width + padding * 2
     const bannerHeight = nameText.height + padding
-    const cornerRadius = 2 // Sharp corners for pixel aesthetic
+    // Sharp corners for pixel aesthetic (cornerRadius = 2)
     
     // Background with border
     const bg = this.add.graphics()
@@ -935,17 +935,6 @@ export class GameScene extends Phaser.Scene {
     banner.setDepth(1000)
     
     return banner
-  }
-
-  private initiateConversation(targetEntityId: string) {
-    // Emit event to parent React component to handle conversation initiation
-    const myEntityId = this.sceneDataRef.current.myEntityId
-    if (myEntityId && myEntityId !== targetEntityId) {
-      // Dispatch a custom event that React can listen to
-      window.dispatchEvent(new CustomEvent('initiateConversation', {
-        detail: { targetEntityId }
-      }))
-    }
   }
 
   private getSpriteUrl(entity: GameEntity): string | undefined {

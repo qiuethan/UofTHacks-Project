@@ -999,6 +999,36 @@ def should_accept_conversation(request: conv.AcceptConversationRequest):
         return conv.AcceptConversationResponse(ok=False, should_accept=True)
 
 
+@app.post("/conversation/should-initiate")
+def should_initiate_conversation(request: conv.InitiateConversationRequest):
+    """
+    Decide whether an agent should initiate a conversation.
+    
+    Based on:
+    - Social memory sentiment (positive = want to talk)
+    - Agent's current mood, energy, and loneliness
+    - Familiarity with the target
+    - Shared interests
+    
+    Returns whether to initiate and a personalized reason/greeting.
+    """
+    try:
+        result = conv.decide_initiate_conversation(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            target_id=request.target_id,
+            target_name=request.target_name
+        )
+        return conv.InitiateConversationResponse(
+            ok=True,
+            should_initiate=result.get("should_initiate", False),
+            reason=result.get("reason")
+        )
+    except Exception as e:
+        print(f"Error in should-initiate: {e}")
+        return conv.InitiateConversationResponse(ok=False, should_initiate=False)
+
+
 @app.post("/conversation/should-end")
 def should_end_conversation(request: conv.ShouldEndConversationRequest):
     """
