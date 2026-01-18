@@ -434,7 +434,14 @@ export function useGameSocket({ token, userId, displayName }: UseGameSocketOptio
               conversationId: msg.conversationId
             }
             // Add to conversation-specific messages (for the chat UI)
-            setChatMessages(prev => [...prev, chatMessage])
+            // Check for duplicates by message ID to prevent double-adding
+            setChatMessages(prev => {
+              // Don't add if we already have this message
+              if (prev.some(m => m.id === msg.messageId)) {
+                return prev
+              }
+              return [...prev, chatMessage]
+            })
             
             // Also track globally for all entity chat bubbles
             setAllEntityMessages(prev => {
