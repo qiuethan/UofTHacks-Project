@@ -1,4 +1,4 @@
-import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import GameView from './pages/GameView'
 import WatchView from './pages/WatchView'
@@ -6,6 +6,7 @@ import CreateAvatar from './pages/CreateAvatar'
 import Onboarding from './pages/Onboarding'
 import Profile from './pages/Profile'
 import Login from './pages/Login'
+import Landing from './pages/Landing'
 
 import Header from './components/Header'
 
@@ -26,7 +27,7 @@ function ProtectedRoute({
     console.log('[ProtectedRoute] Showing loading because:', { loading, checkingAvatar })
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-gray-400">Loading... (loading={String(loading)}, checkingAvatar={String(checkingAvatar)})</div>
+        <div className="text-black">Loading... (loading={String(loading)}, checkingAvatar={String(checkingAvatar)})</div>
       </div>
     )
   }
@@ -53,17 +54,17 @@ function ProtectedRoute({
 }
 
 function AppContent() {
-  const { user, signOut, loading, hasAvatar } = useAuth()
+  const { user } = useAuth()
   const location = useLocation()
   const hideHeader = location.pathname === '/onboarding' || location.pathname === '/create'
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[#1a1a2e]">
+    <div className="h-screen flex flex-col overflow-hidden bg-[#FFF8F0]">
       {!hideHeader && <Header />}
       <main className="flex-1 overflow-auto relative">
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/watch" replace />} />
+          <Route path="/" element={<Landing />} />
           <Route path="/play" element={<ProtectedRoute requireAvatar requireOnboarding><GameView /></ProtectedRoute>} />
           <Route path="/watch" element={<WatchView />} />
           <Route path="/create" element={<ProtectedRoute><CreateAvatar /></ProtectedRoute>} />

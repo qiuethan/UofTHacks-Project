@@ -2,9 +2,286 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-heading: 'Fredoka', sans-serif;
+  --font-body: 'Nunito', sans-serif;
+  --color-cream: #FFF8F0;
+  --color-green: #00a938;
+  --color-green-light: #00b84a;
+  --color-green-dark: #007a28;
+  --color-yellow: #bae854;
+  --color-brown: #7a5224;
+  --color-red: #e53935;
+  --color-red-dark: #b71c1c;
+  --radius-sm: 4px;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  background: #1a1a2e;
-  color: #eee;
+  background: var(--color-cream);
+  color: #000000;
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+/* Remove default browser outline on buttons */
+button:focus,
+button:focus-visible {
+  outline: none;
+}
+
+/* Primary button - DARK GREEN accent */
+.btn-primary {
+  background: linear-gradient(180deg, #009830 0%, #007a28 50%, #006820 100%);
+  border: 3px solid #005018;
+  box-shadow: 4px 4px 0 #005018;
+  border-radius: var(--radius-sm);
+  transform: translateY(0);
+  transition: all 0.1s ease;
+}
+
+.btn-primary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #005018;
+}
+
+.btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #005018;
+}
+
+/* Secondary button - YELLOW vibrant */
+.btn-secondary {
+  background: linear-gradient(180deg, #d4e85a 0%, #bae854 50%, #a8d44a 100%);
+  border: 3px solid #7a9930;
+  box-shadow: 4px 4px 0 #7a9930;
+  border-radius: var(--radius-sm);
+  transform: translateY(0);
+  transition: all 0.1s ease;
+  color: #000;
+}
+
+.btn-secondary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #7a9930;
+}
+
+.btn-secondary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #7a9930;
+}
+
+/* Tertiary button - Brown accent */
+.btn-tertiary {
+  background: linear-gradient(180deg, #8a6234 0%, #7a5224 50%, #6a4214 100%);
+  border: 3px solid #5a3204;
+  box-shadow: 4px 4px 0 #5a3204;
+  border-radius: var(--radius-sm);
+  transform: translateY(0);
+  transition: all 0.1s ease;
+  color: #fff;
+}
+
+.btn-tertiary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #5a3204;
+}
+
+.btn-tertiary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #5a3204;
+}
+
+/* Danger button - RED for errors/destructive actions */
+.btn-danger {
+  background: linear-gradient(180deg, #ef5350 0%, #e53935 50%, #d32f2f 100%);
+  border: 3px solid #b71c1c;
+  box-shadow: 4px 4px 0 #b71c1c;
+  border-radius: var(--radius-sm);
+  transform: translateY(0);
+  transition: all 0.1s ease;
+  color: #fff;
+}
+
+.btn-danger:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #b71c1c;
+}
+
+.btn-danger:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #b71c1c;
+}
+
+/* Fun modal/panel styles with slight rounding */
+.panel-fun {
+  background: var(--color-cream);
+  border: 3px solid #000;
+  box-shadow: 6px 6px 0 #000;
+  border-radius: var(--radius-sm);
+}
+
+/* Navbar style - darker cream background */
+.navbar-fun {
+  background: #d9c9a8;
+}
+
+/* Active/pressed button state for current page */
+.btn-active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 #5a3204;
+}
+
+.btn-primary.btn-active {
+  box-shadow: 1px 1px 0 #005018;
+}
+
+/* Disable hover effect on active buttons */
+.btn-active:hover {
+  transform: translate(3px, 3px);
+}
+
+.btn-tertiary.btn-active:hover {
+  box-shadow: 1px 1px 0 #5a3204;
+}
+
+.btn-primary.btn-active:hover {
+  box-shadow: 1px 1px 0 #005018;
+}
+
+/* Dropdown menu styles - flat list with slide animation */
+.dropdown-menu {
+  background: var(--color-cream);
+  border: 3px solid #000;
+  box-shadow: 6px 6px 0 #000;
+  border-radius: var(--radius-sm);
+  animation: dropdown-slide 0.15s ease-out;
+}
+
+@keyframes dropdown-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: block;
+  padding: 10px 16px;
+  font-weight: 500;
+  transition: all 0.1s ease;
+  border-left: 4px solid transparent;
+}
+
+.dropdown-item:hover {
+  background: #e0e0e0;
+  border-left-color: #757575;
+  padding-left: 20px;
+}
+
+.dropdown-item-danger {
+  color: var(--color-red-dark);
+}
+
+.dropdown-item-danger:hover {
+  background: #ffcdd2;
+  border-left-color: var(--color-red-dark);
+}
+
+/* Input style with slight rounding */
+.input-fun {
+  background: var(--color-cream);
+  border: 3px solid #000;
+  box-shadow: 3px 3px 0 #000;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.input-fun:focus {
+  outline: none;
+  box-shadow: 3px 3px 0 #000, 0 0 0 3px var(--color-yellow);
+}
+
+/* Toggle button - matches btn styles */
+.toggle-btn {
+  border: 3px solid #005018;
+  border-radius: var(--radius-sm);
+  box-shadow: 3px 3px 0 #005018;
+  transition: all 0.1s ease;
+}
+
+.toggle-btn-active {
+  background: linear-gradient(180deg, #009830 0%, #007a28 50%, #006820 100%);
+  border-color: #005018;
+  color: #fff;
+}
+
+.toggle-btn-inactive {
+  background: linear-gradient(180deg, #d4e85a 0%, #bae854 50%, #a8d44a 100%);
+  border-color: #7a9930;
+  box-shadow: 3px 3px 0 #7a9930;
+  color: #000;
+}
+
+.toggle-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #005018;
+}
+
+.toggle-btn-inactive:hover {
+  box-shadow: 4px 4px 0 #7a9930;
+}
+
+.toggle-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 #005018;
+}
+
+/* Loading bar style - matches buttons/modals */
+.loading-bar-container {
+  background: var(--color-cream);
+  border: 3px solid #000;
+  box-shadow: 4px 4px 0 #000;
+  border-radius: var(--radius-sm);
+}
+
+.loading-bar-fill {
+  background: linear-gradient(180deg, #009830 0%, #007a28 50%, #006820 100%);
+}
+
+/* Standardized alert styles */
+.alert {
+  border: 3px solid #000;
+  box-shadow: 4px 4px 0 #000;
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+}
+
+.alert-error {
+  background: linear-gradient(180deg, #ffebee 0%, #ffcdd2 100%);
+  border-color: var(--color-red-dark);
+  box-shadow: 4px 4px 0 var(--color-red-dark);
+  color: var(--color-red-dark);
+}
+
+.alert-success {
+  background: linear-gradient(180deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-color: var(--color-green-dark);
+  box-shadow: 4px 4px 0 var(--color-green-dark);
+  color: var(--color-green-dark);
+}
+
+.alert-warning {
+  background: linear-gradient(180deg, #fffde7 0%, #fff9c4 100%);
+  border-color: #7a9930;
+  box-shadow: 4px 4px 0 #7a9930;
+  color: #5a7920;
 }

@@ -1,56 +1,109 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useState } from 'react'
 
 export default function Header() {
   const { user, signOut, loading, hasAvatar } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [profileOpen, setProfileOpen] = useState(false)
+
+  const isPlayMode = location.pathname === '/play'
+  const isWatchMode = location.pathname === '/watch'
+  const isProfileMode = location.pathname === '/profile'
+  const isLoginMode = location.pathname === '/login'
+
+  const handleToggle = (mode: 'play' | 'watch') => {
+    navigate(`/${mode}`)
+  }
 
   return (
-    <nav className="bg-gray-800 p-4">
-      <div className="max-w-6xl mx-auto flex items-center justify-between">
-        <div className="flex gap-6">
-          <Link to="/play" className="text-white hover:text-green-400 font-medium">
-            Play
-          </Link>
-          <Link to="/watch" className="text-white hover:text-green-400 font-medium">
-            Watch
-          </Link>
-          {user && hasAvatar && (
-            <Link to="/profile" className="text-white hover:text-green-400 font-medium">
-              Profile
+    <nav className="navbar-fun p-4">
+      <div className="max-w-6xl mx-auto flex items-center justify-between" style={{ paddingTop: '4px', paddingBottom: '8px' }}>
+        <div className="flex items-center gap-6">
+          {/* Watch button when logged out */}
+          {!user && (
+            <Link to="/watch" className={`px-4 py-1.5 text-sm font-semibold ${
+              isWatchMode ? 'btn-tertiary btn-active text-white' : 'btn-primary text-white'
+            }`}>
+              Watch
             </Link>
           )}
+          {/* Play/Watch toggle - only shows when logged in with avatar */}
+          {user && hasAvatar && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleToggle('play')}
+                className={`px-4 py-1.5 text-sm font-semibold ${
+                  isPlayMode ? 'btn-tertiary btn-active text-white' : 'btn-primary text-white'
+                }`}
+              >
+                Play
+              </button>
+              <button
+                onClick={() => handleToggle('watch')}
+                className={`px-4 py-1.5 text-sm font-semibold ${
+                  isWatchMode ? 'btn-tertiary btn-active text-white' : 'btn-primary text-white'
+                }`}
+              >
+                Watch
+              </button>
+            </div>
+          )}
           {user && !hasAvatar && (
-            <Link to="/create" className="text-yellow-400 hover:text-yellow-300 font-medium">
+            <Link to="/create" className="text-white hover:text-[#bae854] font-semibold text-sm transition-colors">
               Create Avatar
             </Link>
           )}
         </div>
+
+        {/* Center logo */}
+        <Link to="/" className="absolute left-1/2 -translate-x-1/2 text-white font-bold text-2xl drop-shadow-sm">
+          WORLD
+        </Link>
         <div className="flex items-center gap-4">
           {!loading && user ? (
-            <>
-              <span className="text-gray-400 text-sm">{user.email}</span>
+            <div className="relative">
               <button
-                onClick={() => signOut()}
-                className="text-sm text-red-400 hover:text-red-300"
+                onClick={() => setProfileOpen(!profileOpen)}
+                className={`text-sm font-semibold px-4 py-2 text-white ${
+                  isProfileMode ? 'btn-tertiary btn-active' : 'btn-primary'
+                }`}
               >
-                Sign Out
+                Profile
               </button>
-            </>
-          ) : !loading ? (
-            <div className="flex gap-4">
-              <Link 
-                to="/login" 
-                className="bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                Sign In
-              </Link>
-              <Link 
-                to="/login?mode=signup" 
-                className="bg-green-600 hover:bg-green-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                Sign Up
-              </Link>
+              {profileOpen && (
+                <div className="absolute right-0 mt-2 dropdown-menu z-[9999] min-w-[150px] overflow-hidden py-1">
+                  {hasAvatar && (
+                    <Link
+                      to="/profile"
+                      onClick={() => setProfileOpen(false)}
+                      className="dropdown-item text-sm text-black"
+                    >
+                      View Profile
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      signOut()
+                    }}
+                    className="dropdown-item dropdown-item-danger w-full text-left text-sm"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
+          ) : !loading ? (
+            <Link 
+              to="/login" 
+              className={`text-white text-sm font-semibold px-5 py-2 border-0 ${
+                isLoginMode ? 'btn-tertiary btn-active' : 'btn-primary'
+              }`}
+            >
+              Join
+            </Link>
           ) : null}
         </div>
       </div>

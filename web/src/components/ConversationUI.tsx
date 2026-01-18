@@ -37,27 +37,27 @@ export function EntityActionBanner({
 
   return (
     <div className="absolute bottom-[400%] left-0 w-[calc(200%+1px)] z-[100] flex flex-col items-center pointer-events-none">
-      <div className="bg-gray-900 bg-opacity-90 backdrop-blur-sm p-3 rounded-lg shadow-2xl border border-gray-700 min-w-[160px] animate-in fade-in zoom-in duration-200 pointer-events-auto">
-        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 text-center">Talk to {entity.displayName}?</div>
+      <div className="panel-fun p-3 min-w-[160px] animate-in fade-in zoom-in duration-200 pointer-events-auto">
+        <div className="text-[10px] font-bold text-black uppercase tracking-wider mb-1 text-center">Talk to {entity.displayName}?</div>
         
         {isOutOfRange && (
-          <div className="text-red-400 text-[9px] mb-2 leading-tight text-center">
+          <div className="text-black text-[9px] mb-2 leading-tight text-center">
             Too far ({distance.toFixed(1)})
           </div>
         )}
 
         {isOnCooldown && (
-          <div className="text-yellow-400 text-[9px] mb-2 leading-tight">
+          <div className="text-black text-[9px] mb-2 leading-tight">
             On cooldown
           </div>
         )}
 
         <div className="flex gap-2">
           <button
-            className={`flex-1 px-2 py-1 text-[10px] font-bold text-white rounded transition-colors ${
+            className={`flex-1 px-2 py-1 text-[10px] font-bold transition-colors ${
               !canSend 
-                ? 'bg-gray-700 cursor-not-allowed text-gray-500' 
-                : 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-900/20'
+                ? 'bg-gray-300 cursor-not-allowed text-gray-500' 
+                : 'bg-[#007a28] text-white hover:bg-[#009830]'
             }`}
             onClick={(e) => {
               e.stopPropagation()
@@ -68,7 +68,7 @@ export function EntityActionBanner({
             Request
           </button>
           <button
-            className="px-2 py-1 bg-gray-700 text-gray-300 text-[10px] font-bold rounded hover:bg-gray-600 transition-colors"
+            className="btn-secondary px-2 py-1 text-black text-[10px] font-bold"
             onClick={(e) => {
               e.stopPropagation()
               onCancel()
@@ -79,7 +79,7 @@ export function EntityActionBanner({
         </div>
       </div>
       {/* Little arrow pointing down */}
-      <div className="w-2 h-2 bg-gray-900 bg-opacity-90 border-r border-b border-gray-700 rotate-45 -mt-1 shadow-xl"></div>
+      <div className="w-2 h-2 bg-[#FFF8F0] border-r border-b border-black rotate-45 -mt-1"></div>
     </div>
   )
 }
@@ -98,22 +98,22 @@ export function IncomingRequests({ requests, onAccept, onReject }: IncomingReque
   
   return (
     <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-      <div className="bg-gray-900/95 backdrop-blur-md px-8 py-5 rounded-2xl shadow-2xl border-2 border-green-500/40 min-w-[360px]">
-        <p className="text-white mb-4 text-center font-sans text-xl">
-          <strong className="text-green-400">{mostRecentRequest.initiatorName}</strong> wants to talk!
+      <div className="panel-fun px-8 py-5 min-w-[360px]">
+        <p className="text-black mb-4 text-center font-sans text-xl">
+          <strong>{mostRecentRequest.initiatorName}</strong> wants to talk!
         </p>
         <div className="flex gap-3 justify-center">
           <button
-            className="px-6 py-3 bg-green-500 text-gray-900 rounded-xl text-base font-bold hover:bg-green-400 hover:scale-105 transition-all shadow-lg"
+            className="btn-primary px-6 py-3 text-white text-base font-bold border-0"
             onClick={() => onAccept(mostRecentRequest.requestId)}
           >
-            ✓ Accept
+            Accept
           </button>
           <button
-            className="px-6 py-3 bg-gray-700 text-gray-200 rounded-xl text-base font-semibold hover:bg-gray-600 hover:scale-105 transition-all"
+            className="btn-secondary px-6 py-3 text-black text-base font-semibold"
             onClick={() => onReject(mostRecentRequest.requestId)}
           >
-            ✕ Decline
+            Decline
           </button>
         </div>
       </div>
@@ -129,12 +129,12 @@ interface ActiveConversationProps {
 export function ActiveConversation({ partnerName, onEnd }: ActiveConversationProps) {
   return (
     <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
-      <div className="bg-gray-900/80 backdrop-blur-md px-6 py-4 rounded-xl shadow-2xl border border-green-500/30 min-w-[300px]">
-        <p className="text-white mb-3 text-center font-serif italic text-lg">
-          Chatting with <strong className="text-green-400">{partnerName}</strong>
+      <div className="panel-fun px-6 py-4 min-w-[300px]">
+        <p className="text-black mb-3 text-center text-lg">
+          Chatting with <strong>{partnerName}</strong>
         </p>
         <button
-          className="w-full px-4 py-2 bg-red-500/80 text-white rounded-lg text-sm font-semibold hover:bg-red-400 transition-all"
+          className="btn-primary w-full px-4 py-2 text-white text-sm font-semibold"
           onClick={onEnd}
         >
           End Conversation

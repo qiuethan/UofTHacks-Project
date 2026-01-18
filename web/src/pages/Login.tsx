@@ -60,42 +60,42 @@ export default function Login() {
 
   return (
     <div className="h-full flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md shadow-2xl">
-        <h1 className="text-3xl font-bold mb-2 text-center">
+      <div className="panel-fun p-8 w-full max-w-md">
+        <h1 className="text-3xl font-bold mb-2 text-center text-black">
           {isSignUp ? 'Join Avatar World' : 'Welcome Back'}
         </h1>
-        <p className="text-gray-400 text-center mb-6">
+        <p className="text-black text-center mb-6">
           {isSignUp ? 'Create an account to enter the world' : 'Sign in to continue your adventure'}
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-900/50 border border-red-700 text-red-400 rounded-lg text-sm">
+          <div className="alert alert-error mb-4">
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+            <label className="block text-sm font-medium text-black mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              className="input-fun w-full px-4 py-3 text-black"
               placeholder="you@example.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+            <label className="block text-sm font-medium text-black mb-1">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              className="input-fun w-full px-4 py-3 text-black"
               placeholder="••••••••"
             />
           </div>
@@ -103,17 +103,17 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-400 hover:to-emerald-500 transition disabled:from-gray-600 disabled:to-gray-700 disabled:text-gray-400 shadow-lg"
+            className="btn-primary w-full py-3 text-white font-bold border-0 disabled:opacity-50 disabled:transform-none disabled:shadow-none"
           >
             {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-gray-400 text-sm">
+        <p className="mt-6 text-center text-black text-sm">
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             onClick={() => setIsSignUp(!isSignUp)}
-            className="text-green-400 hover:text-green-300 font-medium"
+            className="text-black underline hover:no-underline font-medium"
           >
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>

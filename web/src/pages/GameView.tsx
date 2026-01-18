@@ -2,7 +2,8 @@ import { useState, useCallback, useMemo } from 'react'
 import { 
   ConnectionStatus,
   IncomingRequests,
-  ConversationChat
+  ConversationChat,
+  GameLoading
 } from '../components'
 import { PhaserGame } from '../game'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,6 +17,7 @@ export default function GameView() {
   const { user, session } = useAuth()
   console.log('[GameView] Auth state:', { user: !!user, userId: user?.id, session: !!session, token: !!session?.access_token })
   const [showStatusModal, setShowStatusModal] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Game socket connection and state management
   const [gameState, gameActions] = useGameSocket({
@@ -108,18 +110,21 @@ export default function GameView() {
   const canStartConversation = myEntity?.conversationState === 'IDLE' || !myEntity?.conversationState
 
   return (
-    <div className="w-full h-[calc(100vh-64px)] overflow-hidden">
+    <div className="w-full h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Loading Screen */}
+      {isLoading && <GameLoading onComplete={() => setIsLoading(false)} minDuration={2000} />}
+
       {/* Error/Notification overlays */}
       {error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-red-900/50 text-red-400 border border-red-900/50">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 text-sm bg-[#FFF8F0] text-black border-2 border-black shadow-[4px_4px_0_#000]">
           {error}
         </div>
       )}
 
       {notification && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-blue-900/30 text-blue-100 animate-pulse border border-blue-900/50 flex justify-between items-center min-w-[300px]">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 text-sm bg-[#FFF8F0] text-black border-2 border-black shadow-[4px_4px_0_#000] flex justify-between items-center min-w-[300px]">
           <span>{notification}</span>
-          <button onClick={clearNotification} className="ml-4 text-xs underline opacity-50 hover:opacity-100">Dismiss</button>
+          <button onClick={clearNotification} className="ml-4 text-xs underline hover:no-underline">Dismiss</button>
         </div>
       )}
       
@@ -160,8 +165,8 @@ export default function GameView() {
       {/* Nearby Entities Panel - Show when near someone and not in conversation */}
       {nearbyEntities.length > 0 && canStartConversation && !inConversationWith && !isWalkingToConversation && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <div className="bg-gray-900/90 backdrop-blur-md px-4 py-3 rounded-xl shadow-2xl border border-gray-700/50">
-            <div className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2 text-center">
+          <div className="panel-fun px-4 py-3">
+            <div className="text-black text-xs font-semibold uppercase tracking-wider mb-2 text-center">
               Nearby
             </div>
             <div className="flex gap-2 flex-wrap justify-center max-w-md">
@@ -175,21 +180,21 @@ export default function GameView() {
                     onClick={() => !isBusy && requestConversation(entity.entityId)}
                     disabled={isBusy}
                     className={`
-                      px-4 py-2 rounded-lg text-sm font-medium transition-all
+                      px-4 py-2 text-sm font-medium transition-all
                       ${isBusy 
-                        ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' 
-                        : 'bg-green-600/80 hover:bg-green-500 text-white shadow-lg hover:shadow-green-500/20 hover:scale-105'
+                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed border border-gray-300' 
+                        : 'btn-primary text-white border-0'
                       }
                     `}
                   >
-                    💬 {entity.displayName}
+                    {entity.displayName}
                     {isBusy && <span className="ml-1 text-xs opacity-70">(busy)</span>}
                   </button>
                 )
               })}
             </div>
             {nearbyEntities.length > 5 && (
-              <div className="text-gray-500 text-xs text-center mt-2">
+              <div className="text-black text-xs text-center mt-2">
                 +{nearbyEntities.length - 5} more nearby
               </div>
             )}
@@ -199,20 +204,20 @@ export default function GameView() {
 
       {/* Status Modal - keeping logic but removing the trigger button from main flow */}
       {showStatusModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-gray-900 p-8 rounded-3xl border border-gray-800 shadow-2xl max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <h2 className="text-2xl font-bold text-gray-400 mb-4 text-center">World Simulation</h2>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4">
+          <div className="panel-fun p-8 max-w-sm w-full animate-in fade-in zoom-in duration-200">
+            <h2 className="text-2xl font-bold text-black mb-4 text-center">World Simulation</h2>
             
             <div className="flex flex-col items-center gap-4 mb-6">
               <ConnectionStatus connected={connected} />
-              <div className="text-gray-500 text-sm">
-                Entity ID: <span className="font-mono text-gray-300">{myEntityId?.split('-')[0] || '...'}</span>
+              <div className="text-black text-sm">
+                Entity ID: <span className="font-mono">{myEntityId?.split('-')[0] || '...'}</span>
               </div>
             </div>
 
             <button
               onClick={() => setShowStatusModal(false)}
-              className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700"
+              className="btn-primary w-full py-2 text-white border-0"
             >
               Close
             </button>

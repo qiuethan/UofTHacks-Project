@@ -213,7 +213,7 @@ export default function Profile() {
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-gray-400">Loading profile...</div>
+        <div className="text-black">Loading profile...</div>
       </div>
     )
   }
@@ -221,12 +221,12 @@ export default function Profile() {
   if (!profile?.has_avatar) {
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 text-center max-w-md">
-          <h2 className="text-2xl font-bold mb-4">No Avatar Yet</h2>
-          <p className="text-gray-400 mb-6">You haven't created an avatar yet. Create one to start playing!</p>
+        <div className="panel-fun p-8 text-center max-w-md">
+          <h2 className="text-2xl font-bold mb-4 text-black">No Avatar Yet</h2>
+          <p className="text-black mb-6">You haven't created an avatar yet. Create one to start playing!</p>
           <button
             onClick={() => navigate('/create')}
-            className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-400 hover:to-emerald-500 transition"
+            className="btn-primary px-6 py-3 text-white font-bold border-0"
           >
             Create Avatar
           </button>
@@ -238,23 +238,21 @@ export default function Profile() {
   return (
     <div className="h-full p-4">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8 text-center">Your Profile</h1>
-
         {error && (
-          <div className="mb-6 p-4 bg-red-900/50 border border-red-700 text-red-400 rounded-lg">
+          <div className="alert alert-error mb-6">
             {error}
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-4 bg-green-900/50 border border-green-700 text-green-400 rounded-lg">
+          <div className="alert alert-success mb-6">
             {success}
           </div>
         )}
 
         {/* Display Name Section */}
-        <div className="bg-gray-800 rounded-2xl p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-300">Display Name</h2>
+        <div className="panel-fun p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4 text-black">Display Name</h2>
           
           {isEditingName ? (
             <div className="flex gap-3">
@@ -262,13 +260,13 @@ export default function Profile() {
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-green-500"
+                className="input-fun flex-1 px-4 py-2 text-black"
                 maxLength={30}
               />
               <button
                 onClick={handleSaveName}
                 disabled={saving || !editName.trim()}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-400 transition disabled:bg-gray-600"
+                className="btn-primary px-4 py-2 text-white border-0 disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
@@ -277,17 +275,17 @@ export default function Profile() {
                   setIsEditingName(false)
                   setEditName(profile?.display_name || '')
                 }}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
+                className="btn-danger px-4 py-2 text-white"
               >
                 Cancel
               </button>
             </div>
           ) : (
             <div className="flex items-center justify-between">
-              <span className="text-xl">{profile?.display_name || 'No name set'}</span>
+              <span className="text-xl text-black">{profile?.display_name || 'No name set'}</span>
               <button
                 onClick={() => setIsEditingName(true)}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
+                className="btn-secondary px-4 py-2 text-black"
               >
                 Edit
               </button>
@@ -296,12 +294,12 @@ export default function Profile() {
         </div>
 
         {/* Avatar Preview Section */}
-        <div className="bg-gray-800 rounded-2xl p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-300">Your Avatar</h2>
+        <div className="panel-fun p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4 text-black">Your Avatar</h2>
           
           {/* Main Preview */}
           <div className="flex justify-center mb-6">
-            <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+            <div className="bg-[#FFF8F0] p-4 border border-black">
               {getCurrentSprite() ? (
                 <img
                   src={getCurrentSprite()!}
@@ -310,7 +308,7 @@ export default function Profile() {
                   style={{ imageRendering: 'pixelated' }}
                 />
               ) : (
-                <div className="w-48 h-48 flex items-center justify-center text-gray-500">
+                <div className="w-48 h-48 flex items-center justify-center text-black">
                   No sprite
                 </div>
               )}
@@ -323,10 +321,10 @@ export default function Profile() {
               <button
                 key={dir}
                 onClick={() => setPreviewDirection(dir)}
-                className={`px-4 py-2 rounded-lg capitalize transition ${
+                className={`px-4 py-2 capitalize transition rounded border-[3px] border-black ${
                   previewDirection === dir
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'btn-primary btn-active text-white'
+                    : 'bg-[#FFF8F0] shadow-[3px_3px_0_#000] text-black hover:bg-[#bae854]'
                 }`}
               >
                 {dir}
@@ -342,8 +340,8 @@ export default function Profile() {
               return (
                 <div
                   key={dir}
-                  className={`p-2 rounded-lg cursor-pointer transition ${
-                    previewDirection === dir ? 'bg-green-500/20 ring-2 ring-green-500' : 'bg-gray-700'
+                  className={`p-2 cursor-pointer transition ${
+                    previewDirection === dir ? 'bg-[#bae854] border-2 border-[#7a9930] shadow-[2px_2px_0_#7a9930]' : 'bg-[#FFF8F0] border-2 border-black shadow-[2px_2px_0_#000]'
                   }`}
                   onClick={() => setPreviewDirection(dir)}
                 >
@@ -355,7 +353,7 @@ export default function Profile() {
                       style={{ imageRendering: 'pixelated' }}
                     />
                   ) : (
-                    <div className="w-12 h-12 bg-gray-600 rounded flex items-center justify-center text-xs text-gray-400">
+                    <div className="w-12 h-12 bg-gray-200 flex items-center justify-center text-xs text-black">
                       ?
                     </div>
                   )}
@@ -366,36 +364,36 @@ export default function Profile() {
         </div>
 
         {/* Regenerate Avatar Section */}
-        <div className="bg-gray-800 rounded-2xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-300">Regenerate Avatar</h2>
-          <p className="text-gray-400 text-sm mb-4">
+        <div className="panel-fun p-6">
+          <h2 className="text-xl font-semibold mb-4 text-black">Regenerate Avatar</h2>
+          <p className="text-black text-sm mb-4">
             Upload a new photo to generate a new avatar. This will replace your current sprites.
           </p>
 
           {!regeneratedSprites ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center justify-center gap-4">
                 {photoPreview ? (
                   <div className="relative">
                     <img
                       src={photoPreview}
                       alt="New photo"
-                      className="w-24 h-24 object-cover rounded-lg border-2 border-gray-600"
+                      className="w-24 h-24 object-cover border-2 border-black"
                     />
                     <button
                       onClick={() => {
                         setNewPhoto(null)
                         setPhotoPreview(null)
                       }}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-sm hover:bg-red-400"
+                      className="absolute -top-2 -right-2 w-6 h-6 bg-[#7a5224] flex items-center justify-center text-white text-sm hover:bg-[#7b6c00]"
                     >
                       ✕
                     </button>
                   </div>
                 ) : (
-                  <label className="w-24 h-24 border-2 border-dashed border-gray-600 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-green-500 transition">
-                    <span className="text-2xl mb-1">📷</span>
-                    <span className="text-xs text-gray-400">Upload</span>
+                  <label className="w-24 h-24 border-2 border-dashed border-black flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition">
+                    <span className="text-2xl mb-1 font-bold">+</span>
+                    <span className="text-xs text-black">Upload</span>
                     <input
                       type="file"
                       onChange={handlePhotoChange}
@@ -408,7 +406,7 @@ export default function Profile() {
                 <button
                   onClick={handleRegenerate}
                   disabled={!newPhoto || isRegenerating}
-                  className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold rounded-lg hover:from-purple-400 hover:to-pink-500 transition disabled:from-gray-600 disabled:to-gray-700 disabled:text-gray-400"
+                  className="btn-primary px-6 py-3 text-white font-bold disabled:opacity-50 disabled:transform-none disabled:shadow-none"
                 >
                   {isRegenerating ? 'Generating...' : 'Generate New Avatar'}
                 </button>
@@ -416,13 +414,13 @@ export default function Profile() {
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-green-400 font-medium">New avatar generated! Review and save:</p>
+              <p className="text-black font-medium">New avatar generated! Review and save:</p>
               
               <div className="flex justify-center gap-4">
                 {directions.map(dir => {
                   const spriteUrl = regeneratedSprites[dir]
                   return (
-                    <div key={dir} className="p-2 bg-gray-700 rounded-lg">
+                    <div key={dir} className="p-2 bg-white border border-black">
                       {spriteUrl ? (
                         <img
                           src={spriteUrl}
@@ -431,9 +429,9 @@ export default function Profile() {
                           style={{ imageRendering: 'pixelated' }}
                         />
                       ) : (
-                        <div className="w-16 h-16 bg-gray-600 rounded" />
+                        <div className="w-16 h-16 bg-gray-200" />
                       )}
-                      <p className="text-xs text-center text-gray-400 mt-1 capitalize">{dir}</p>
+                      <p className="text-xs text-center text-black mt-1 capitalize">{dir}</p>
                     </div>
                   )
                 })}
@@ -442,14 +440,14 @@ export default function Profile() {
               <div className="flex gap-4 justify-center">
                 <button
                   onClick={cancelRegeneration}
-                  className="px-6 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
+                  className="btn-danger px-6 py-2 text-white"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveNewSprites}
                   disabled={saving}
-                  className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-400 hover:to-emerald-500 transition disabled:from-gray-600 disabled:to-gray-700"
+                  className="btn-primary px-6 py-2 text-white font-bold border-0 disabled:opacity-50"
                 >
                   {saving ? 'Saving...' : 'Use This Avatar'}
                 </button>
@@ -459,10 +457,10 @@ export default function Profile() {
         </div>
 
         {/* Play Button */}
-        <div className="mt-8 text-center">
+        <div className="mt-8 pb-16 text-center">
           <button
             onClick={() => navigate('/play')}
-            className="px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold text-lg rounded-xl hover:from-green-400 hover:to-emerald-500 transition shadow-lg"
+            className="btn-primary px-8 py-4 text-white font-bold text-lg border-0"
           >
             Enter the World
           </button>

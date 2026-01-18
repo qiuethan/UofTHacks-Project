@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { ConnectionStatus } from '../components'
+import { ConnectionStatus, GameLoading } from '../components'
 import { PhaserGame } from '../game'
 import { WS_CONFIG, MAP_DEFAULTS } from '../config'
 import type { GameEntity } from '../game/types'
 import type { SpriteUrls } from '../types/game'
+import { Plus, Minus, RotateCcw } from 'lucide-react'
 
 interface Entity {
   entityId: string
@@ -44,6 +45,7 @@ export default function WatchView() {
   const [error, setError] = useState<string | null>(null)
   const [zoom, setZoom] = useState<number | undefined>(undefined)
   const [pan, setPan] = useState<{ x: number; y: number } | undefined>(undefined)
+  const [isLoading, setIsLoading] = useState(true)
   
   const wsRef = useRef<WebSocket | null>(null)
   const connectingRef = useRef(false)
@@ -218,8 +220,11 @@ export default function WatchView() {
 
   return (
     <div className="w-full h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Loading Screen */}
+      {isLoading && <GameLoading onComplete={() => setIsLoading(false)} minDuration={2000} />}
+
       {error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded text-sm bg-red-900 text-red-400">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 text-sm bg-[#FFF8F0] text-black border-2 border-black shadow-[4px_4px_0_#000]">
           {error}
         </div>
       )}
@@ -229,31 +234,31 @@ export default function WatchView() {
       </div>
       
       {/* Zoom Controls */}
-      <div className="absolute top-4 right-4 z-50">
-        <div className="bg-gray-900/90 backdrop-blur-md rounded-lg p-2 flex flex-col gap-1 border border-gray-700/50">
+      <div className="absolute top-4 right-[30px] z-50">
+        <div className="panel-fun p-2 flex flex-col gap-1">
           <button
             onClick={handleZoomIn}
-            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-lg font-bold transition-colors"
+            className="bg-[#007a28] hover:bg-[#009830] text-white px-3 py-2 transition-colors border-radius-[4px] flex items-center justify-center"
             title="Zoom In (scroll wheel also works)"
           >
-            +
+            <Plus size={20} />
           </button>
           <button
             onClick={handleZoomOut}
-            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-lg font-bold transition-colors"
+            className="bg-[#007a28] hover:bg-[#009830] text-white px-3 py-2 transition-colors border-radius-[4px] flex items-center justify-center"
             title="Zoom Out (scroll wheel also works)"
           >
-            −
+            <Minus size={20} />
           </button>
           <button
             onClick={handleResetView}
-            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs transition-colors"
+            className="bg-[#007a28] hover:bg-[#009830] text-white px-3 py-2 transition-colors border-radius-[4px] flex items-center justify-center"
             title="Reset View"
           >
-            ⟲
+            <RotateCcw size={20} />
           </button>
         </div>
-        <div className="text-gray-500 text-xs mt-2 text-center">
+        <div className="text-black text-xs mt-2 text-center">
           Drag to pan<br/>when zoomed
         </div>
       </div>

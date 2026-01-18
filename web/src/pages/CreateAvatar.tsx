@@ -135,21 +135,21 @@ export default function CreateAvatar() {
   if (step === 'input') {
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl">
-          <h1 className="text-3xl font-bold mb-2 text-center">Create Your Avatar</h1>
-          <p className="text-gray-400 text-center mb-8">
+        <div className="panel-fun p-8 w-full max-w-lg">
+          <h1 className="text-3xl font-bold mb-2 text-center text-black">Create Your Avatar</h1>
+          <p className="text-black text-center mb-8">
             Upload a photo and we'll generate a pixel art character for you
           </p>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 text-red-400 rounded-lg">
+            <div className="alert alert-error mb-6">
               {error}
             </div>
           )}
 
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-black mb-2">
                 Your Display Name
               </label>
               <input
@@ -157,13 +157,13 @@ export default function CreateAvatar() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Enter your name"
-                className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 text-white placeholder-gray-500"
+                className="input-fun w-full px-4 py-3 text-black placeholder-gray-400"
                 maxLength={30}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-black mb-2">
                 Your Photo
               </label>
               <div className="flex flex-col items-center gap-4">
@@ -172,22 +172,22 @@ export default function CreateAvatar() {
                     <img
                       src={photoPreview}
                       alt="Preview"
-                      className="w-40 h-40 object-cover rounded-xl border-2 border-gray-600"
+                      className="w-40 h-40 object-cover border-2 border-black"
                     />
                     <button
                       onClick={() => {
                         setPhoto(null)
                         setPhotoPreview(null)
                       }}
-                      className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-400 transition"
+                      className="absolute -top-2 -right-2 w-8 h-8 bg-[#7a5224] flex items-center justify-center text-white hover:bg-[#7b6c00] transition"
                     >
                       ✕
                     </button>
                   </div>
                 ) : (
-                  <label className="w-40 h-40 border-2 border-dashed border-gray-600 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-green-500 hover:bg-gray-700/50 transition">
-                    <span className="text-4xl mb-2">📷</span>
-                    <span className="text-sm text-gray-400">Upload Photo</span>
+                  <label className="w-40 h-40 border-2 border-dashed border-black flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition">
+                    <span className="text-2xl mb-2 font-bold">+</span>
+                    <span className="text-sm text-black">Upload Photo</span>
                     <input
                       type="file"
                       onChange={handlePhotoChange}
@@ -196,7 +196,7 @@ export default function CreateAvatar() {
                     />
                   </label>
                 )}
-                <p className="text-xs text-gray-500 text-center">
+                <p className="text-xs text-black text-center">
                   PNG, JPG or WebP. A clear face photo works best.
                 </p>
               </div>
@@ -205,7 +205,7 @@ export default function CreateAvatar() {
             <button
               onClick={handleGenerate}
               disabled={!photo || !displayName.trim()}
-              className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-400 hover:to-emerald-500 transition disabled:from-gray-600 disabled:to-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed shadow-lg"
+              className="btn-primary w-full py-4 text-white font-bold border-0 disabled:opacity-50 disabled:transform-none disabled:shadow-none disabled:cursor-not-allowed"
             >
               Generate Avatar
             </button>
@@ -219,10 +219,10 @@ export default function CreateAvatar() {
   if (step === 'generating') {
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
-          <div className="animate-spin w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-6"></div>
-          <h2 className="text-2xl font-bold mb-2">Creating Your Avatar</h2>
-          <p className="text-gray-400">
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
+          <div className="animate-spin w-16 h-16 border-4 border-black border-t-transparent mx-auto mb-6"></div>
+          <h2 className="text-2xl font-bold mb-2 text-black">Creating Your Avatar</h2>
+          <p className="text-black">
             This may take a minute... AI is working its magic
           </p>
         </div>
@@ -237,21 +237,21 @@ export default function CreateAvatar() {
     
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl">
-          <h2 className="text-2xl font-bold mb-2 text-center">Your Avatar is Ready!</h2>
-          <p className="text-gray-400 text-center mb-6">
-            Here's <span className="text-green-400 font-semibold">{displayName}</span> in pixel art
+        <div className="panel-fun p-8 w-full max-w-lg">
+          <h2 className="text-2xl font-bold mb-2 text-center text-black">Your Avatar is Ready!</h2>
+          <p className="text-black text-center mb-6">
+            Here's <span className="font-semibold">{displayName}</span> in pixel art
           </p>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 text-red-400 rounded-lg">
+            <div className="alert alert-error mb-6">
               {error}
             </div>
           )}
 
           {/* Main Preview */}
           <div className="flex justify-center mb-6">
-            <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+            <div className="bg-[#FFF8F0] p-4 border border-black">
               {currentSprite ? (
                 <img
                   src={currentSprite}
@@ -260,7 +260,7 @@ export default function CreateAvatar() {
                   style={{ imageRendering: 'pixelated' }}
                 />
               ) : (
-                <div className="w-48 h-48 flex items-center justify-center text-gray-500">
+                <div className="w-48 h-48 flex items-center justify-center text-black">
                   No image
                 </div>
               )}
@@ -273,10 +273,10 @@ export default function CreateAvatar() {
               <button
                 key={dir}
                 onClick={() => setPreviewDirection(dir)}
-                className={`px-4 py-2 rounded-lg capitalize transition ${
+                className={`px-4 py-2 capitalize transition ${
                   previewDirection === dir
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'btn-primary text-white'
+                    : 'bg-[#FFF8F0] border-3 border-black shadow-[3px_3px_0_#000] text-black hover:bg-[#bae854]'
                 }`}
               >
                 {dir}
@@ -289,8 +289,8 @@ export default function CreateAvatar() {
             {directions.map(dir => (
               <div
                 key={dir}
-                className={`p-2 rounded-lg cursor-pointer transition ${
-                  previewDirection === dir ? 'bg-green-500/20 ring-2 ring-green-500' : 'bg-gray-700'
+                className={`p-2 cursor-pointer transition ${
+                  previewDirection === dir ? 'bg-[#bae854] border-2 border-[#7a9930] shadow-[2px_2px_0_#7a9930]' : 'bg-[#FFF8F0] border-2 border-black shadow-[2px_2px_0_#000]'
                 }`}
                 onClick={() => setPreviewDirection(dir)}
               >
@@ -302,7 +302,7 @@ export default function CreateAvatar() {
                     style={{ imageRendering: 'pixelated' }}
                   />
                 ) : (
-                  <div className="w-12 h-12 bg-gray-600 rounded flex items-center justify-center text-xs text-gray-400">
+                  <div className="w-12 h-12 bg-gray-200 flex items-center justify-center text-xs text-black">
                     ?
                   </div>
                 )}
@@ -313,13 +313,13 @@ export default function CreateAvatar() {
           <div className="flex gap-4">
             <button
               onClick={handleRegenerate}
-              className="flex-1 py-3 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 transition"
+              className="btn-secondary flex-1 py-3 text-black font-semibold"
             >
               Regenerate
             </button>
             <button
               onClick={handleSave}
-              className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-400 hover:to-emerald-500 transition shadow-lg"
+              className="btn-primary flex-1 py-3 text-white font-bold border-0"
             >
               Use This Avatar
             </button>
@@ -333,9 +333,9 @@ export default function CreateAvatar() {
   if (step === 'saving') {
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
-          <div className="animate-spin w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-6"></div>
-          <h2 className="text-xl font-bold">Saving your avatar...</h2>
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
+          <div className="animate-spin w-12 h-12 border-4 border-black border-t-transparent mx-auto mb-6"></div>
+          <h2 className="text-xl font-bold text-black">Saving your avatar...</h2>
         </div>
       </div>
     )
@@ -345,10 +345,10 @@ export default function CreateAvatar() {
   if (step === 'complete') {
     return (
       <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl text-center">
+        <div className="bg-[#FFF8F0] border border-black p-8 w-full max-w-lg text-center">
           <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold mb-2">Avatar Created!</h2>
-          <p className="text-gray-400">Entering the world...</p>
+          <h2 className="text-2xl font-bold mb-2 text-black">Avatar Created!</h2>
+          <p className="text-black">Entering the world...</p>
         </div>
       </div>
     )

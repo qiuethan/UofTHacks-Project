@@ -49,3 +49,5 @@ output/
 gha-creds-*.json
 GEMINI.md 
 plans/
+
+/node_modules

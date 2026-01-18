@@ -403,12 +403,13 @@ export class GameScene extends Phaser.Scene {
     tempText.destroy()
     
     // Background with tail
-    const bgColor = isMe ? 0x4ade80 : 0xffffff
+    const bgColor = isMe ? 0x000000 : 0xffffff
+    const textColor = isMe ? '#ffffff' : '#000000'
     const bg = this.add.graphics()
     
-    // Draw rounded rectangle
+    // Draw rectangle (no rounded corners)
     bg.fillStyle(bgColor, 0.95)
-    bg.fillRoundedRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight, 12)
+    bg.fillRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight)
     
     // Draw tail pointing down
     bg.fillTriangle(
@@ -418,14 +419,15 @@ export class GameScene extends Phaser.Scene {
     )
     
     // Add border
-    bg.lineStyle(2, 0x333333, 0.3)
-    bg.strokeRoundedRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight, 12)
+    bg.lineStyle(2, 0x000000, 1)
+    bg.strokeRect(-textWidth / 2, -textHeight / 2, textWidth, textHeight)
     
     bubble.add(bg)
     
     // Add text
     const text = this.add.text(0, 0, displayMessage, {
       ...textStyle,
+      color: textColor,
       wordWrap: { width: textWidth - 20 }
     }).setOrigin(0.5)
     bubble.add(text)
@@ -512,7 +514,7 @@ export class GameScene extends Phaser.Scene {
         loadingIndicator = this.add.graphics()
         
         // Draw pixelated dotted border (transparent center)
-        const borderColor = isMe ? 0x4ade80 : 0x8b5cf6
+        const borderColor = 0x000000
         const halfSize = SPRITE_WIDTH / 2
         const pixelSize = 4
         
@@ -556,14 +558,14 @@ export class GameScene extends Phaser.Scene {
       }
     } else {
       // Default colored rectangle with direction arrow - offset upward
-      const color = isMe ? 0x4ade80 : (entity.color ? parseInt(entity.color.replace('#', ''), 16) : 0xf87171)
+      const color = 0xffffff
       const rect = this.add.rectangle(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, SPRITE_WIDTH, SPRITE_HEIGHT, color)
-      rect.setStrokeStyle(2, 0xffffff)
+      rect.setStrokeStyle(2, 0x000000)
       container.add(rect)
       
       const arrowText = this.add.text(0, -SPRITE_HEIGHT / 2 + GRID_SIZE / 2, this.getFacingArrow(entity.facing), {
         fontSize: '24px',
-        color: '#ffffff'
+        color: '#000000'
       }).setOrigin(0.5)
       container.add(arrowText)
       
@@ -592,9 +594,9 @@ export class GameScene extends Phaser.Scene {
     // Player highlight and camera setup
     if (isMe) {
       // Arrow pointing down above the player's head (moved up higher)
-      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 20, '▼', {
+      const arrow = this.add.text(0, -SPRITE_HEIGHT + GRID_SIZE / 2 - 40, '▼', {
         fontSize: '36px',
-        color: '#4ade80'
+        color: '#000000'
       }).setOrigin(0.5)
       container.add(arrow)
       
@@ -720,16 +722,16 @@ export class GameScene extends Phaser.Scene {
     })
     
     // Create fallback colored square with initial
-    const color = isMe ? 0x4ade80 : 0x6366f1
+    const color = 0xffffff
     const rect = this.add.rectangle(0, 0, SPRITE_WIDTH, SPRITE_HEIGHT, color)
-    rect.setStrokeStyle(2, 0xffffff)
+    rect.setStrokeStyle(2, 0x000000)
     container.addAt(rect, 0)
     
     const initial = (entity.displayName || '?')[0].toUpperCase()
     const text = this.add.text(0, 0, initial, {
       fontSize: '28px',
       fontStyle: 'bold',
-      color: '#ffffff'
+      color: '#000000'
     }).setOrigin(0.5)
     container.addAt(text, 1)
     
@@ -824,6 +826,16 @@ export class GameScene extends Phaser.Scene {
       if (spriteUrl && spriteUrl.startsWith('http')) {
         const textureKey = `entity-${entity.entityId}-${this.getFacingKey(entity.facing)}`
         
+        // Check if sprite URL has changed - if so, remove old texture to force reload
+        const existingTexture = this.textures.get(textureKey)
+        if (existingTexture && existingTexture.source[0]) {
+          const source = existingTexture.source[0].source
+          if (source instanceof HTMLImageElement && source.src !== spriteUrl) {
+            console.log(`[GameScene] Sprite URL changed for ${entity.displayName}, clearing cache`)
+            this.textures.remove(textureKey)
+          }
+        }
+        
         if (!this.textures.exists(textureKey)) {
           this.load.image(textureKey, spriteUrl)
           this.load.once('complete', () => {
@@ -849,12 +861,12 @@ export class GameScene extends Phaser.Scene {
     // Simple name display with translucent background
     const name = entity.displayName || 'Unknown'
     
-    // Create text first to measure its width - pixelated retro style
+    // Create text first to measure its width
     const nameText = this.add.text(0, 0, name, {
-      fontFamily: 'monospace, "Courier New", Courier',
-      fontSize: '16px',
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
       fontStyle: 'bold',
-      color: '#ffffff'
+      color: '#000000'
     }).setOrigin(0.5)
     
     // Size background based on text - larger padding for retro look
@@ -863,16 +875,16 @@ export class GameScene extends Phaser.Scene {
     const bannerHeight = nameText.height + padding
     const cornerRadius = 2 // Sharp corners for pixel aesthetic
     
-    // Pixelated background with border
+    // Background with border
     const bg = this.add.graphics()
     
-    // Dark background
-    bg.fillStyle(0x000000, 0.75)
-    bg.fillRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, cornerRadius)
+    // White background
+    bg.fillStyle(0xffffff, 0.95)
+    bg.fillRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight)
     
-    // Pixel-style border
-    bg.lineStyle(2, 0xffffff, 0.8)
-    bg.strokeRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, cornerRadius)
+    // Black border
+    bg.lineStyle(2, 0x000000, 1)
+    bg.strokeRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight)
     
     banner.add(bg)
     banner.add(nameText)
