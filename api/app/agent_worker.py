@@ -198,7 +198,10 @@ def execute_action(
                         state.current_action_target = None
                         state.action_started_at = None
                         state.action_expires_at = None
-                        logger.info(f"Avatar {context.avatar_id} COMPLETED {action.action_type.value} at {location.name} - effects applied!")
+                        
+                        short_id = context.avatar_id[:8]
+                        print(f"✅ {short_id} | COMPLETED {action.action_type.value} at {location.name}")
+                        print(f"   Stats now: E:{state.energy:.0%} H:{state.hunger:.0%} L:{state.loneliness:.0%} M:{state.mood:.0%}")
                         result = "activity_completed"
                     else:
                         # Still doing the activity - just stand there
@@ -206,10 +209,27 @@ def execute_action(
                         logger.info(f"Avatar {context.avatar_id} doing {action.action_type.value} at {location.name} - {remaining:.0f}s remaining")
                         result = "activity_in_progress"
                 else:
-                    # Starting the activity fresh
-                    action.duration_seconds = location.duration_seconds
+                    # Starting the activity fresh - set up the state properly
+                    base_duration = location.duration_seconds
+                    affinity = context.personality.world_affinities.get(location.location_type.value, 0.5)
+                    duration_multiplier = 0.5 + (affinity * 1.5)
+                    randomness = random.uniform(0.8, 1.2)
+                    chosen_duration = int(base_duration * duration_multiplier * randomness)
+                    chosen_duration = max(10, min(chosen_duration, base_duration * 3))
+                    
+                    state.current_action = action.action_type.value
+                    state.current_action_target = {
+                        **(action.target.model_dump() if action.target else {}),
+                        "name": location.name
+                    }
+                    state.action_started_at = datetime.utcnow()
+                    state.action_expires_at = datetime.utcnow() + timedelta(seconds=chosen_duration)
+                    
                     agent_db.record_world_interaction(client, context.avatar_id, location)
-                    logger.info(f"Avatar {context.avatar_id} starting {action.action_type.value} at {location.name} for {location.duration_seconds}s")
+                    
+                    short_id = context.avatar_id[:8]
+                    print(f"[Activity] {short_id} started {action.action_type.value} at {location.name} for {chosen_duration}s")
+                    result = "arrived_started_activity"
     
     elif action.action_type == ActionType.INITIATE_CONVERSATION:
         if action.target and action.target.target_id:
@@ -342,25 +362,48 @@ def process_agent_tick(
                     dy = location.y - context.y
                     distance = (dx**2 + dy**2) ** 0.5
                     
-                    # ALWAYS create the walk action - execute_action handles arrival transition
-                    action = SelectedAction(
-                        action_type=ActionType.WALK_TO_LOCATION,
-                        target=ActionTarget(
-                            target_type="location",
-                            target_id=location.id,
-                            name=location.name,
-                            x=location.x,
-                            y=location.y
-                        ),
-                        utility_score=5.0,  # High score - we're committed to this
-                        duration_seconds=None  # No duration lock for walking
-                    )
-                    
                     if distance > 2:
-                        logger.info(f"Avatar {avatar_id} continuing walk to '{location.name}' - {distance:.1f} away")
+                        # Still walking - continue to destination
+                        action = SelectedAction(
+                            action_type=ActionType.WALK_TO_LOCATION,
+                            target=ActionTarget(
+                                target_type="location",
+                                target_id=location.id,
+                                name=location.name,
+                                x=location.x,
+                                y=location.y
+                            ),
+                            utility_score=5.0,  # High score - we're committed to this
+                            duration_seconds=None  # No duration lock for walking
+                        )
+                        short_id = avatar_id[:8]
+                        print(f"🚶 {short_id} | WALKING to '{location.name}' - {distance:.1f} tiles away")
                     else:
-                        # We've arrived! execute_action will handle starting the activity
-                        logger.info(f"Avatar {avatar_id} ARRIVED at '{location.name}' - will start activity")
+                        # We've arrived! Start the activity directly here
+                        interact_action_map = {
+                            'food': ActionType.INTERACT_FOOD,
+                            'karaoke': ActionType.INTERACT_KARAOKE,
+                            'rest_area': ActionType.INTERACT_REST,
+                            'social_hub': ActionType.INTERACT_SOCIAL_HUB,
+                            'wander_point': ActionType.INTERACT_WANDER_POINT,
+                        }
+                        interact_action = interact_action_map.get(location.location_type.value, ActionType.IDLE)
+                        
+                        # Create the activity action directly
+                        action = SelectedAction(
+                            action_type=interact_action,
+                            target=ActionTarget(
+                                target_type="location",
+                                target_id=location.id,
+                                name=location.name,
+                                x=location.x,
+                                y=location.y
+                            ),
+                            utility_score=10.0,  # High score - doing the activity
+                            duration_seconds=location.duration_seconds
+                        )
+                        short_id = avatar_id[:8]
+                        print(f"[Activity] {short_id} started {interact_action.value} at {location.name}")
         
         # Make a new decision if we're not mid-walk
         if action is None:

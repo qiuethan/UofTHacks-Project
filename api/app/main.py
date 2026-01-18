@@ -251,7 +251,6 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     """Map agent system result to the API response format."""
     action_type = result.get("action", "idle")
     target = result.get("target")
-    score = result.get("score", 0)
     state = result.get("state", {})
     
     # Build a concise log line
@@ -276,18 +275,20 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
     moo = state.get('mood', 0)
     state_str = f"E:{ene:.0%} H:{hun:.0%} L:{lon:.0%} M:{moo:.0%}"
     
-    # Use nicer names for activities
+    # Use nicer names for activities - these will show in logs
     action_display = {
-        'interact_food': 'EATING',
-        'interact_rest': 'RESTING',
-        'interact_karaoke': 'SINGING',
-        'interact_social_hub': 'SOCIALIZING',
-        'interact_wander_point': 'EXPLORING',
-        'walk_to_location': 'walking',
-        'initiate_conversation': 'chat_request',
+        'interact_food': '🍽️  EATING',
+        'interact_rest': '😴 RESTING',
+        'interact_karaoke': '🎤 SINGING',
+        'interact_social_hub': '💬 SOCIALIZING',
+        'interact_wander_point': '🧭 EXPLORING',
+        'walk_to_location': '🚶 WALKING',
+        'wander': '🚶 WANDERING',
+        'initiate_conversation': '💬 WANTS_TO_TALK',
+        'idle': '⏸️  IDLE',
     }.get(action_type, action_type)
     
-    print(f"🤖 {short_id} | {action_display:20} {target_name:15} | score:{score:.2f} | {state_str}")
+    print(f"🤖 {short_id} | {action_display:20} {target_name} | {state_str}")
     
     # Map action types to API responses
     if action_type in ["idle", "stand_still"]:
@@ -329,18 +330,7 @@ def map_agent_action_to_response(result: dict, req: AgentRequest) -> Optional[di
                     if location:
                         duration = location.duration_seconds
         
-        # Log the activity with nice activity names
-        target_name = target.get("name", "") if target else ""
-        short_id = req.robot_id[:8]
-        activity_display = {
-            'interact_food': '🍽️  EATING',
-            'interact_rest': '😴 RESTING',
-            'interact_karaoke': '🎤 SINGING',
-            'interact_social_hub': '💬 SOCIALIZING',
-            'interact_wander_point': '🧭 EXPLORING',
-        }.get(action_type, f'📍 {action_type}')
-        
-        print(f"🎯 {short_id} | {activity_display} at '{target_name}' for {duration:.0f}s")
+        # The activity was already logged by agent_worker, just return response
         
         return {"action": "STAND_STILL", "duration": float(duration)}
     

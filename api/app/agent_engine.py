@@ -34,30 +34,30 @@ class DecisionConfig:
     # Scoring weights
     NEED_WEIGHT = 1.0
     PERSONALITY_WEIGHT = 0.8  # Increased from 0.6 - personality matters more
-    SOCIAL_WEIGHT = 0.6  # Increased from 0.4 - social interactions more valuable
-    AFFINITY_WEIGHT = 1.2  # Increased from 0.5 - activities they enjoy are much more appealing
-    RECENCY_WEIGHT = 0.3
-    RANDOMNESS_WEIGHT = 0.15  # Reduced from 0.2 - less random behavior
+    SOCIAL_WEIGHT = 1.0  # VERY HIGH - social interactions are highly valuable
+    AFFINITY_WEIGHT = 1.0  # Personality affects preferences
+    RECENCY_WEIGHT = 0.15  # Low - don't penalize recent interactions much
+    RANDOMNESS_WEIGHT = 0.25  # Moderate randomness for variety
     
     # Activity base bonus - agents are generally attracted to activities
     ACTIVITY_BASE_BONUS = 0.4  # Base attractiveness for any activity
     
     # Conversation base bonus - agents WANT to talk to each other!
     # This makes conversation the PREFERRED action unless needs are critical
-    CONVERSATION_BASE_BONUS = 0.8  # High base appeal for conversations
+    CONVERSATION_BASE_BONUS = 1.5  # VERY HIGH - agents strongly prefer conversation!
     
     # Softmax temperature (lower = more deterministic)
-    SOFTMAX_TEMPERATURE = 0.4  # Reduced from 0.5 - more likely to pick best action
+    SOFTMAX_TEMPERATURE = 0.3  # Lower = more likely to pick best action
     
     # Thresholds
-    CRITICAL_HUNGER = 0.8
-    CRITICAL_ENERGY = 0.15
-    HIGH_LONELINESS = 0.7
-    LOW_MOOD = 0.3  # New - when mood is low, prefer fun activities
+    CRITICAL_HUNGER = 0.85  # Higher - only interrupt for critical needs
+    CRITICAL_ENERGY = 0.1   # Lower - only interrupt for critical needs
+    HIGH_LONELINESS = 0.5   # Lower - seek conversation earlier
+    LOW_MOOD = 0.3  # When mood is low, prefer fun activities
     
     # Social parameters
-    CONVERSATION_RADIUS = 10  # Increased from 8 - agents can initiate from further away
-    RECENT_INTERACTION_HOURS = 1  # Reduced from 2 - can talk again sooner
+    CONVERSATION_RADIUS = 15  # Very large - agents can initiate from far away
+    RECENT_INTERACTION_HOURS = 0.5  # Can talk again very soon (30 mins)
     
     # Time decay rates (per tick)
     ENERGY_DECAY = 0.02
@@ -92,23 +92,33 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
     if action == ActionType.WALK_TO_LOCATION and location:
         score += DecisionConfig.ACTIVITY_BASE_BONUS * 0.5
     
-    # Food-related actions
+    # Food-related actions - EVERYONE enjoys food!
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_FOOD]:
         if location and location.location_type == LocationType.FOOD:
+            score += 0.6  # Base appeal - food is always nice!
             # Higher score when hungrier
-            score += state.hunger * 2.0  # Increased from 1.5
+            score += state.hunger * 1.5
             # Bonus if critically hungry
             if state.hunger > DecisionConfig.CRITICAL_HUNGER:
-                score += 0.8  # Increased from 0.5
+                score += 1.0
     
-    # Rest-related actions
+    # Rest-related actions - ONLY when actually tired!
     if action in [ActionType.WALK_TO_LOCATION, ActionType.INTERACT_REST, ActionType.IDLE]:
         if action == ActionType.IDLE:
-            score += (1.0 - state.energy) * 0.2  # Small boost for idle when tired
+            score += (1.0 - state.energy) * 0.1  # Very small boost for idle when tired
         elif location and location.location_type == LocationType.REST_AREA:
-            score += (1.0 - state.energy) * 2.0  # Increased from 1.5
-            if state.energy < DecisionConfig.CRITICAL_ENERGY:
-                score += 0.8  # Increased from 0.5
+            # Only attractive when actually tired - otherwise NEGATIVE!
+            if state.energy < 0.2:
+                # Really tired - rest is attractive
+                score += (1.0 - state.energy) * 1.5
+                if state.energy < DecisionConfig.CRITICAL_ENERGY:
+                    score += 1.5
+            elif state.energy < 0.4:
+                # Somewhat tired - small bonus
+                score += 0.2
+            else:
+                # Not tired - resting is BORING, do something fun!
+                score -= 0.5
     
     # Social actions - conversations are ALWAYS appealing (with base bonus)
     # Agents are social creatures and WANT to talk, not just when lonely
@@ -121,23 +131,29 @@ def calculate_need_satisfaction(action: ActionType, state: AgentState, target: O
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
             score += 0.5
     
-    # Karaoke addresses loneliness and boosts mood - fun activity!
+    # Karaoke is FUN - agents should want to sing when bored or feeling down!
     if action == ActionType.INTERACT_KARAOKE:
-        score += state.loneliness * 1.0  # Increased from 0.8
-        score += (1.0 - state.mood) * 0.8  # Increased - more appealing when mood is low
-        if state.mood < DecisionConfig.LOW_MOOD:
-            score += 0.5  # Extra bonus when mood is really low
+        score += 0.8  # HIGH base appeal - karaoke is fun!
+        score += state.loneliness * 0.8  # Social aspect
+        score += (1.0 - state.mood) * 1.0  # More appealing when mood is low - singing cheers you up!
+        # Extra bonus when bored (not doing much)
+        if state.energy > 0.3:  # Has energy to sing!
+            score += 0.3
     
-    # Social hub addresses loneliness
+    # Social hub is great for meeting people
     if action == ActionType.INTERACT_SOCIAL_HUB:
-        score += state.loneliness * 1.2  # Increased from 1.0
+        score += 0.5  # Base appeal - social spaces are nice
+        score += state.loneliness * 1.2
         if state.loneliness > DecisionConfig.HIGH_LONELINESS:
-            score += 0.4  # Increased from 0.3
+            score += 0.5
     
-    # Wander point satisfies curiosity and improves mood
+    # Wander point / Exploration - for the curious!
     if action == ActionType.INTERACT_WANDER_POINT:
-        score += 0.4  # Increased base exploration appeal
-        score += (1.0 - state.mood) * 0.4  # Increased - more appealing when mood is low
+        score += 0.5  # Base exploration appeal
+        score += (1.0 - state.mood) * 0.5  # More appealing when mood is low
+        # Curious agents love exploring
+        if state.energy > 0.4:  # Has energy to explore
+            score += 0.3
     
     # Wander has low base appeal - agents should prefer activities or conversations
     if action == ActionType.WANDER:
